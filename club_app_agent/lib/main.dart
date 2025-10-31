@@ -19,7 +19,7 @@ final ValueNotifier<String> _applinkStatus = ValueNotifier('ディープリン�
 
 // ★追加★ AppLinksのインスタンス
 final _appLinks = AppLinks();
-StreamSubscription<Uri>? _linkSubscription;
+// StreamSubscription<Uri>? _linkSubscription;
 
 
 void main() async {
@@ -66,20 +66,21 @@ Future<void> startBleAdvertising() async {
 
 // --- ★★★ 変更: WebSocketサーバー (削除) ★★★ ---
 // Future<void> startWebSocketServer() async { ... } // <-- 削除
-
 // --- ★★★ 修正: ディープリンクリスナー ★★★
 Future<void> initAppLinks() async {
   // アプリがURL経由で起動されたことをリッスン
-  _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
-    debugPrint('ディープリンク受信: $uri');
-    _applinkStatus.value = 'ディープリンク受信: $uri';
+  
+  // ( _linkSubscription への代入は削除済み)
+  _appLinks.uriLinkStream.listen((uri) { // `uri` は Uri (non-null)
     
-    // URLが "club-agent://scan?..." かどうかをチェック
+    _applinkStatus.value = 'ディープリンク受信: ${uri.toString()}';
+    debugPrint('ディープリンク受信: ${uri.toString()}');
+    
+    // ★ 修正 ★
+    // 警告 'The operand can't be 'null'' のため、'uri != null' のチェックを削除
     if (uri.scheme == 'club-agent' && uri.host == 'scan') {
-      // Webアプリから渡された "return_url" を取得
       final returnUrl = uri.queryParameters['return_url'];
       if (returnUrl != null) {
-        // returnUrl を渡してNFCスキャンを開始
         handleNfcScan(returnUrl);
       } else {
         _nfcStatus.value = '❌ リンクエラー: return_url がありません';
@@ -87,19 +88,21 @@ Future<void> initAppLinks() async {
     }
   });
 
-  // ★ 修正 ★ 
-  // エラー 'getInitialAppLink' is not defined のため、'getInitialLinkUri' に変更
-  final initialUri = await _appLinks.getInitialLinkUri();
-  
-  if (initialUri != null) {
-     debugPrint('初期ディープリンク: $initialUri');
-     if (initialUri.scheme == 'club-agent' && initialUri.host == 'scan') {
-        final returnUrl = initialUri.queryParameters['return_url'];
-        if (returnUrl != null) {
-          handleNfcScan(returnUrl);
-        }
-     }
+  // ★★★ 修正: 
+  // "initialLinkStringでエラーが出ています" とのご報告のため、
+  // getInitialLink() / getInitialAppLink() / getInitialLinkUri() の
+  // 処理を一旦すべて削除します。
+  /*
+  try {
+    final initialLinkString = await _appLinks.getInitialLink(); 
+    if (initialLinkString != null) {
+       // ... (削除) ...
+    }
+  } catch (e) {
+    debugPrint('getInitialLink 取得エラー: $e');
   }
+  */
+
 }
 
 // --- ★★★ 追加: ブラウザに結果を返すヘルパー関数 ★★★ ---
