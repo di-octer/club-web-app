@@ -1,3 +1,25 @@
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyD4fimqj2CE89w1qQRJG_fQGRH5GgUDf8Q",
+  authDomain: "club-app-db.firebaseapp.com",
+  projectId: "club-app-db",
+  storageBucket: "club-app-db.firebasestorage.app",
+  messagingSenderId: "993061804495",
+  appId: "1:993061804495:web:9ca633885d8986d3f59aba",
+  measurementId: "G-94JSQHYZR4"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+
 // @ts-nocheck
 // script.js (ディープリンク方式 修正版)
 
@@ -197,7 +219,8 @@ function resetRegistrationUI(message = "登録モード: 顔を検出中...") {
     registerBtn.textContent = "スキャン開始 (5段階)";
     registerBtn.classList.remove("scanning");
     registerBtn.disabled = false;
-  }
+  }1820
+
   if(nameInput) nameInput.disabled = false;
 }
 
@@ -710,10 +733,10 @@ function setupEventListeners() {
 }
 
 
-// --- 12. ★修正★ 実行開始 ---
+// --- 12. ★修正★ 実行開始 (GitHub Pages対応 / 拡張機能の非表示対応) ---
 (async function main() {
   try {
-    // 0. 共通ロード処理: 顔データとGPSデータをローカルストレージから読み込む
+    // 0. 共通ロード処理
     loadRegisteredFacesFromStorage();
     loadGpsAreasFromStorage();
 
@@ -721,6 +744,33 @@ function setupEventListeners() {
     const bodyId = document.body.id;
     let video = null; 
     let statusEl = null; 
+
+    // ★★★ 追加: 拡張機能ボタンの取得 ★★★
+    const icScanBtn = document.getElementById("icScanBtn");
+    const beaconScanBtn = document.getElementById("beaconScanBtn");
+    
+    // ★★★ 追加: 拡張機能のサポート判定 ★★★
+    // 1. BLE (Web Bluetooth)
+    if (beaconScanBtn) {
+        if (!navigator.bluetooth) {
+            // APIがない場合、ボタンを非表示
+            beaconScanBtn.style.display = 'none';
+            // (オプション) メッセージを表示
+            const beaconStatus = document.getElementById("beaconStatus");
+            if (beaconStatus) beaconStatus.textContent = "このブラウザはBLEスキャンに非対応です。";
+        }
+    }
+    // 2. IC (Deep Link) - 簡易的なiOS判定
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (icScanBtn) {
+        if (!isIOS) {
+            // iOS以外では 'club-agent://' のディープリンクが動作しないため非表示
+            icScanBtn.style.display = 'none';
+            const icStatus = document.getElementById("icStatus");
+            if (icStatus) icStatus.textContent = "ICスキャンはiPhone/iPadでのみ連携可能です。";
+        }
+    }
+    // ★★★ 拡張機能の判定ここまで ★★★
 
     if (bodyId === 'page-reg') {
       currentMode = 'reg';
@@ -733,16 +783,14 @@ function setupEventListeners() {
       statusEl = document.getElementById("status");
       rebuildFaceMatcher();
       
-      // ★★★ 追加: ICカードの結果（URLパラメータ）をチェック ★★★
       const icStatus = document.getElementById("icStatus");
-      if (icStatus) {
+      if (icStatus && isIOS) { // iOSの場合のみURLパラメータをチェック
           const urlParams = new URLSearchParams(window.location.search);
           const cardId = urlParams.get('cardId');
           const nfcError = urlParams.get('nfcError');
 
           if (cardId) {
               icStatus.textContent = `✅ 認証成功: カードID ${cardId}`;
-              // URLからクエリパラメータを削除して履歴をクリーンにする
               window.history.replaceState(null, '', window.location.pathname);
           } else if (nfcError) {
               icStatus.textContent = `❌ 認証失敗: ${decodeURIComponent(nfcError)}`;
@@ -751,7 +799,6 @@ function setupEventListeners() {
               icStatus.textContent = "ICカードリーダーアプリと連携可能です。";
           }
       }
-      // ★★★ ICカード結果チェックここまで ★★★
       
     } else if (bodyId === 'page-admin-gps') {
       currentMode = 'admin-gps';
@@ -768,8 +815,7 @@ function setupEventListeners() {
     // 2. イベントリスナーを設定
     setupEventListeners();
 
-    // ★★★ 変更: WebSocket接続処理を削除 ★★★
-    // if (currentMode === 'auth') { ... } // <-- 削除
+    // (WebSocket接続処理は削除済み)
 
     // 3. 顔認証が必要なページ (auth または reg) のみ、カメラとモデルを起動
     if (currentMode === 'auth' || currentMode === 'reg') {
@@ -779,7 +825,13 @@ function setupEventListeners() {
 
       video.addEventListener('play', async () => {
         if(statusEl) statusEl.textContent = "モデルを読み込み中...";
-        await loadModels();
+        
+        // ★★★ 修正: GitHub Pages用のパス修正 (先頭の '/' を削除) ★★★
+        await faceapi.nets.tinyFaceDetector.loadFromUri('models');
+        await faceapi.nets.faceLandmark68Net.loadFromUri('models');
+        await faceapi.nets.faceRecognitionNet.loadFromUri('models');
+        // ★★★ 修正ここまで ★★★
+
         if(statusEl) statusEl.textContent = "カメラ再生開始。検出ループをスタートします。";
         setInterval(mainLoop, UPDATE_INTERVAL_MS); 
       });
