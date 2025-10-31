@@ -94,7 +94,7 @@ function rebuildFaceMatcher() {
   console.log("faceMatcher を再構築しました。");
 }
 
-// --- ★ 修正 ★ 顔データ「単体」保存 (Firebase版) ---
+// --- ★ 修正 ★ 顔データ「単体」保存 (エラー通知) ---
 async function saveSingleFaceToFirestore(faceObject) {
   console.log(`Firestore への顔データ「${faceObject.label}」保存を開始...`);
   try {
@@ -104,14 +104,16 @@ async function saveSingleFaceToFirestore(faceObject) {
       descriptors: faceObject.descriptors.map(d => Array.from(d))
     };
     const docRef = db.collection("faces").doc(faceObject.label);
-    await docRef.set(dataToSave); // .set() は上書き保存
+    await docRef.set(dataToSave);
     console.log("Firestore への顔データ保存が成功しました。");
   } catch (e) {
-    console.error("Firestore への保存に失敗しました:", e);
+    console.error("Firestore への保存に失敗 (顔):", e);
+    // ★★★ ユーザーにエラーを通知 ★★★
+    alert(`エラー: 顔「${faceObject.label}」のデータベース保存に失敗しました。\n\n詳細: ${e.message}`);
   }
 }
 
-// --- ★ 追加 ★ 顔データ「単体」削除 (Firebase版) ---
+// --- ★ 修正 ★ 顔データ「単体」削除 (エラー通知) ---
 async function deleteFaceFromFirestore(faceLabel) {
   console.log(`Firestore から顔データ「${faceLabel}」削除を開始...`);
   try {
@@ -119,7 +121,8 @@ async function deleteFaceFromFirestore(faceLabel) {
     await docRef.delete();
     console.log("Firestore からの顔データ削除が成功しました。");
   } catch (e) {
-    console.error("Firestore からの削除に失敗しました:", e);
+    console.error("Firestore からの削除に失敗 (顔):", e);
+    alert(`エラー: 顔「${faceLabel}」のデータベース削除に失敗しました。\n\n詳細: ${e.message}`);
   }
 }
 
@@ -150,7 +153,7 @@ async function loadRegisteredFacesFromStorage() {
   }
 }
 
-// --- ★ 修正 ★ GPSデータ「単体」保存 (Firebase版) ---
+// --- ★ 修正 ★ GPSデータ「単体」保存 (エラー通知) ---
 async function saveSingleGpsAreaToFirestore(areaObject) {
   console.log(`Firestore へのGPSエリア「${areaObject.name}」保存を開始...`);
   try {
@@ -162,14 +165,15 @@ async function saveSingleGpsAreaToFirestore(areaObject) {
       lon2: areaObject.lon2
     };
     const docRef = db.collection("gps_areas").doc(areaObject.name);
-    await docRef.set(dataToSave); // .set() は上書き保存
+    await docRef.set(dataToSave);
     console.log("Firestore へのGPSエリアデータ保存が成功しました。");
   } catch (e) {
-    console.error("Firestore へのGPSエリア保存に失敗しました:", e);
+    console.error("Firestore への保存に失敗 (GPS):", e);
+    alert(`エラー: GPSエリア「${areaObject.name}」のデータベース保存に失敗しました。\n\n詳細: ${e.message}`);
   }
 }
 
-// --- ★ 追加 ★ GPSデータ「単体」削除 (Firebase版) ---
+// --- ★ 修正 ★ GPSデータ「単体」削除 (エラー通知) ---
 async function deleteGpsAreaFromFirestore(areaName) {
   console.log(`Firestore からGPSエリア「${areaName}」削除を開始...`);
   try {
@@ -177,7 +181,8 @@ async function deleteGpsAreaFromFirestore(areaName) {
     await docRef.delete();
     console.log("Firestore からのGPSエリア削除が成功しました。");
   } catch (e) {
-    console.error("Firestore からの削除に失敗しました:", e);
+    console.error("Firestore からの削除に失敗 (GPS):", e);
+    alert(`エラー: GPSエリア「${areaName}」のデータベース削除に失敗しました。\n\n詳細: ${e.message}`);
   }
 }
 
