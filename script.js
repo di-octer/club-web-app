@@ -94,21 +94,29 @@ function rebuildFaceMatcher() {
   console.log("faceMatcher を再構築しました。");
 }
 
-// --- ★ 修正 ★ 顔データ「単体」保存 (エラー通知) ---
+// --- ★ 修正 ★ 顔データ「単体」保存 (Blob対応版) ---
 async function saveSingleFaceToFirestore(faceObject) {
   console.log(`Firestore への顔データ「${faceObject.label}」保存を開始...`);
   try {
     const dataToSave = {
       label: faceObject.label,
       thumbnail: faceObject.thumbnail,
-      descriptors: faceObject.descriptors.map(d => Array.from(d))
+      
+      // ★★★ 修正箇所 ★★★
+      // Float32Array を「配列」ではなく「Blob」に変換する
+      descriptors: faceObject.descriptors.map(d => {
+        // Float32Array -> Uint8Array -> Firestore Blob
+        return firebase.firestore.Blob.fromUint8Array(new Uint8Array(d.buffer));
+      })
+      // ★★★ 修正ここまで ★★★
     };
+    
     const docRef = db.collection("faces").doc(faceObject.label);
     await docRef.set(dataToSave);
+    
     console.log("Firestore への顔データ保存が成功しました。");
   } catch (e) {
     console.error("Firestore への保存に失敗 (顔):", e);
-    // ★★★ ユーザーにエラーを通知 ★★★
     alert(`エラー: 顔「${faceObject.label}」のデータベース保存に失敗しました。\n\n詳細: ${e.message}`);
   }
 }
@@ -126,27 +134,41 @@ async function deleteFaceFromFirestore(faceLabel) {
   }
 }
 
-// --- ★ 変更なし ★ 顔データ読み込み (Firebase版) ---
+// --- ★ 修正 ★ 顔データ読み込み (Blob対応版) ---
 async function loadRegisteredFacesFromStorage() {
   console.log("Firestore から顔データを読み込み中...");
   try {
     const snapshot = await db.collection("faces").get();
+    
     if (snapshot.empty) {
       console.log("Firestore に登録済みの顔はありません。");
       registeredFaces = [];
       return;
     }
+
     const loadedFaces = [];
     snapshot.forEach(doc => {
       const data = doc.data();
+      
       loadedFaces.push({
         label: data.label,
         thumbnail: data.thumbnail,
-        descriptors: data.descriptors.map(d => new Float32Array(d))
+        
+        // ★★★ 修正箇所 ★★★
+        // Firestore Blob を Float32Array に変換し直す
+        descriptors: data.descriptors.map(blob => {
+          // Firestore Blob -> Uint8Array
+          const uint8Array = blob.toUint8Array();
+          // Uint8Array のバッファを使って Float32Array を復元
+          return new Float32Array(uint8Array.buffer);
+        })
+        // ★★★ 修正ここまで ★★★
       });
     });
+    
     registeredFaces = loadedFaces;
     console.log(`Firestore から ${registeredFaces.length} 件の顔データを読み込みました。`);
+
   } catch (e) {
     console.error("Firestore からの顔データ読み込みに失敗しました:", e);
     registeredFaces = [];
