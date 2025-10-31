@@ -1,5 +1,7 @@
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// @ts-nocheck
+
+// ★★★ 1. Firebase の初期化 (正しいブロックのみ) ★★★
+// (あなたのキー情報を設定済みです)
 const firebaseConfig = {
   apiKey: "AIzaSyD4fimqj2CE89w1qQRJG_fQGRH5GgUDf8Q",
   authDomain: "club-app-db.firebaseapp.com",
@@ -14,8 +16,8 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 // Firestore データベースのインスタンスを取得
 const db = firebase.firestore();
+// ★★★ 初期化ここまで ★★★
 
-// --- これ以降は、あなたがアップロードした script.js (L26以降) と同じです ---
 
 let faceMatcher;
 let registeredFaces = []; 
@@ -24,7 +26,7 @@ let registeredGpsAreas = [];
 // --- モード管理 ---
 let currentMode = 'auth'; 
 
-// --- 平滑化設定 (変更なし) ---
+// --- 平滑化設定 ---
 const UPDATE_INTERVAL_MS = 200;
 const HISTORY_MAX_LENGTH = 5;
 const DETECTION_THRESHOLD = 3;
@@ -32,10 +34,10 @@ let detectionHistory = [];
 let isBoxVisible = false;
 let lastGoodDetections = []; 
 
-// --- ★追加★ GPS認証の誤差吸収 (約11メートル) ---
+// --- GPS認証の誤差吸収 ---
 const GPS_PADDING_DEGREES = 0.00005;
 
-// --- 顔スキャン用ステートマシン (変更なし) ---
+// --- 顔スキャン用ステートマシン ---
 let scanStep = 0; 
 let scanDescriptors = [];
 let scanThumbnail = null; 
@@ -43,11 +45,11 @@ const scanInstructions = [
   "", "1/5: 正面...", "2/5: 顔を「左」...", "3/5: 顔を「右」...", "4/5: 顔を「上」...", "5/5: 顔を「下」...",
 ];
 
-// --- GPSスキャン用ステートマシン (変更なし) ---
+// --- GPSスキャン用ステートマシン ---
 let gpsScanStep = 0; 
 let tempGpsArea = {}; 
 
-// --- ヘルパー関数 (変更なし) ---
+// --- ヘルパー関数 ---
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
 // --- 登録済み一覧の描画 (変更なし) ---
@@ -93,21 +95,16 @@ function rebuildFaceMatcher() {
 }
 
 // --- ★ 修正 ★ 顔データ「単体」保存 (Firebase版) ---
-// (saveRegisteredFacesToStorage はもう使いません)
 async function saveSingleFaceToFirestore(faceObject) {
   console.log(`Firestore への顔データ「${faceObject.label}」保存を開始...`);
   try {
     const dataToSave = {
       label: faceObject.label,
       thumbnail: faceObject.thumbnail,
-      // Float32Array を Firestore が保存できる通常の配列に変換
       descriptors: faceObject.descriptors.map(d => Array.from(d))
     };
-    
-    // 'faces' コレクションに、label (名前) をドキュメントIDとして保存 (set/overwrite)
     const docRef = db.collection("faces").doc(faceObject.label);
-    await docRef.set(dataToSave);
-    
+    await docRef.set(dataToSave); // .set() は上書き保存
     console.log("Firestore への顔データ保存が成功しました。");
   } catch (e) {
     console.error("Firestore への保存に失敗しました:", e);
@@ -126,32 +123,27 @@ async function deleteFaceFromFirestore(faceLabel) {
   }
 }
 
-// --- 顔データ読み込み (Firebase版) ---
+// --- ★ 変更なし ★ 顔データ読み込み (Firebase版) ---
 async function loadRegisteredFacesFromStorage() {
   console.log("Firestore から顔データを読み込み中...");
   try {
     const snapshot = await db.collection("faces").get();
-    
     if (snapshot.empty) {
       console.log("Firestore に登録済みの顔はありません。");
       registeredFaces = [];
       return;
     }
-
     const loadedFaces = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      // Firestore の配列から Float32Array に変換し直す
       loadedFaces.push({
         label: data.label,
         thumbnail: data.thumbnail,
         descriptors: data.descriptors.map(d => new Float32Array(d))
       });
     });
-    
     registeredFaces = loadedFaces;
     console.log(`Firestore から ${registeredFaces.length} 件の顔データを読み込みました。`);
-
   } catch (e) {
     console.error("Firestore からの顔データ読み込みに失敗しました:", e);
     registeredFaces = [];
@@ -159,11 +151,9 @@ async function loadRegisteredFacesFromStorage() {
 }
 
 // --- ★ 修正 ★ GPSデータ「単体」保存 (Firebase版) ---
-// (saveGpsAreasToStorage はもう使いません)
 async function saveSingleGpsAreaToFirestore(areaObject) {
   console.log(`Firestore へのGPSエリア「${areaObject.name}」保存を開始...`);
   try {
-    // GPSデータはそのまま保存できる
     const dataToSave = {
       name: areaObject.name,
       lat1: areaObject.lat1,
@@ -171,11 +161,8 @@ async function saveSingleGpsAreaToFirestore(areaObject) {
       lat2: areaObject.lat2,
       lon2: areaObject.lon2
     };
-    
-    // 'gps_areas' コレクションに、name (エリア名) をドキュメントIDとして保存
     const docRef = db.collection("gps_areas").doc(areaObject.name);
-    await docRef.set(dataToSave);
-    
+    await docRef.set(dataToSave); // .set() は上書き保存
     console.log("Firestore へのGPSエリアデータ保存が成功しました。");
   } catch (e) {
     console.error("Firestore へのGPSエリア保存に失敗しました:", e);
@@ -194,22 +181,19 @@ async function deleteGpsAreaFromFirestore(areaName) {
   }
 }
 
-// --- GPSデータ読み込み (Firebase版) ---
+// --- ★ 変更なし ★ GPSデータ読み込み (Firebase版) ---
 async function loadGpsAreasFromStorage() {
   console.log("Firestore からGPSエリアデータを読み込み中...");
   try {
     const snapshot = await db.collection("gps_areas").get();
-    
     if (snapshot.empty) {
       console.log("Firestore に登録済みのGPSエリアはありません。");
       registeredGpsAreas = [];
       return;
     }
-
     const loadedGpsAreas = [];
     snapshot.forEach(doc => {
       const data = doc.data();
-      // GPSデータは変換不要
       loadedGpsAreas.push({
         name: data.name,
         lat1: data.lat1,
@@ -218,85 +202,74 @@ async function loadGpsAreasFromStorage() {
         lon2: data.lon2
       });
     });
-    
     registeredGpsAreas = loadedGpsAreas;
     console.log(`Firestore から ${registeredGpsAreas.length} 件のGPSエリアを読み込みました。`);
-
   } catch (e) {
     console.error("Firestore からのGPSエリア読み込みに失敗しました:", e);
     registeredGpsAreas = [];
   }
 }
 
-// --- ★修正★ GPSエリア一覧の描画 (詳細表示) ---
+// --- GPSエリア一覧の描画 (変更なし) ---
 function populateGpsAreaList() {
   const gpsAreaList = document.getElementById("gpsAreaList");
   if (!gpsAreaList) return;
-  
   if (registeredGpsAreas.length === 0) {
     gpsAreaList.innerHTML = '<p>登録済みのエリアはありません。</p>';
     return;
   }
-  
   gpsAreaList.innerHTML = '';
   registeredGpsAreas.forEach(area => {
     const item = document.createElement('div');
     item.style.display = 'flex';
     item.style.alignItems = 'center';
     item.style.marginBottom = '5px';
-
     const li = document.createElement('span');
     li.textContent = `[${area.name}] (端1: ${area.lat1.toFixed(7)}, ${area.lon1.toFixed(7)} / 端2: ${area.lat2.toFixed(7)}, ${area.lon2.toFixed(7)})`;
-    
     const deleteBtn = document.createElement('button');
     deleteBtn.textContent = '削除';
     deleteBtn.className = 'delete-gps-btn';
     deleteBtn.dataset.name = area.name; 
     deleteBtn.style.marginLeft = 'auto';
     deleteBtn.style.backgroundColor = '#ffcccc';
-
     item.appendChild(li);
     item.appendChild(deleteBtn);
     gpsAreaList.appendChild(item);
   });
 }
 
-// --- ★修正★ 四角形エリアの内外判定 (パディング追加) ---
+// --- 四角形エリアの内外判定 (変更なし) ---
 function isInsideBoundingBox(userLat, userLon, area) {
   const minLat = Math.min(area.lat1, area.lat2) - GPS_PADDING_DEGREES;
   const maxLat = Math.max(area.lat1, area.lat2) + GPS_PADDING_DEGREES;
   const minLon = Math.min(area.lon1, area.lon2) - GPS_PADDING_DEGREES;
   const maxLon = Math.max(area.lon1, area.lon2) + GPS_PADDING_DEGREES;
-  
   return (userLat >= minLat && userLat <= maxLat &&
           userLon >= minLon && userLon <= maxLon);
 }
 
-// --- 2. カメラ起動 (変更なし) ---
+// --- カメラ起動 (変更なし) ---
 async function setupCamera(videoEl) {
   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   videoEl.srcObject = stream;
   return new Promise(resolve => videoEl.onloadedmetadata = () => resolve(videoEl));
 }
 
-// --- 3. モデル読み込み (変更なし) ---
+// --- モデル読み込み (変更なし) ---
 async function loadModels() {
-  // (GitHub Pages用のパス修正済み)
   await faceapi.nets.tinyFaceDetector.loadFromUri('models');
   await faceapi.nets.faceLandmark68Net.loadFromUri('models');
   await faceapi.nets.faceRecognitionNet.loadFromUri('models');
 }
 
-// --- 4. ★修正★ スキャンUIリセット処理 (キャンバスクリアを削除) ---
+// --- スキャンUIリセット処理 (変更なし) ---
 function resetRegistrationUI(message = "登録モード: 顔を検出中...") {
   const statusEl = document.getElementById("status");
   const nameInput = document.getElementById("nameInput");
   const registerBtn = document.getElementById("registerBtn");
-
   scanStep = 0;
   scanDescriptors = [];
   scanThumbnail = null;
-
   if(statusEl) statusEl.textContent = message;
   if(registerBtn) {
     registerBtn.textContent = "スキャン開始 (5段階)";
@@ -306,7 +279,7 @@ function resetRegistrationUI(message = "登録モード: 顔を検出中...") {
   if(nameInput) nameInput.disabled = false;
 }
 
-// --- 6. ★修正★ 顔登録処理 (単体保存対応) ---
+// --- ★ 修正 ★ 顔登録処理 (単体保存対応) ---
 async function handleRegisterClick() {
   const nameInput = document.getElementById("nameInput");
   const registerBtn = document.getElementById("registerBtn");
@@ -318,7 +291,7 @@ async function handleRegisterClick() {
   }
   const newName = nameInput.value.trim();
 
-  // --- ステップ 0: スキャン開始 --- (変更なし)
+  // --- ステップ 0: スキャン開始 ---
   if (scanStep === 0) {
     if (!newName) {
       statusEl.textContent = "登録名を入力してください";
@@ -339,7 +312,7 @@ async function handleRegisterClick() {
     return;
   }
 
-  // --- ステップ 1〜5: スキャン実行 (ボタン押下時の処理) ---
+  // --- ステップ 1〜5: スキャン実行 ---
   if (scanStep >= 1 && scanStep <= 5) {
     registerBtn.disabled = true;
     statusEl.textContent = `スキャン中... (${scanStep}/5)`;
@@ -384,7 +357,6 @@ async function handleRegisterClick() {
     if (scanStep === 1) {
       const video = document.getElementById("video");
       const canvas = document.getElementById("canvas"); 
-      
       if (!video || !canvas) {
           console.error("サムネイルキャプチャ失敗: video または canvas が見つかりません。");
           scanThumbnail = null;
@@ -392,15 +364,11 @@ async function handleRegisterClick() {
           const tempCanvas = document.createElement('canvas');
           const box = largestUnknownFace.detection.box; 
           const padding = box.width * 0.2; 
-          
           const scaleX = video.videoWidth / canvas.clientWidth;
           const scaleY = video.videoHeight / canvas.clientHeight;
-
           tempCanvas.width = box.width + padding * 2;
           tempCanvas.height = box.height + padding * 2;
-          
           const tempCtx = tempCanvas.getContext('2d');
-
           tempCtx.drawImage(
             video,
             (box.x - padding) * scaleX, 
@@ -415,35 +383,29 @@ async function handleRegisterClick() {
       }
     }
     
-scanDescriptors.push(largestUnknownFace.descriptor);
+    scanDescriptors.push(largestUnknownFace.descriptor);
     scanStep++;
 
     if (scanStep > 5) {
-      // --- ★★★ 修正箇所 (ステップ 6: 登録完了) ★★★ ---
+      // --- ステップ 6: 登録完了 ---
       statusEl.textContent = "サンプリング完了。登録します。";
-      
-      // 1. (変更なし) グローバル配列から古いデータを削除
       registeredFaces = registeredFaces.filter(f => f.label !== newName);
       
-      // 2. ★ 修正 ★ 新しい顔オブジェクトを作成
       const newFaceObject = { 
           label: newName, 
           descriptors: scanDescriptors, 
           thumbnail: scanThumbnail 
       };
       
-      // 3. (変更なし) グローバル配列に新しい顔を追加 (UI/Matcher用)
       registeredFaces.push(newFaceObject);
       rebuildFaceMatcher();
       
-      // 4. ★ 修正 ★ データベースには「この顔」だけを保存
-      await saveSingleFaceToFirestore(newFaceObject); // (古い saveRegisteredFacesToStorage は呼ばない)
+      // データベースには「この顔」だけを保存
+      await saveSingleFaceToFirestore(newFaceObject); 
       
-      populateRegisteredList(); // (admin-gps.html用)
-      
+      populateRegisteredList();
       resetRegistrationUI(`${newName} さんを ${scanDescriptors.length} サンプルで登録しました`);
       nameInput.value = "";
-      // ★★★ 修正ここまで ★★★
     } else {
       statusEl.textContent = scanInstructions[scanStep];
       registerBtn.textContent = `スキャン (${scanStep}/5)`;
@@ -452,34 +414,28 @@ scanDescriptors.push(largestUnknownFace.descriptor);
   }
 }
 
-// --- 7. ★修正★ 描画専用のヘルパー関数 (変更なし) ---
+// --- 描画ヘルパー関数 (変更なし) ---
 function drawBox(detections) {
   const canvas = document.getElementById("canvas");
   const ctx = canvas ? canvas.getContext("2d") : null;
   if (!canvas || !ctx) return;
-
   const displaySize = { width: canvas.clientWidth, height: canvas.clientHeight };
   faceapi.matchDimensions(canvas, displaySize);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
   detections.forEach(d => {
     const box = d.box;
-    const name = d.name; // "不明" または 登録名
-
+    const name = d.name;
     let strokeStyle = "#FF0000"; 
     let drawGrid = true;        
     if (name !== "不明") {
       strokeStyle = "#00FF00"; 
       drawGrid = false;       
     }
-
     ctx.strokeStyle = strokeStyle;
     ctx.lineWidth = 4;
     const padding = 10;
     const x = box.x - padding, y = box.y - padding, w = box.width + (padding * 2), h = box.height + (padding * 2);
-
     ctx.strokeRect(x, y, w, h);
-
     if (drawGrid) {
       ctx.beginPath();
       ctx.moveTo(x + w / 2, y);
@@ -488,33 +444,27 @@ function drawBox(detections) {
       ctx.lineTo(x + w, y + h / 2);
       ctx.stroke();
     }
-
     ctx.fillStyle = strokeStyle;
     ctx.font = "18px sans-serif";
     ctx.fillText(name, x, y > 20 ? y - 5 : y + h + 18);
   });
 }
 
-// --- 8 & 9. ★修正★ 認証/登録フェーズの処理 (変更なし) ---
+// --- 認証/登録フェーズの処理 (変更なし) ---
 function handleFaceProcessing(detections) {
   const statusEl = document.getElementById("status");
   if (!statusEl) return; 
-
   let currentDetectionsToDraw = [];
   const assignedLabels = new Set(); 
-
   if (faceMatcher && registeredFaces.length > 0) {
     const allMatches = detections.map(d => ({
       detection: d, 
       bestMatch: faceMatcher.findBestMatch(d.descriptor) 
     }));
-
     allMatches.sort((a, b) => a.bestMatch.distance - b.bestMatch.distance);
-
     allMatches.forEach(match => {
       const label = match.bestMatch.label;
       let name = "不明";
-
       if (label !== 'unknown') {
         if (!assignedLabels.has(label)) {
           name = label;
@@ -525,15 +475,12 @@ function handleFaceProcessing(detections) {
       }
       currentDetectionsToDraw.push({ box: match.detection.detection.box, name: name });
     });
-
   } else {
       detections.forEach(d => {
         currentDetectionsToDraw.push({ box: d.detection.box, name: "不明" });
       });
   }
-
   drawBox(currentDetectionsToDraw);
-
   if (currentMode === 'auth') {
     const newStatus = "認証中...";
     if (statusEl.textContent !== newStatus) statusEl.textContent = newStatus;
@@ -548,38 +495,35 @@ function handleFaceProcessing(detections) {
   }
 }
 
-// --- 10. ★修正★ メインの検出ループ (変更なし) ---
+// --- メインの検出ループ (変更なし) ---
 async function mainLoop() {
   const video = document.getElementById("video");
   const canvas = document.getElementById("canvas");
   const ctx = canvas ? canvas.getContext("2d") : null;
   const statusEl = document.getElementById("status");
-
   if (!video || !canvas || !ctx) return; 
-
   const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
   const displaySize = { width: canvas.clientWidth, height: canvas.clientHeight };
   const resizedDetections = faceapi.resizeResults(detections, displaySize);
-
   detectionHistory.push(detections.length > 0 ? 1 : 0);
   if (detectionHistory.length > HISTORY_MAX_LENGTH) detectionHistory.shift(); 
   const detectionCount = detectionHistory.reduce((total, val) => total + val, 0);
   isBoxVisible = (detectionCount >= DETECTION_THRESHOLD);
-
   if (detections.length > 0) {
       lastGoodDetections = resizedDetections; 
   }
-
   if (isBoxVisible && lastGoodDetections.length > 0) {
     handleFaceProcessing(lastGoodDetections);
   } else {
     lastGoodDetections = [];
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); 
-    
     if (statusEl) {
         const defaultStatus = "検出中... (顔をカメラに向けてください)";
         if (currentMode === 'auth') {
-            if (statusEl.textContent !== newStatus) statusEl.textContent = defaultStatus;
+            const newStatus = "認証中..."; // (mainLoop内で '認証中...' が設定されていなかったバグを修正)
+            if (statusEl.textContent !== defaultStatus && statusEl.textContent !== newStatus) {
+                statusEl.textContent = defaultStatus;
+            }
         } else if (currentMode === 'reg') {
             if (scanStep === 0) {
                 if (statusEl.textContent !== defaultStatus) statusEl.textContent = defaultStatus;
@@ -597,15 +541,12 @@ async function mainLoop() {
 function handleGpsAuthentication() {
   const gpsStatus = document.getElementById("gpsStatus");
   gpsStatus.textContent = "現在地を取得中...";
-
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const userLat = position.coords.latitude;
       const userLon = position.coords.longitude;
-      
       let inArea = false;
       let areaName = "";
-      
       for (const area of registeredGpsAreas) {
         if (isInsideBoundingBox(userLat, userLon, area)) {
           inArea = true;
@@ -613,7 +554,6 @@ function handleGpsAuthentication() {
           break;
         }
       }
-      
       if (inArea) {
         gpsStatus.textContent = `✅ 認証成功: 「${areaName}」のエリア内にいます。`;
       } else {
@@ -626,20 +566,19 @@ function handleGpsAuthentication() {
   );
 }
 
-// --- GPS登録ハンドラ (ステートマシン) (単体保存対応) ---
+// --- ★ 修正 ★ GPS登録ハンドラ (単体保存対応) ---
 function handleGpsRegistration() {
   const adminStatus = document.getElementById("adminStatus");
   const nameInput = document.getElementById("areaNameInput");
   const registerBtn = document.getElementById("registerAreaBtn");
 
-  // --- ステップ 0: 開始 --- (変更なし)
+  // --- ステップ 0: 開始 ---
   if (gpsScanStep === 0) {
     const areaName = nameInput.value.trim();
     if (!areaName) {
       adminStatus.textContent = "エラー: エリア名を入力してください。";
       return;
     }
-    // ★ 修正 ★ 既に登録されていないかチェック
     if (registeredGpsAreas.some(a => a.name === areaName)) {
         if (!confirm(`「${areaName}」は既に登録されています。上書きしますか？`)) {
             return;
@@ -658,11 +597,9 @@ function handleGpsRegistration() {
   if (gpsScanStep === 1 || gpsScanStep === 2) {
     adminStatus.textContent = `座標を取得中... (${gpsScanStep}/2)`;
     registerBtn.disabled = true;
-    
     navigator.geolocation.getCurrentPosition(
       (position) => {
         if (gpsScanStep === 1) {
-          // (変更なし)
           tempGpsArea.lat1 = position.coords.latitude;
           tempGpsArea.lon1 = position.coords.longitude;
           gpsScanStep = 2;
@@ -670,22 +607,19 @@ function handleGpsRegistration() {
           registerBtn.textContent = "3. 2つ目の端を登録して完了";
           registerBtn.disabled = false;
         } else if (gpsScanStep === 2) {
-          // --- ★★★ 修正箇所 (ステップ 3: 登録完了) ★★★ ---
+          // --- ステップ 3: 登録完了 ---
           tempGpsArea.lat2 = position.coords.latitude;
           tempGpsArea.lon2 = position.coords.longitude;
           
-          // 1. (変更なし) グローバル配列から古いデータを削除
           registeredGpsAreas = registeredGpsAreas.filter(a => a.name !== tempGpsArea.name);
-          // 2. (変更なし) グローバル配列に新しいエリアを追加 (UI用)
           registeredGpsAreas.push(tempGpsArea);
           
-          // 3. ★ 修正 ★ データベースには「このエリア」だけを保存
-          saveSingleGpsAreaToFirestore(tempGpsArea); // (古い saveGpsAreasToStorage は呼ばない)
+          // データベースには「このエリア」だけを保存
+          saveSingleGpsAreaToFirestore(tempGpsArea); 
 
           populateGpsAreaList(); 
           adminStatus.textContent = `✅ 登録成功: 「${tempGpsArea.name}」を登録しました。`;
           
-          // (リセット処理)
           gpsScanStep = 0;
           tempGpsArea = {};
           registerBtn.textContent = "1. エリア定義を開始";
@@ -693,7 +627,6 @@ function handleGpsRegistration() {
           registerBtn.disabled = false;
           nameInput.disabled = false;
           nameInput.value = "";
-          // ★★★ 修正ここまで ★★★
         }
       },
       (error) => {
@@ -708,14 +641,11 @@ function handleGpsRegistration() {
 async function handleBeaconScan() {
   const beaconStatus = document.getElementById("beaconStatus");
   if (!beaconStatus) return;
-
   if (!navigator.bluetooth) {
     beaconStatus.textContent = "エラー: お使いのブラウザは Web Bluetooth に対応していません。";
     return;
   }
-
   beaconStatus.textContent = "ビーコンをスキャン中... (ブラウザの許可を求めています)";
-
   try {
     const device = await navigator.bluetooth.requestDevice({
         filters: [{
@@ -723,7 +653,6 @@ async function handleBeaconScan() {
         }],
     });
     beaconStatus.textContent = `✅ ビーコン検出成功: ${device.name || `ID: ${device.id}`}`;
-
   } catch (error) {
     if (error.name === 'NotFoundError') {
       beaconStatus.textContent = "❌ スキャン失敗: 付近に対応するビーコンが見つかりませんでした。";
@@ -736,11 +665,10 @@ async function handleBeaconScan() {
   }
 }
 
-// --- ★★★ 変更: handleIcScan をディープリンク方式に変更 ★★★ ---
+// --- ICカードスキャンハンドラ (変更なし) ---
 function handleIcScan() {
     const icStatus = document.getElementById("icStatus");
     if (!icStatus) return;
-
     const returnUrl = location.origin + location.pathname;
     const appUrl = `club-agent://scan?return_url=${encodeURIComponent(returnUrl)}`;
     icStatus.textContent = "ICカードリーダーアプリを起動中...";
@@ -748,7 +676,7 @@ function handleIcScan() {
 }
 
 
-// --- 11. ★修正★ イベントリスナー設定 (単体削除対応) ---
+// --- ★ 修正 ★ イベントリスナー設定 (単体削除対応) ---
 function setupEventListeners() {
   // 登録フェーズ (settings.html)
   if (currentMode === 'reg') {
@@ -766,41 +694,32 @@ function setupEventListeners() {
   if (currentMode === 'admin-gps') {
     const adminStatus = document.getElementById("adminStatus"); 
     
-    // GPS登録ボタン
     document.getElementById("registerAreaBtn")?.addEventListener("click", handleGpsRegistration);
     
-    // --- ★ 修正: GPS全削除ボタン ---
+    // GPS全削除ボタン
     document.getElementById("clearAllGpsBtn")?.addEventListener("click", () => {
       if (confirm("本当にすべての「GPSエリア」登録データを削除しますか？")) {
-        // 1. DBから全件削除
         (async () => {
           for (const area of registeredGpsAreas) {
             await deleteGpsAreaFromFirestore(area.name);
           }
-        })(); // 即時実行
-        
-        // 2. グローバル配列をクリア (UI用)
+        })();
         registeredGpsAreas = []; 
-        // saveGpsAreasToStorage(); // <-- 削除
         populateGpsAreaList(); 
         if(adminStatus) adminStatus.textContent = "全GPSエリアを削除しました。"; 
       }
     });
     
-    // --- ★ 修正: 顔 全削除ボタン ---
+    // 顔 全削除ボタン
     document.getElementById("clearAllFacesBtn")?.addEventListener("click", () => {
       if (confirm("本当にすべての「顔」登録データを削除しますか？")) {
-        // 1. DBから全件削除
         (async () => {
           for (const face of registeredFaces) {
             await deleteFaceFromFirestore(face.label);
           }
-        })(); // 即時実行
-        
-        // 2. グローバル配列をクリア (UI用)
+        })();
         registeredFaces = []; 
         rebuildFaceMatcher(); 
-        // saveRegisteredFacesToStorage(); // <-- 削除
         populateRegisteredList(); 
         if(adminStatus) adminStatus.textContent = "全顔データを削除しました。"; 
       }
@@ -809,19 +728,15 @@ function setupEventListeners() {
     const registeredListElement = document.getElementById('registeredList');
     const gpsAreaListElement = document.getElementById('gpsAreaList');
 
-    // --- ★ 修正: 顔 個別削除リスナー ---
+    // 顔 個別削除リスナー
     if (registeredListElement) {
       registeredListElement.addEventListener('click', (e) => {
         if (e.target && e.target.classList.contains('delete-face-btn')) {
           const label = e.target.dataset.label;
           if (confirm(`顔データ「${label}」を削除しますか？`)) {
-            // 1. グローバル配列から削除 (UI用)
             registeredFaces = registeredFaces.filter(f => f.label !== label);
             rebuildFaceMatcher();
-            
-            // 2. データベースから「この顔」だけを削除
             deleteFaceFromFirestore(label);
-    
             populateRegisteredList(); 
             if (adminStatus) adminStatus.textContent = `顔データ「${label}」を削除しました。`;
           }
@@ -829,18 +744,14 @@ function setupEventListeners() {
       });
     }
 
-    // --- ★ 修正: GPS 個別削除リスナー ---
+    // GPS 個別削除リスナー
     if (gpsAreaListElement) {
       gpsAreaListElement.addEventListener('click', (e) => {
         if (e.target && e.target.classList.contains('delete-gps-btn')) {
           const areaName = e.target.dataset.name;
           if (confirm(`GPSエリア「${areaName}」を削除しますか？`)) {
-            // 1. グローバル配列から削除 (UI用)
             registeredGpsAreas = registeredGpsAreas.filter(a => a.name !== areaName);
-            
-            // 2. データベースから「このエリア」だけを削除
             deleteGpsAreaFromFirestore(areaName);
-            
             populateGpsAreaList();
              if (adminStatus) adminStatus.textContent = `GPSエリア「${areaName}」を削除しました。`;
           }
@@ -851,11 +762,10 @@ function setupEventListeners() {
 }
 
 
-// --- 12. ★修正★ 実行開始 (Firebase対応) ---
+// --- 12. ★★★ 修正 ★★★ 実行開始 (Firebase対応) ---
 (async function main() {
   try {
-    // 0. ★変更★ 
-    // Firestoreからの読み込みが完了するまで「待つ」
+    // 0. Firestoreからの読み込みが完了するまで「待つ」
     await loadRegisteredFacesFromStorage();
     await loadGpsAreasFromStorage(); 
 
@@ -864,11 +774,10 @@ function setupEventListeners() {
     let video = null; 
     let statusEl = null; 
 
-    // ★★★ 追加: 拡張機能ボタンの取得 ★★★
     const icScanBtn = document.getElementById("icScanBtn");
     const beaconScanBtn = document.getElementById("beaconScanBtn");
     
-    // ★★★ 追加: 拡張機能のサポート判定 ★★★
+    // 拡張機能のサポート判定
     if (beaconScanBtn) {
         if (!navigator.bluetooth) {
             beaconScanBtn.style.display = 'none';
@@ -884,19 +793,16 @@ function setupEventListeners() {
             if (icStatus) icStatus.textContent = "ICスキャンはiPhone/iPadでのみ連携可能です。";
         }
     }
-    // ★★★ 拡張機能の判定ここまで ★★★
 
     if (bodyId === 'page-reg') {
       currentMode = 'reg';
       video = document.getElementById("video");
       statusEl = document.getElementById("status");
-      // ★重要★ 読み込みが終わってから faceMatcher を構築
       rebuildFaceMatcher(); 
     } else if (bodyId === 'page-auth') { 
       currentMode = 'auth';
       video = document.getElementById("video");
       statusEl = document.getElementById("status");
-      // ★重要★ 読み込みが終わってから faceMatcher を構築
       rebuildFaceMatcher();
       
       const icStatus = document.getElementById("icStatus");
@@ -904,7 +810,6 @@ function setupEventListeners() {
           const urlParams = new URLSearchParams(window.location.search);
           const cardId = urlParams.get('cardId');
           const nfcError = urlParams.get('nfcError');
-
           if (cardId) {
               icStatus.textContent = `✅ 認証成功: カードID ${cardId}`;
               window.history.replaceState(null, '', window.location.pathname);
