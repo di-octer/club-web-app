@@ -94,7 +94,7 @@ function rebuildFaceMatcher() {
   console.log("faceMatcher を再構築しました。");
 }
 
-// --- ★ 修正 ★ 顔データ「単体」保存 (Blob対応版) ---
+// --- ★ 修正 ★ 顔データ「単体」保存 (Base64対応版) ---
 async function saveSingleFaceToFirestore(faceObject) {
   console.log(`Firestore への顔データ「${faceObject.label}」保存を開始...`);
   try {
@@ -103,10 +103,14 @@ async function saveSingleFaceToFirestore(faceObject) {
       thumbnail: faceObject.thumbnail,
       
       // ★★★ 修正箇所 ★★★
-      // Float32Array を「配列」ではなく「Blob」に変換する
+      // "Blobの配列" ではなく、"Base64文字列の配列" に変換します
       descriptors: faceObject.descriptors.map(d => {
-        // Float32Array -> Uint8Array -> Firestore Blob
-        return firebase.firestore.Blob.fromUint8Array(new Uint8Array(d.buffer));
+        // d は Float32Array
+        const uint8Array = new Uint8Array(d.buffer);
+        // Uint8Array -> Binary String
+        const binaryString = String.fromCharCode.apply(null, uint8Array);
+        // Binary String -> Base64 String
+        return btoa(binaryString);
       })
       // ★★★ 修正ここまで ★★★
     };
@@ -134,7 +138,7 @@ async function deleteFaceFromFirestore(faceLabel) {
   }
 }
 
-// --- ★ 修正 ★ 顔データ読み込み (Blob対応版) ---
+// --- ★ 修正 ★ 顔データ読み込み (Base64対応版) ---
 async function loadRegisteredFacesFromStorage() {
   console.log("Firestore から顔データを読み込み中...");
   try {
@@ -155,10 +159,15 @@ async function loadRegisteredFacesFromStorage() {
         thumbnail: data.thumbnail,
         
         // ★★★ 修正箇所 ★★★
-        // Firestore Blob を Float32Array に変換し直す
-        descriptors: data.descriptors.map(blob => {
-          // Firestore Blob -> Uint8Array
-          const uint8Array = blob.toUint8Array();
+        // Base64文字列の配列 を Float32Arrayの配列 に変換し直します
+        descriptors: data.descriptors.map(base64String => {
+          // Base64 String -> Binary String
+          const binaryString = atob(base64String);
+          // Binary String -> Uint8Array
+          const uint8Array = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            uint8Array[i] = binaryString.charCodeAt(i);
+          }
           // Uint8Array のバッファを使って Float32Array を復元
           return new Float32Array(uint8Array.buffer);
         })
