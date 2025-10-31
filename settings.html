@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>設定 | 統合アプリ</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js/dist/face-api.min.js"></script>
+  <script defer src="script.js"></script>
+</head>
+<body id="page-reg">
+  <header class="appbar">
+    <div class="logo">統合アプリ</div>
+    <nav>
+      <a href="home.html">ホーム</a>
+      <a href="curriculum.html">カリキュラム</a>
+      <a href="attendance.html">出席認証</a>
+      <a href="settings.html" class="active">設定</a>
+    </nav>
+  </header>
+  
+  <main class="content">
+    <h1>設定</h1>
+    
+    <div id="registrationUI">
+      <h2>顔認証 (登録フェーズ)</h2>
+      <p><strong>登録モード:</strong> 画面内で「最大」の顔をスキャンします。</p>
+      
+      <div class="face-container">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas"></canvas>
+      </div>
+      <p id="status">カメラを起動中...</p>
+      
+      <div>
+        <label for="nameInput">登録名:</label>
+        <input type="text" id="nameInput" placeholder="名前を入力">
+        <button id="registerBtn">スキャン開始 (5段階)</button>
+      </div>
+
+      </div>
+    
+    <hr>
+    <h2>その他の設定 (プロトタイプ)</h2>
+    <p>デフォルトページ設定、Discord連携などはここに表示されます。</p>
+    
+  </main>
+</body>
+</html>

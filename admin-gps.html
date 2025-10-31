@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>管理者: データ管理 | 統合アプリ</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="script.js"></script>
+</head>
+<body id="page-admin-gps">
+  <header class="appbar">
+    <div class="logo">管理者モード</div>
+    <nav>
+      <a href="home.html">ホームに戻る</a>
+    </nav>
+  </header>
+  
+  <main class="content">
+    <h1>データ管理ページ</h1>
+    
+    <section class="admin-section">
+      <h2>GPS認証エリア登録</h2>
+      <p>登録したいエリアの「対角線上の2つの端」に立ち、場所を登録してください。</p>
+      
+      <div>
+        <label for="areaNameInput">エリア名:</label>
+        <input type="text" id="areaNameInput" placeholder="例: 部室棟A">
+      </div>
+      
+      <button id="registerAreaBtn" style="margin-top: 15px; background-color: #28a745; color: white; padding: 10px;">
+        1. エリア定義を開始
+      </button>
+      <p id="adminStatus" style="font-weight: bold;"></p>
+      
+      <hr>
+      
+      <h2>登録済みGPSエリア一覧</h2>
+      <button id="clearAllGpsBtn" style="background-color: #ffcccc; margin-bottom: 10px;">全GPSエリアを削除</button>
+      <div id="gpsAreaList">
+        <p>登録済みのエリアはありません。</p>
+      </div>
+    </section>
+    
+    <hr style="margin: 30px 0;">
+    
+    <section class="admin-section">
+      <h2>登録済み顔データ一覧</h2>
+      <button id="clearAllFacesBtn" style="background-color: #ffcccc; margin-bottom: 10px;">全顔データを削除</button>
+      <div id="registeredList">
+        <p>登録者はいません</p>
+      </div>
+    </section>
+    
+  </main>
+</body>
+</html>

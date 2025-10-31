@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>出席認証 | 統合アプリ</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js/dist/face-api.min.js"></script>
+  <script defer src="script.js"></script>
+</head>
+<body id="page-auth">
+  <header class="appbar">
+    <div class="logo">統合アプリ</div>
+    <nav>
+      <a href="home.html">ホーム</a>
+      <a href="curriculum.html">カリキュラム</a>
+      <a href="attendance.html" class="active">出席認証</a>
+      <a href="settings.html">設定</a>
+    </nav>
+  </header>
+
+  <main class="content">
+    <h1>出席認証 (認証フェーズ)</h1>
+
+    <div class="face-container">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="canvas"></canvas>
+    </div>
+    <p id="status">カメラを起動中...</p>
+
+    <hr>
+
+    <h3>その他の認証</h3>
+    <button id="gpsAuthBtn">GPSで認証する</button>
+    <p id="gpsStatus"></p>
+
+    <button id="beaconScanBtn" style="margin-top: 10px;">ビーコンをスキャン</button>
+    <p id="beaconStatus"></p>
+    <button disabled style="margin-top: 10px;">ICカードをスキャン</button>
+
+    <br><br>
+    <a href="check.html">→ 5. 出席状況を確認する</a>
+    <br>
+    <a href="form.html">→ 6. 欠席/遅刻の連絡をする</a>
+  </main>
+</body>
+</html>

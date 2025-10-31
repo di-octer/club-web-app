@@ -1,0 +1,91 @@
+/* --- グローバル設定 --- */
+body {
+  font-family: sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f4f4f4;
+}
+
+/* --- AppBar (ナビゲーションバー) --- */
+.appbar {
+  background-color: #333;
+  color: white;
+  padding: 10px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.appbar .logo {
+  font-size: 1.5em;
+  font-weight: bold;
+}
+.appbar nav a {
+  color: white;
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+.appbar nav a:hover {
+  background-color: #555;
+}
+.appbar nav a.active {
+  background-color: #007bff;
+}
+
+/* --- メインコンテンツ --- */
+.content {
+  padding: 20px;
+  max-width: 1000px;
+  margin: 20px auto;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+/* --- 顔認証ビデオ/キャンバスのスタイル --- */
+.face-container {
+  position: relative;
+  width: 320px;
+  height: 240px;
+  margin-bottom: 10px;
+}
+#video, #canvas {
+  border: 2px solid black;
+  width: 320px;
+  height: 240px;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+#video { z-index: 1; }
+#canvas { z-index: 10; }
+
+/* --- 登録UIのスタイル --- */
+#registrationUI {
+  background-color: #f0f8ff;
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #cce5ff;
+}
+#registerBtn.scanning {
+  background-color: #ffc107; 
+}
+#registeredList {
+  margin-top: 15px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  background-color: #ffffff;
+}
+.registered-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 5px;
+}
+.registered-item img {
+  width: 80px;  
+  height: 60px; 
+  border: 1px solid #ddd;
+  margin-right: 10px;
+  object-fit: cover; 
+}
