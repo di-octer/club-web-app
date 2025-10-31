@@ -39,6 +39,9 @@ dependencies:
   nfc_manager_felica: ^1.0.0
   app_links: ^6.4.1
   url_launcher: ^6.3.2
+  firebase_core: ^4.2.0
+  cloud_firestore: ^6.0.3
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:
