@@ -177,9 +177,9 @@ async function setupCamera(videoEl) {
 
 // --- 3. モデル読み込み (変更なし) ---
 async function loadModels() {
-  await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-  await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-  await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+  await faceapi.nets.tinyFaceDetector.loadFromUri('models');
+  await faceapi.nets.faceLandmark68Net.loadFromUri('models');
+  await faceapi.nets.faceRecognitionNet.loadFromUri('models');
 }
 
 // --- 4. ★修正★ スキャンUIリセット処理 (キャンバスクリアを削除) ---
