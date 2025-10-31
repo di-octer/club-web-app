@@ -92,35 +92,37 @@ function rebuildFaceMatcher() {
   console.log("faceMatcher を再構築しました。");
 }
 
-// --- 顔データ保存 (Firebase版) ---
-async function saveRegisteredFacesToStorage() {
-  if (registeredFaces.length === 0) {
-    // TODO: Firestoreから全件削除する処理 (ここでは省略)
-    console.log("顔データが0件です。");
-    return;
-  }
-  
-  console.log("Firestore への顔データ保存を開始...");
-  const batch = db.batch();
-
-  registeredFaces.forEach(face => {
+// --- ★ 修正 ★ 顔データ「単体」保存 (Firebase版) ---
+// (saveRegisteredFacesToStorage はもう使いません)
+async function saveSingleFaceToFirestore(faceObject) {
+  console.log(`Firestore への顔データ「${faceObject.label}」保存を開始...`);
+  try {
     const dataToSave = {
-      label: face.label,
-      thumbnail: face.thumbnail,
+      label: faceObject.label,
+      thumbnail: faceObject.thumbnail,
       // Float32Array を Firestore が保存できる通常の配列に変換
-      descriptors: face.descriptors.map(d => Array.from(d)) 
+      descriptors: faceObject.descriptors.map(d => Array.from(d))
     };
     
-    // 'faces' コレクションに、label (名前) をドキュメントIDとして保存
-    const docRef = db.collection("faces").doc(face.label);
-    batch.set(docRef, dataToSave);
-  });
-
-  try {
-    await batch.commit();
+    // 'faces' コレクションに、label (名前) をドキュメントIDとして保存 (set/overwrite)
+    const docRef = db.collection("faces").doc(faceObject.label);
+    await docRef.set(dataToSave);
+    
     console.log("Firestore への顔データ保存が成功しました。");
   } catch (e) {
     console.error("Firestore への保存に失敗しました:", e);
+  }
+}
+
+// --- ★ 追加 ★ 顔データ「単体」削除 (Firebase版) ---
+async function deleteFaceFromFirestore(faceLabel) {
+  console.log(`Firestore から顔データ「${faceLabel}」削除を開始...`);
+  try {
+    const docRef = db.collection("faces").doc(faceLabel);
+    await docRef.delete();
+    console.log("Firestore からの顔データ削除が成功しました。");
+  } catch (e) {
+    console.error("Firestore からの削除に失敗しました:", e);
   }
 }
 
@@ -156,37 +158,39 @@ async function loadRegisteredFacesFromStorage() {
   }
 }
 
-// --- GPSデータ保存 (Firebase版) ---
-async function saveGpsAreasToStorage() {
-  if (registeredGpsAreas.length === 0) {
-    // TODO: Firestoreから全件削除する処理 (ここでは省略)
-    console.log("GPSエリアデータが0件です。");
-    return;
-  }
-  
-  console.log("Firestore へのGPSエリアデータ保存を開始...");
-  const batch = db.batch();
-
-  registeredGpsAreas.forEach(area => {
+// --- ★ 修正 ★ GPSデータ「単体」保存 (Firebase版) ---
+// (saveGpsAreasToStorage はもう使いません)
+async function saveSingleGpsAreaToFirestore(areaObject) {
+  console.log(`Firestore へのGPSエリア「${areaObject.name}」保存を開始...`);
+  try {
     // GPSデータはそのまま保存できる
     const dataToSave = {
-      name: area.name,
-      lat1: area.lat1,
-      lon1: area.lon1,
-      lat2: area.lat2,
-      lon2: area.lon2
+      name: areaObject.name,
+      lat1: areaObject.lat1,
+      lon1: areaObject.lon1,
+      lat2: areaObject.lat2,
+      lon2: areaObject.lon2
     };
     
     // 'gps_areas' コレクションに、name (エリア名) をドキュメントIDとして保存
-    const docRef = db.collection("gps_areas").doc(area.name);
-    batch.set(docRef, dataToSave);
-  });
-
-  try {
-    await batch.commit();
+    const docRef = db.collection("gps_areas").doc(areaObject.name);
+    await docRef.set(dataToSave);
+    
     console.log("Firestore へのGPSエリアデータ保存が成功しました。");
   } catch (e) {
     console.error("Firestore へのGPSエリア保存に失敗しました:", e);
+  }
+}
+
+// --- ★ 追加 ★ GPSデータ「単体」削除 (Firebase版) ---
+async function deleteGpsAreaFromFirestore(areaName) {
+  console.log(`Firestore からGPSエリア「${areaName}」削除を開始...`);
+  try {
+    const docRef = db.collection("gps_areas").doc(areaName);
+    await docRef.delete();
+    console.log("Firestore からのGPSエリア削除が成功しました。");
+  } catch (e) {
+    console.error("Firestore からの削除に失敗しました:", e);
   }
 }
 
@@ -302,7 +306,7 @@ function resetRegistrationUI(message = "登録モード: 顔を検出中...") {
   if(nameInput) nameInput.disabled = false;
 }
 
-// --- 6. ★修正★ 顔登録処理 (サムネイルのズレを修正) ---
+// --- 6. ★修正★ 顔登録処理 (単体保存対応) ---
 async function handleRegisterClick() {
   const nameInput = document.getElementById("nameInput");
   const registerBtn = document.getElementById("registerBtn");
@@ -312,10 +316,9 @@ async function handleRegisterClick() {
     console.error("登録UIの要素が見つかりません。");
     return;
   }
-
   const newName = nameInput.value.trim();
 
-  // --- ステップ 0: スキャン開始 ---
+  // --- ステップ 0: スキャン開始 --- (変更なし)
   if (scanStep === 0) {
     if (!newName) {
       statusEl.textContent = "登録名を入力してください";
@@ -329,11 +332,10 @@ async function handleRegisterClick() {
     scanStep = 1; 
     scanDescriptors = []; 
     scanThumbnail = null; 
-    statusEl.textContent = scanInstructions[scanStep]; // 最初の指示
+    statusEl.textContent = scanInstructions[scanStep]; 
     registerBtn.textContent = `スキャン (${scanStep}/5)`; 
     registerBtn.classList.add("scanning"); 
     nameInput.disabled = true; 
-    
     return;
   }
 
@@ -413,21 +415,35 @@ async function handleRegisterClick() {
       }
     }
     
-    scanDescriptors.push(largestUnknownFace.descriptor);
+scanDescriptors.push(largestUnknownFace.descriptor);
     scanStep++;
 
     if (scanStep > 5) {
-      // --- ステップ 6: 登録完了 ---
+      // --- ★★★ 修正箇所 (ステップ 6: 登録完了) ★★★ ---
       statusEl.textContent = "サンプリング完了。登録します。";
-      registeredFaces = registeredFaces.filter(f => f.label !== newName);
-      registeredFaces.push({ label: newName, descriptors: scanDescriptors, thumbnail: scanThumbnail });
       
+      // 1. (変更なし) グローバル配列から古いデータを削除
+      registeredFaces = registeredFaces.filter(f => f.label !== newName);
+      
+      // 2. ★ 修正 ★ 新しい顔オブジェクトを作成
+      const newFaceObject = { 
+          label: newName, 
+          descriptors: scanDescriptors, 
+          thumbnail: scanThumbnail 
+      };
+      
+      // 3. (変更なし) グローバル配列に新しい顔を追加 (UI/Matcher用)
+      registeredFaces.push(newFaceObject);
       rebuildFaceMatcher();
-      saveRegisteredFacesToStorage();
-      populateRegisteredList();
+      
+      // 4. ★ 修正 ★ データベースには「この顔」だけを保存
+      await saveSingleFaceToFirestore(newFaceObject); // (古い saveRegisteredFacesToStorage は呼ばない)
+      
+      populateRegisteredList(); // (admin-gps.html用)
       
       resetRegistrationUI(`${newName} さんを ${scanDescriptors.length} サンプルで登録しました`);
       nameInput.value = "";
+      // ★★★ 修正ここまで ★★★
     } else {
       statusEl.textContent = scanInstructions[scanStep];
       registerBtn.textContent = `スキャン (${scanStep}/5)`;
@@ -610,17 +626,24 @@ function handleGpsAuthentication() {
   );
 }
 
-// --- GPS登録ハンドラ (ステートマシン) (変更なし) ---
+// --- GPS登録ハンドラ (ステートマシン) (単体保存対応) ---
 function handleGpsRegistration() {
   const adminStatus = document.getElementById("adminStatus");
   const nameInput = document.getElementById("areaNameInput");
   const registerBtn = document.getElementById("registerAreaBtn");
 
+  // --- ステップ 0: 開始 --- (変更なし)
   if (gpsScanStep === 0) {
     const areaName = nameInput.value.trim();
     if (!areaName) {
       adminStatus.textContent = "エラー: エリア名を入力してください。";
       return;
+    }
+    // ★ 修正 ★ 既に登録されていないかチェック
+    if (registeredGpsAreas.some(a => a.name === areaName)) {
+        if (!confirm(`「${areaName}」は既に登録されています。上書きしますか？`)) {
+            return;
+        }
     }
     tempGpsArea = { name: areaName };
     gpsScanStep = 1;
@@ -630,12 +653,16 @@ function handleGpsRegistration() {
     nameInput.disabled = true;
     return;
   }
+  
+  // --- ステップ 1 & 2: 座標取得 ---
   if (gpsScanStep === 1 || gpsScanStep === 2) {
     adminStatus.textContent = `座標を取得中... (${gpsScanStep}/2)`;
     registerBtn.disabled = true;
+    
     navigator.geolocation.getCurrentPosition(
       (position) => {
         if (gpsScanStep === 1) {
+          // (変更なし)
           tempGpsArea.lat1 = position.coords.latitude;
           tempGpsArea.lon1 = position.coords.longitude;
           gpsScanStep = 2;
@@ -643,12 +670,22 @@ function handleGpsRegistration() {
           registerBtn.textContent = "3. 2つ目の端を登録して完了";
           registerBtn.disabled = false;
         } else if (gpsScanStep === 2) {
+          // --- ★★★ 修正箇所 (ステップ 3: 登録完了) ★★★ ---
           tempGpsArea.lat2 = position.coords.latitude;
           tempGpsArea.lon2 = position.coords.longitude;
+          
+          // 1. (変更なし) グローバル配列から古いデータを削除
+          registeredGpsAreas = registeredGpsAreas.filter(a => a.name !== tempGpsArea.name);
+          // 2. (変更なし) グローバル配列に新しいエリアを追加 (UI用)
           registeredGpsAreas.push(tempGpsArea);
-          saveGpsAreasToStorage();
+          
+          // 3. ★ 修正 ★ データベースには「このエリア」だけを保存
+          saveSingleGpsAreaToFirestore(tempGpsArea); // (古い saveGpsAreasToStorage は呼ばない)
+
           populateGpsAreaList(); 
           adminStatus.textContent = `✅ 登録成功: 「${tempGpsArea.name}」を登録しました。`;
+          
+          // (リセット処理)
           gpsScanStep = 0;
           tempGpsArea = {};
           registerBtn.textContent = "1. エリア定義を開始";
@@ -656,6 +693,7 @@ function handleGpsRegistration() {
           registerBtn.disabled = false;
           nameInput.disabled = false;
           nameInput.value = "";
+          // ★★★ 修正ここまで ★★★
         }
       },
       (error) => {
@@ -710,7 +748,7 @@ function handleIcScan() {
 }
 
 
-// --- 11. ★修正★ イベントリスナー設定 (個別削除バグ修正) ---
+// --- 11. ★修正★ イベントリスナー設定 (単体削除対応) ---
 function setupEventListeners() {
   // 登録フェーズ (settings.html)
   if (currentMode === 'reg') {
@@ -726,26 +764,44 @@ function setupEventListeners() {
 
   // 管理者ページ (admin-gps.html)
   if (currentMode === 'admin-gps') {
+    const adminStatus = document.getElementById("adminStatus"); 
+    
     // GPS登録ボタン
     document.getElementById("registerAreaBtn")?.addEventListener("click", handleGpsRegistration);
-    // GPS全削除ボタン
+    
+    // --- ★ 修正: GPS全削除ボタン ---
     document.getElementById("clearAllGpsBtn")?.addEventListener("click", () => {
       if (confirm("本当にすべての「GPSエリア」登録データを削除しますか？")) {
+        // 1. DBから全件削除
+        (async () => {
+          for (const area of registeredGpsAreas) {
+            await deleteGpsAreaFromFirestore(area.name);
+          }
+        })(); // 即時実行
+        
+        // 2. グローバル配列をクリア (UI用)
         registeredGpsAreas = []; 
-        saveGpsAreasToStorage(); 
+        // saveGpsAreasToStorage(); // <-- 削除
         populateGpsAreaList(); 
-        const adminStatus = document.getElementById("adminStatus"); 
         if(adminStatus) adminStatus.textContent = "全GPSエリアを削除しました。"; 
       }
     });
-    // 顔 全削除ボタン
+    
+    // --- ★ 修正: 顔 全削除ボタン ---
     document.getElementById("clearAllFacesBtn")?.addEventListener("click", () => {
       if (confirm("本当にすべての「顔」登録データを削除しますか？")) {
+        // 1. DBから全件削除
+        (async () => {
+          for (const face of registeredFaces) {
+            await deleteFaceFromFirestore(face.label);
+          }
+        })(); // 即時実行
+        
+        // 2. グローバル配列をクリア (UI用)
         registeredFaces = []; 
         rebuildFaceMatcher(); 
-        saveRegisteredFacesToStorage(); 
+        // saveRegisteredFacesToStorage(); // <-- 削除
         populateRegisteredList(); 
-        const adminStatus = document.getElementById("adminStatus"); 
         if(adminStatus) adminStatus.textContent = "全顔データを削除しました。"; 
       }
     });
@@ -753,33 +809,39 @@ function setupEventListeners() {
     const registeredListElement = document.getElementById('registeredList');
     const gpsAreaListElement = document.getElementById('gpsAreaList');
 
-    // 顔 個別削除リスナー
+    // --- ★ 修正: 顔 個別削除リスナー ---
     if (registeredListElement) {
       registeredListElement.addEventListener('click', (e) => {
         if (e.target && e.target.classList.contains('delete-face-btn')) {
           const label = e.target.dataset.label;
           if (confirm(`顔データ「${label}」を削除しますか？`)) {
+            // 1. グローバル配列から削除 (UI用)
             registeredFaces = registeredFaces.filter(f => f.label !== label);
             rebuildFaceMatcher();
-            saveRegisteredFacesToStorage();
+            
+            // 2. データベースから「この顔」だけを削除
+            deleteFaceFromFirestore(label);
+    
             populateRegisteredList(); 
-            const adminStatus = document.getElementById("adminStatus");
             if (adminStatus) adminStatus.textContent = `顔データ「${label}」を削除しました。`;
           }
         }
       });
     }
 
-    // GPS個別削除リスナー
+    // --- ★ 修正: GPS 個別削除リスナー ---
     if (gpsAreaListElement) {
       gpsAreaListElement.addEventListener('click', (e) => {
         if (e.target && e.target.classList.contains('delete-gps-btn')) {
           const areaName = e.target.dataset.name;
           if (confirm(`GPSエリア「${areaName}」を削除しますか？`)) {
+            // 1. グローバル配列から削除 (UI用)
             registeredGpsAreas = registeredGpsAreas.filter(a => a.name !== areaName);
-            saveGpsAreasToStorage();
+            
+            // 2. データベースから「このエリア」だけを削除
+            deleteGpsAreaFromFirestore(areaName);
+            
             populateGpsAreaList();
-            const adminStatus = document.getElementById("adminStatus");
              if (adminStatus) adminStatus.textContent = `GPSエリア「${areaName}」を削除しました。`;
           }
         }
