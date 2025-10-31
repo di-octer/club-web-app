@@ -1,9 +1,3 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
@@ -16,17 +10,12 @@ const firebaseConfig = {
   measurementId: "G-94JSQHYZR4"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-
 // Firebaseアプリを初期化
 firebase.initializeApp(firebaseConfig);
 // Firestore データベースのインスタンスを取得
 const db = firebase.firestore();
 
-// @ts-nocheck
-// script.js (ディープリンク方式 修正版)
+// --- これ以降は、あなたがアップロードした script.js (L26以降) と同じです ---
 
 let faceMatcher;
 let registeredFaces = []; 
@@ -253,7 +242,6 @@ function populateGpsAreaList() {
     item.style.marginBottom = '5px';
 
     const li = document.createElement('span');
-    // ★ toFixed(4) -> toFixed(7) に変更
     li.textContent = `[${area.name}] (端1: ${area.lat1.toFixed(7)}, ${area.lon1.toFixed(7)} / 端2: ${area.lat2.toFixed(7)}, ${area.lon2.toFixed(7)})`;
     
     const deleteBtn = document.createElement('button');
@@ -271,7 +259,6 @@ function populateGpsAreaList() {
 
 // --- ★修正★ 四角形エリアの内外判定 (パディング追加) ---
 function isInsideBoundingBox(userLat, userLon, area) {
-  // 緯度経度の小さい方/大きい方に、さらにパディング(誤差)を加える
   const minLat = Math.min(area.lat1, area.lat2) - GPS_PADDING_DEGREES;
   const maxLat = Math.max(area.lat1, area.lat2) + GPS_PADDING_DEGREES;
   const minLon = Math.min(area.lon1, area.lon2) - GPS_PADDING_DEGREES;
@@ -290,6 +277,7 @@ async function setupCamera(videoEl) {
 
 // --- 3. モデル読み込み (変更なし) ---
 async function loadModels() {
+  // (GitHub Pages用のパス修正済み)
   await faceapi.nets.tinyFaceDetector.loadFromUri('models');
   await faceapi.nets.faceLandmark68Net.loadFromUri('models');
   await faceapi.nets.faceRecognitionNet.loadFromUri('models');
@@ -310,14 +298,12 @@ function resetRegistrationUI(message = "登録モード: 顔を検出中...") {
     registerBtn.textContent = "スキャン開始 (5段階)";
     registerBtn.classList.remove("scanning");
     registerBtn.disabled = false;
-  }1820
-
+  }
   if(nameInput) nameInput.disabled = false;
 }
 
 // --- 6. ★修正★ 顔登録処理 (サムネイルのズレを修正) ---
 async function handleRegisterClick() {
-  // 必要なHTML要素を取得
   const nameInput = document.getElementById("nameInput");
   const registerBtn = document.getElementById("registerBtn");
   const statusEl = document.getElementById("status");
@@ -577,7 +563,7 @@ async function mainLoop() {
     if (statusEl) {
         const defaultStatus = "検出中... (顔をカメラに向けてください)";
         if (currentMode === 'auth') {
-            if (statusEl.textContent !== defaultStatus) statusEl.textContent = defaultStatus;
+            if (statusEl.textContent !== newStatus) statusEl.textContent = defaultStatus;
         } else if (currentMode === 'reg') {
             if (scanStep === 0) {
                 if (statusEl.textContent !== defaultStatus) statusEl.textContent = defaultStatus;
@@ -681,7 +667,6 @@ function handleGpsRegistration() {
 }
 
 // --- ビーコンスキャンハンドラ (変更なし) ---
-// (Web Bluetoothは localhost と https:// の両方で動作するため、変更不要)
 async function handleBeaconScan() {
   const beaconStatus = document.getElementById("beaconStatus");
   if (!beaconStatus) return;
@@ -713,35 +698,15 @@ async function handleBeaconScan() {
   }
 }
 
-// --- ★★★ 変更: WebSocket関連をすべて削除 ★★★ ---
-// function connectIcWebSocket() { ... } // <-- 削除
-// let icWebSocket = null; // <-- 削除
-// const IC_WEBSOCKET_URL = "ws://localhost:12345"; // <-- 削除
-
 // --- ★★★ 変更: handleIcScan をディープリンク方式に変更 ★★★ ---
-/**
- * 「ICカードをスキャン」ボタンがクリックされたときに呼び出される関数。
- * ネイティブアプリ (Flutter) をカスタムURLスキームで呼び出す。
- */
 function handleIcScan() {
     const icStatus = document.getElementById("icStatus");
     if (!icStatus) return;
 
-    // 1. スキャン完了後に戻ってくるURLを作成
-    // (現在のURLから ?... クエリパラメータを除いたもの)
     const returnUrl = location.origin + location.pathname;
-
-    // 2. Flutterアプリを呼び出すためのURLスキームを作成
-    // "club-agent://" は、ステップ2の Info.plist で設定する名前
     const appUrl = `club-agent://scan?return_url=${encodeURIComponent(returnUrl)}`;
-
     icStatus.textContent = "ICカードリーダーアプリを起動中...";
-
-    // 3. ブラウザでURLを開く (これによりiOSがFlutterアプリを起動する)
     window.location.href = appUrl;
-
-    // 4. アプリがインストールされていない場合に備え、
-    //    短時間後にストアへ誘導するなどのフォールバック処理も可能 (ここでは省略)
 }
 
 
