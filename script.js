@@ -20,6 +20,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 
+// Firebaseアプリを初期化
+firebase.initializeApp(firebaseConfig);
+// Firestore データベースのインスタンスを取得
+const db = firebase.firestore();
+
 // @ts-nocheck
 // script.js (ディープリンク方式 修正版)
 
@@ -98,49 +103,135 @@ function rebuildFaceMatcher() {
   console.log("faceMatcher を再構築しました。");
 }
 
-// --- 顔データ保存/読み込み (変更なし) ---
-function saveRegisteredFacesToStorage() {
+// --- 顔データ保存 (Firebase版) ---
+async function saveRegisteredFacesToStorage() {
   if (registeredFaces.length === 0) {
-    localStorage.removeItem('faceAuthData');
-  } else {
-    const dataToSave = registeredFaces.map(face => ({
-      label: face.label,
-      thumbnail: face.thumbnail,
-      descriptors: face.descriptors.map(d => Array.from(d)) 
-    }));
-    localStorage.setItem('faceAuthData', JSON.stringify(dataToSave));
+    // TODO: Firestoreから全件削除する処理 (ここでは省略)
+    console.log("顔データが0件です。");
+    return;
   }
-}
-function loadRegisteredFacesFromStorage() {
-  const data = localStorage.getItem('faceAuthData');
-  if (!data) return;
-  try {
-    const parsedData = JSON.parse(data);
-    registeredFaces = parsedData.map(face => ({
+  
+  console.log("Firestore への顔データ保存を開始...");
+  const batch = db.batch();
+
+  registeredFaces.forEach(face => {
+    const dataToSave = {
       label: face.label,
       thumbnail: face.thumbnail,
-      descriptors: face.descriptors.map(d => new Float32Array(d)) 
-    }));
+      // Float32Array を Firestore が保存できる通常の配列に変換
+      descriptors: face.descriptors.map(d => Array.from(d)) 
+    };
+    
+    // 'faces' コレクションに、label (名前) をドキュメントIDとして保存
+    const docRef = db.collection("faces").doc(face.label);
+    batch.set(docRef, dataToSave);
+  });
+
+  try {
+    await batch.commit();
+    console.log("Firestore への顔データ保存が成功しました。");
   } catch (e) {
-    console.error("顔登録データの読み込みに失敗しました:", e);
-    localStorage.removeItem('faceAuthData'); 
+    console.error("Firestore への保存に失敗しました:", e);
   }
 }
 
-// --- GPSデータ保存/読み込み (変更なし) ---
-function saveGpsAreasToStorage() {
-  localStorage.setItem('faceAuthGpsAreas', JSON.stringify(registeredGpsAreas));
-  console.log("GPSエリアデータを保存しました。");
-}
-function loadGpsAreasFromStorage() {
-  const data = localStorage.getItem('faceAuthGpsAreas');
-  if (!data) return;
+// --- 顔データ読み込み (Firebase版) ---
+async function loadRegisteredFacesFromStorage() {
+  console.log("Firestore から顔データを読み込み中...");
   try {
-    registeredGpsAreas = JSON.parse(data);
-    console.log("GPSエリアデータを読み込みました:", registeredGpsAreas);
+    const snapshot = await db.collection("faces").get();
+    
+    if (snapshot.empty) {
+      console.log("Firestore に登録済みの顔はありません。");
+      registeredFaces = [];
+      return;
+    }
+
+    const loadedFaces = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      // Firestore の配列から Float32Array に変換し直す
+      loadedFaces.push({
+        label: data.label,
+        thumbnail: data.thumbnail,
+        descriptors: data.descriptors.map(d => new Float32Array(d))
+      });
+    });
+    
+    registeredFaces = loadedFaces;
+    console.log(`Firestore から ${registeredFaces.length} 件の顔データを読み込みました。`);
+
   } catch (e) {
-    console.error("GPSエリアデータの読み込みに失敗しました:", e);
-    localStorage.removeItem('faceAuthGpsAreas');
+    console.error("Firestore からの顔データ読み込みに失敗しました:", e);
+    registeredFaces = [];
+  }
+}
+
+// --- GPSデータ保存 (Firebase版) ---
+async function saveGpsAreasToStorage() {
+  if (registeredGpsAreas.length === 0) {
+    // TODO: Firestoreから全件削除する処理 (ここでは省略)
+    console.log("GPSエリアデータが0件です。");
+    return;
+  }
+  
+  console.log("Firestore へのGPSエリアデータ保存を開始...");
+  const batch = db.batch();
+
+  registeredGpsAreas.forEach(area => {
+    // GPSデータはそのまま保存できる
+    const dataToSave = {
+      name: area.name,
+      lat1: area.lat1,
+      lon1: area.lon1,
+      lat2: area.lat2,
+      lon2: area.lon2
+    };
+    
+    // 'gps_areas' コレクションに、name (エリア名) をドキュメントIDとして保存
+    const docRef = db.collection("gps_areas").doc(area.name);
+    batch.set(docRef, dataToSave);
+  });
+
+  try {
+    await batch.commit();
+    console.log("Firestore へのGPSエリアデータ保存が成功しました。");
+  } catch (e) {
+    console.error("Firestore へのGPSエリア保存に失敗しました:", e);
+  }
+}
+
+// --- GPSデータ読み込み (Firebase版) ---
+async function loadGpsAreasFromStorage() {
+  console.log("Firestore からGPSエリアデータを読み込み中...");
+  try {
+    const snapshot = await db.collection("gps_areas").get();
+    
+    if (snapshot.empty) {
+      console.log("Firestore に登録済みのGPSエリアはありません。");
+      registeredGpsAreas = [];
+      return;
+    }
+
+    const loadedGpsAreas = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      // GPSデータは変換不要
+      loadedGpsAreas.push({
+        name: data.name,
+        lat1: data.lat1,
+        lon1: data.lon1,
+        lat2: data.lat2,
+        lon2: data.lon2
+      });
+    });
+    
+    registeredGpsAreas = loadedGpsAreas;
+    console.log(`Firestore から ${registeredGpsAreas.length} 件のGPSエリアを読み込みました。`);
+
+  } catch (e) {
+    console.error("Firestore からのGPSエリア読み込みに失敗しました:", e);
+    registeredGpsAreas = [];
   }
 }
 
@@ -733,12 +824,13 @@ function setupEventListeners() {
 }
 
 
-// --- 12. ★修正★ 実行開始 (GitHub Pages対応 / 拡張機能の非表示対応) ---
+// --- 12. ★修正★ 実行開始 (Firebase対応) ---
 (async function main() {
   try {
-    // 0. 共通ロード処理
-    loadRegisteredFacesFromStorage();
-    loadGpsAreasFromStorage();
+    // 0. ★変更★ 
+    // Firestoreからの読み込みが完了するまで「待つ」
+    await loadRegisteredFacesFromStorage();
+    await loadGpsAreasFromStorage(); 
 
     // 1. ページIDに基づいてモードと要素を決定
     const bodyId = document.body.id;
@@ -750,21 +842,16 @@ function setupEventListeners() {
     const beaconScanBtn = document.getElementById("beaconScanBtn");
     
     // ★★★ 追加: 拡張機能のサポート判定 ★★★
-    // 1. BLE (Web Bluetooth)
     if (beaconScanBtn) {
         if (!navigator.bluetooth) {
-            // APIがない場合、ボタンを非表示
             beaconScanBtn.style.display = 'none';
-            // (オプション) メッセージを表示
             const beaconStatus = document.getElementById("beaconStatus");
             if (beaconStatus) beaconStatus.textContent = "このブラウザはBLEスキャンに非対応です。";
         }
     }
-    // 2. IC (Deep Link) - 簡易的なiOS判定
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     if (icScanBtn) {
         if (!isIOS) {
-            // iOS以外では 'club-agent://' のディープリンクが動作しないため非表示
             icScanBtn.style.display = 'none';
             const icStatus = document.getElementById("icStatus");
             if (icStatus) icStatus.textContent = "ICスキャンはiPhone/iPadでのみ連携可能です。";
@@ -776,15 +863,17 @@ function setupEventListeners() {
       currentMode = 'reg';
       video = document.getElementById("video");
       statusEl = document.getElementById("status");
+      // ★重要★ 読み込みが終わってから faceMatcher を構築
       rebuildFaceMatcher(); 
     } else if (bodyId === 'page-auth') { 
       currentMode = 'auth';
       video = document.getElementById("video");
       statusEl = document.getElementById("status");
+      // ★重要★ 読み込みが終わってから faceMatcher を構築
       rebuildFaceMatcher();
       
       const icStatus = document.getElementById("icStatus");
-      if (icStatus && isIOS) { // iOSの場合のみURLパラメータをチェック
+      if (icStatus && isIOS) { 
           const urlParams = new URLSearchParams(window.location.search);
           const cardId = urlParams.get('cardId');
           const nfcError = urlParams.get('nfcError');
@@ -815,8 +904,6 @@ function setupEventListeners() {
     // 2. イベントリスナーを設定
     setupEventListeners();
 
-    // (WebSocket接続処理は削除済み)
-
     // 3. 顔認証が必要なページ (auth または reg) のみ、カメラとモデルを起動
     if (currentMode === 'auth' || currentMode === 'reg') {
       if (!video) throw new Error("顔認証に必要なVideo要素が見つかりません");
@@ -826,11 +913,10 @@ function setupEventListeners() {
       video.addEventListener('play', async () => {
         if(statusEl) statusEl.textContent = "モデルを読み込み中...";
         
-        // ★★★ 修正: GitHub Pages用のパス修正 (先頭の '/' を削除) ★★★
+        // (GitHub Pages用のパス修正)
         await faceapi.nets.tinyFaceDetector.loadFromUri('models');
         await faceapi.nets.faceLandmark68Net.loadFromUri('models');
         await faceapi.nets.faceRecognitionNet.loadFromUri('models');
-        // ★★★ 修正ここまで ★★★
 
         if(statusEl) statusEl.textContent = "カメラ再生開始。検出ループをスタートします。";
         setInterval(mainLoop, UPDATE_INTERVAL_MS); 
