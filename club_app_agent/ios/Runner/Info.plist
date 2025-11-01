@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>顔認証の登録・実行のためにカメラを使用します。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>GPS認証エリアを登録するために、現在の位置情報を使用します。</string>
 	<key>CFBundleURLTypes</key>
