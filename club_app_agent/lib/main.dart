@@ -28,6 +28,7 @@ final ValueNotifier<String> _bleStatus = ValueNotifier('BLE初期化中...');
 final ValueNotifier<String> _nfcStatus = ValueNotifier('NFC待機中...');
 final ValueNotifier<String> _applinkStatus = ValueNotifier('ディープリンク待機中...');
 final _appLinks = AppLinks();
+late FaceVerification _faceNetService;
 
 // --- Base64デコード (script.js (v2) 互換) ---
 Float32List _decodeBase64(String base64String) {
@@ -110,6 +111,21 @@ Future<void> loadGpsAreasFromFirestore() async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
+  // ★★★ 修正: AIモデルをアプリ起動時に1回だけ初期化 ★★★
+  try {
+    // この init() が2回呼ばれると "already initialized" エラーでクラッシュする
+    await FaceVerification.init(modelPath: 'assets/mobilefacenet.tflite');
+    _faceNetService = FaceVerification.instance; // グローバル変数にインスタンスを代入
+    debugPrint("FaceNet サービス初期化完了。");
+  } catch (e) {
+    debugPrint("--- 致命的エラー: FaceNet サービスの初期化に失敗しました ---");
+    debugPrint(e.toString());
+    // このエラーはアプリの動作に必須なため、ここで停止
+    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("AIモデルのロードに失敗: $e")))));
+    return;
+  }
+  // ★★★ 修正ここまで ★★★
 
   // 読み込みを並行して実行
   await Future.wait([
@@ -567,6 +583,12 @@ class FaceAdminScreen extends StatefulWidget {
   State<FaceAdminScreen> createState() => _FaceAdminScreenState();
 }
 
+// main.dart の「class _FaceAdminScreenState...」をこれで差し替え
+
+// main.dart の「class _FaceAdminScreenState...」全体をこれで差し替え
+
+// main.dart の「class _FaceAdminScreenState...」全体をこれで差し替え
+
 class _FaceAdminScreenState extends State<FaceAdminScreen> {
   final _nameController = TextEditingController();
   int _scanStep = 0; 
@@ -581,73 +603,184 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
   CameraController? _cameraController;
   late FaceDetector _faceDetector;
   
-  // ★ 修正: 'TFFaceVerification' -> 'TensorflowFaceVerification'
-  final FaceVerification _faceNetService = FaceVerification.instance;
+  // ★ 修正: _faceNetService はグローバル変数を使うため、ここでの 'final' 定義を削除
 
   bool _isDetecting = false;
   Size? _cameraImageSize;
+  
+  // ★ 修正: 回転情報を保持する
+  InputImageRotation? _cameraRotation; 
+  
   Face? _detectedFace;
   img_lib.Image? _croppedFaceImage;
+
+  // --- リアルタイム照合用の状態変数 ---
+  String _detectedName = "不明";
+  Color _boxColor = Colors.red;
+  bool _isGrid = false; // ★ ご要望(格子なし)のため false に固定
+  bool _isFaceMatcherBuilt = false; 
 
   @override
   void initState() {
     super.initState();
     _initializeServices();
+    globalFaces.addListener(_buildFaceMatcher);
   }
 
   @override
   void dispose() {
     _cameraController?.dispose();
-    _faceDetector.close();
+    // ★ 修正: _faceDetector が初期化済みかチェック (クラッシュ回避)
+    if (_faceDetector != null) {
+      _faceDetector.close();
+    }
+    globalFaces.removeListener(_buildFaceMatcher);
     super.dispose();
   }
 
-  Future<void> _initializeServices() async {
-    setState(() { _isLoading = true; _statusMessage = 'カメラとAIモデルを初期化中...'; });
-    _faceDetector = FaceDetector(
-      options: FaceDetectorOptions(
-        enableContours: false,
-        enableLandmarks: false,
-        performanceMode: FaceDetectorMode.fast,
-      ),
-    );
-    final cameras = await availableCameras();
-    final frontCamera = cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.front,
-      orElse: () => cameras.first,
-    );
-    _cameraController = CameraController(
-      frontCamera,
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
-    await _cameraController!.initialize();
-    _cameraImageSize = _cameraController!.value.previewSize;
-    _cameraController!.startImageStream(_processImageStream);
-    _resetState('名前を入力して登録を開始してください。');
+  void _buildFaceMatcher() {
+    _isFaceMatcherBuilt = globalFaces.value.isNotEmpty;
+    debugPrint("FaceMatcher を再構築しました。登録済み: ${globalFaces.value.length} 件");
   }
 
+  String _findBestMatch(Float32List queryDescriptor) {
+    if (!_isFaceMatcherBuilt) return "不明";
+    double minDistance = double.infinity;
+    String bestMatchLabel = "不明";
+    const double threshold = 1.0; 
+
+    double euclideanDistance(Float32List d1, Float32List d2) {
+      double sum = 0.0;
+      for (int i = 0; i < d1.length; i++) {
+        sum += (d1[i] - d2[i]) * (d1[i] - d2[i]);
+      }
+      return sum;
+    }
+
+    for (final face in globalFaces.value) {
+      for (final descriptor in face.descriptors) {
+        final double distance = euclideanDistance(descriptor, queryDescriptor);
+        if (distance < minDistance && distance < threshold) {
+          minDistance = distance;
+          bestMatchLabel = face.label;
+        }
+      }
+    }
+    return bestMatchLabel;
+  }
+
+  Future<void> _initializeServices() async {
+    // ★ 修正: _initializeServices 全体を try-catch
+    try {
+      setState(() { _isLoading = true; _statusMessage = 'カメラとAIモデルを初期化中...'; });
+      
+      // ★ 修正: FaceVerification.init() と _faceNetService の代入を「削除」
+      // (main() で実行済みのため)
+      
+      _faceDetector = FaceDetector(
+        options: FaceDetectorOptions(
+          enableContours: false,
+          enableLandmarks: false,
+          performanceMode: FaceDetectorMode.fast,
+        ),
+      );
+      
+      final cameras = await availableCameras();
+      final frontCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+      
+      // ★ 修正: 回転方向をOSから取得 (左右反転バグ修正)
+      _cameraRotation = InputImageRotationValue.fromRawValue(
+          frontCamera.sensorOrientation);
+      // (iOSの270とAndroidの90を正規化: MLKitは 0, 90, 180, 270 しか受け付けない)
+      // (多くのフロントカメラは 270 (反時計回り) になる)
+      if (_cameraRotation == null) {
+         _cameraRotation = InputImageRotation.rotation270deg; 
+         debugPrint("カメラ回転の取得に失敗、270deg にフォールバックします");
+      }
+          
+      _cameraController = CameraController(
+        frontCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+      
+      await _cameraController!.initialize();
+      _cameraImageSize = _cameraController!.value.previewSize;
+      
+      _buildFaceMatcher(); 
+      
+      _cameraController!.startImageStream(_processImageStream);
+      _resetState('顔を検出中...');
+    } catch (e) {
+      debugPrint("初期化エラー: $e");
+      _resetState('カメラとAIの初期化に失敗しました。');
+      _showErrorDialog("初期化エラー", "カメラまたはAIモデルの起動に失敗しました: $e");
+    }
+  }
+
+  // --- リアルタイム照合ロジック ---
   void _processImageStream(CameraImage cameraImage) async {
-    if (_isDetecting || _scanStep == 0) return;
+    if (_isDetecting) return;
     _isDetecting = true;
     
-    // ★ 修正: _inputImageFromCameraImage ヘルパーを呼び出す
-    final inputImage = _inputImageFromCameraImage(cameraImage);
+    final inputImage = _inputImageFromCameraImage(cameraImage, _cameraRotation);
+    if (inputImage == null) {
+      _isDetecting = false;
+      return;
+    }
     
     try {
       final faces = await _faceDetector.processImage(inputImage);
+      
       if (faces.isNotEmpty) {
         _detectedFace = faces.reduce((a, b) => a.boundingBox.width > b.boundingBox.width ? a : b);
         
-        // ★ 修正: _cropFace ヘルパーを呼び出す
-        _croppedFaceImage = _cropFace(cameraImage, _detectedFace!);
+        _croppedFaceImage = _cropFace(cameraImage, _detectedFace!, _cameraRotation!);
+        if (_croppedFaceImage == null) { 
+            throw Exception("YUV conversion failed");
+        }
+
+        if (_scanStep == 0 && _isFaceMatcherBuilt) { // 待機中
+          try {
+            final List<double> descriptor = await _faceNetService.extractFaceEmbedding(_croppedFaceImage!);
+            _detectedName = _findBestMatch(Float32List.fromList(descriptor));
+            
+            if (_detectedName == "不明") {
+                _boxColor = Colors.red;
+                _isGrid = false; // ご要望（格子なし）
+            } else {
+                _boxColor = Colors.green;
+                _isGrid = false; // ご要望（格子なし）
+            }
+            
+          } catch (e) {
+            _detectedName = "不明";
+            _boxColor = Colors.red;
+            _isGrid = false;
+          }
+        } else if (_scanStep > 0) { // スキャン中
+           _detectedName = ""; 
+           _boxColor = Colors.green;
+           _isGrid = false;
+        } else { // 待機中 (照合器なし)
+           _detectedName = "不明";
+           _boxColor = Colors.red;
+           _isGrid = false;
+        }
         
       } else {
         _detectedFace = null;
         _croppedFaceImage = null;
+        _detectedName = "不明";
       }
     } catch (e) {
-      debugPrint('顔検出エラー: $e');
+      debugPrint('顔検出/処理エラー: $e');
+      _detectedFace = null;
+      _croppedFaceImage = null;
+      _detectedName = "不明";
     } finally {
       if (mounted) setState(() {});
       _isDetecting = false;
@@ -672,21 +805,23 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
       });
       return;
     }
+    
     if (_detectedFace == null || _croppedFaceImage == null) {
-      _showErrorDialog('スキャンエラー', '${_scanInstructions[_scanStep]} の顔を検出できません。');
+      _showErrorDialog('スキャンエラー', '${_scanInstructions[_scanStep]} の顔を検出できません。\n(顔を枠内に収めてください)');
       return;
     }
+    
     setState(() { _isLoading = true; _statusMessage = 'スキャン中... ($_scanStep/5)'; });
+    
     try {
-      final List<double> descriptor = await _faceNetService.extractFaceEmbedding(
-        _croppedFaceImage!,
-      );
+      final List<double> descriptor = await _faceNetService.extractFaceEmbedding(_croppedFaceImage!);
       _scanDescriptors.add(Float32List.fromList(descriptor));
     } catch (e) {
       _showErrorDialog('特徴量エラー', '顔の特徴量の生成に失敗しました: $e');
       _resetState('エラーが発生しました。', clearName: false);
       return;
     }
+
     if (_scanStep == 1) {
       final jpgBytes = img_lib.encodeJpg(_croppedFaceImage!, quality: 80);
       _scanThumbnailBase64 = 'data:image/jpeg;base64,${base64Encode(jpgBytes)}';
@@ -702,16 +837,14 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
     }
   }
 
+  String encodeBase64(Float32List floatList) {
+    final uint8Array = floatList.buffer.asUint8List();
+    final binaryString = String.fromCharCodes(uint8Array);
+    return base64Encode(utf8.encode(binaryString));
+  }
+
   Future<void> _saveFaceToFirestore(String label, List<Float32List> descriptors, String thumbnailDataUrl) async {
     setState(() { _statusMessage = 'データベースに保存中...'; });
-    
-    String encodeBase64(Float32List floatList) {
-      final uint8Array = floatList.buffer.asUint8List();
-      // ★ 修正: JSの atob/btoa 互換のDartエンコード
-      final binaryString = String.fromCharCodes(uint8Array);
-      return base64Encode(utf8.encode(binaryString));
-    }
-        
     try {
       final dataToSave = {
         'label': label,
@@ -728,7 +861,9 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
       currentFaces.removeWhere((f) => f.label == label); 
       currentFaces.add(newFace);
       globalFaces.value = currentFaces;
+      
       _resetState('✅ 登録成功: 「$label」さんを登録しました。');
+      
     } catch (e) {
       _showErrorDialog('DB保存エラー', 'データベースへの保存に失敗しました: $e');
       _resetState('エラーが発生しました。', clearName: false);
@@ -741,6 +876,9 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
       _isLoading = false;
       _statusMessage = message;
       if (clearName) _nameController.clear();
+      _detectedName = "不明";
+      _boxColor = Colors.red;
+      _isGrid = false; // ご要望(格子なし)のため false に固定
     });
   }
 
@@ -799,18 +937,23 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
             fit: StackFit.expand,
             children: [
               CameraPreview(_cameraController!),
-              if (_detectedFace != null && _cameraImageSize != null)
+              if (_detectedFace != null && _cameraImageSize != null && _cameraRotation != null)
                 CustomPaint(
                   painter: FaceBoxPainter(
                     face: _detectedFace!,
                     imageSize: _cameraImageSize!,
+                    rotation: _cameraRotation!, // ★ 修正: 回転を渡す
+                    name: _detectedName,
+                    color: _boxColor,
+                    isGrid: _isGrid, // ★ 修正: _isGrid を渡す
                   ),
                 ),
             ],
           ),
         ),
         const SizedBox(height: 10),
-        Text(_statusMessage, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        Text(_scanStep > 0 ? _statusMessage : "", 
+            style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
         const SizedBox(height: 10),
         TextField(
           controller: _nameController,
@@ -848,7 +991,6 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
                 if (face.thumbnail.startsWith('data:image')) {
                   imageProvider = MemoryImage(base64Decode(face.thumbnail.split(',').last));
                 } else {
-                  // これからのTODO: assets/placeholder.png を pubspec.yaml に追加する必要があります
                   imageProvider = const AssetImage('assets/placeholder.png'); 
                 }
                 return Card(
@@ -881,35 +1023,122 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
   }
 }
 
-// --- 9. ヘルパー関数群 (ファイルの末尾) ---
+// --- ★ 修正 ★ 9. ヘルパー関数群 (ファイルの末尾) ---
 
-// ★ 顔の枠を描画するヘルパーウィジェット ★
+// main.dart の一番末尾
+// ★ 修正 ★ FaceBoxPainter クラス (左右反転バグ 最終修正版)
 class FaceBoxPainter extends CustomPainter {
   final Face face;
   final Size imageSize;
-  FaceBoxPainter({required this.face, required this.imageSize});
+  final InputImageRotation rotation; // ★ 回転の向き
+  final String name;
+  final Color color;
+  final bool isGrid; 
+
+  FaceBoxPainter({
+    required this.face, 
+    required this.imageSize,
+    required this.rotation,
+    required this.name,
+    required this.color,
+    required this.isGrid, 
+  });
+
   @override
   void paint(Canvas canvas, Size size) {
-    final scaleX = size.width / imageSize.width;
-    final scaleY = size.height / imageSize.height;
-    final rect = Rect.fromLTRB(
-      face.boundingBox.left * scaleX,
-      face.boundingBox.top * scaleY,
-      face.boundingBox.right * scaleX,
-      face.boundingBox.bottom * scaleY,
-    );
+    // プレビュー(size) と 画像(imageSize) のスケール（比率）を計算
+    // 回転(rotation)に応じて、画像の幅と高さを入れ替える
+    final bool isRotated = rotation == InputImageRotation.rotation90deg || rotation == InputImageRotation.rotation270deg;
+    
+    final double scaleX = size.width / (isRotated ? imageSize.height : imageSize.width);
+    final double scaleY = size.height / (isRotated ? imageSize.width : imageSize.height);
+
+    // ★ 修正: 回転と反転を考慮した座標変換 (iOS/Android共通)
+    Rect scaleRect(Face face) {
+      switch (rotation) {
+        // (省略: 90度は通常リアカメラ)
+        case InputImageRotation.rotation90deg:
+          return Rect.fromLTRB(
+              face.boundingBox.left * scaleX,
+              face.boundingBox.top * scaleY,
+              face.boundingBox.right * scaleX,
+              face.boundingBox.bottom * scaleY);
+        
+        // ★ これがフロントカメラ(270度) + ミラーリング(左右反転)の正しい補正
+        case InputImageRotation.rotation270deg:
+          return Rect.fromLTRB(
+              (imageSize.height - face.boundingBox.bottom) * scaleX,
+              face.boundingBox.left * scaleY,
+              (imageSize.height - face.boundingBox.top) * scaleX,
+              face.boundingBox.right * scaleY);
+        
+        default: // 0度または180度
+          return Rect.fromLTRB(
+              face.boundingBox.left * scaleX,
+              face.boundingBox.top * scaleY,
+              face.boundingBox.right * scaleX,
+              face.boundingBox.bottom * scaleY);
+      }
+    }
+    
+    final Rect rect = scaleRect(face);
     final paint = Paint()
-      ..color = Colors.green
+      ..color = color 
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.0;
+
     canvas.drawRect(rect, paint);
+    
+    // 格子 (ご要望により 'isGrid' は常に false が渡される)
+    if (isGrid) {
+      paint.strokeWidth = 1.0;
+      canvas.drawLine(
+        Offset(rect.left + rect.width / 2, rect.top),
+        Offset(rect.left + rect.width / 2, rect.bottom),
+        paint
+      );
+      canvas.drawLine(
+        Offset(rect.left, rect.top + rect.height / 2),
+        Offset(rect.right, rect.top + rect.height / 2),
+        paint
+      );
+    }
+    
+    if (name.isNotEmpty && name != "不明") {
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: name,
+          style: TextStyle(
+            color: color, 
+            fontSize: 18.0,
+            backgroundColor: const Color.fromRGBO(0, 0, 0, 0.5), 
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(rect.left, rect.top - textPainter.height - 4));
+    }
   }
+
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant FaceBoxPainter oldDelegate) {
+     return oldDelegate.face != face || 
+            oldDelegate.name != name || 
+            oldDelegate.color != color ||
+            oldDelegate.isGrid != isGrid;
+  }
 }
 
-// ★ カメラ画像をMLKitのInputImageに変換するヘルパー ★
-InputImage _inputImageFromCameraImage(CameraImage image) {
+// main.dart の一番末尾 (FaceBoxPainter の後)
+
+// main.dart の一番末尾 (FaceBoxPainter の後)
+
+// ★ 修正 ★ カメラ画像をMLKitのInputImageに変換するヘルパー
+InputImage? _inputImageFromCameraImage(CameraImage image, InputImageRotation? rotation) {
+  // ★ 修正: rotation が null なら処理中断
+  if (rotation == null) return null;
+
   final WriteBuffer allBytes = WriteBuffer();
   for (final Plane plane in image.planes) {
     allBytes.putUint8List(plane.bytes);
@@ -917,13 +1146,9 @@ InputImage _inputImageFromCameraImage(CameraImage image) {
   final bytes = allBytes.done().buffer.asUint8List();
   final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
   
-  // これからのTODO: 回転 (rotation) はデバイスの向きによって調整が必要です
-  final InputImageRotation imageRotation = InputImageRotation.rotation0deg; 
-  
-  // ★ 修正: 'InputImageData' -> 'InputImageMetadata'
   final InputImageMetadata metadata = InputImageMetadata(
     size: imageSize,
-    rotation: imageRotation,
+    rotation: rotation, // ★ 修正: 'late' 変数から取得した回転を渡す
     format: InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21,
     bytesPerRow: image.planes[0].bytesPerRow,
   );
@@ -931,17 +1156,140 @@ InputImage _inputImageFromCameraImage(CameraImage image) {
   return InputImage.fromBytes(bytes: bytes, metadata: metadata);
 }
 
-// ★ カメラ画像を (TFLite用) img_lib.Image に変換するヘルパー ★
-img_lib.Image _cropFace(CameraImage image, Face face) {
-  // これからのTODO: YUVからRGBへの変換を正しく実装する必要があります
-  // この暫定対応では、顔の特徴量生成 (getFaceEmbedding) が失敗します。
+// main.dart の一番末尾
+// ★ 修正 ★ _cropFace 関数 (YUV -> RGB 変換 / 特徴量エラー 修正版)
+img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotation) {
   
-  // ★ 修正: 未使用変数の警告を削除 (暫定対応)
-  // final x = face.boundingBox.left.toInt();
-  // final y = face.boundingBox.top.toInt();
-  // final w = face.boundingBox.width.toInt();
-  // final h = face.boundingBox.height.toInt();
+  img_lib.Image? convertedImage;
+
+  // 1. YUV から RGB への変換
+  if (image.format.group == ImageFormatGroup.yuv420) {
+    // ★ 修正: RangeError 回避のため、プレーンの数をチェック
+    convertedImage = img_lib.Image(width: image.width, height: image.height); // 空の画像
+    
+    final yPlane = image.planes[0].bytes;
+    final uPlane = image.planes[1].bytes;
+    final yRowStride = image.planes[0].bytesPerRow;
+    final uvRowStride = image.planes[1].bytesPerRow;
+    final uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
+
+    // ★ 修正: Android(YUV420) と iOS(NV21) でロジックを分岐
+    if (image.planes.length == 3) {
+      // Android (YUV420P or YUV_420_888)
+      final vPlane = image.planes[2].bytes;
+      final vRowStride = image.planes[2].bytesPerRow;
+      final vPixelStride = image.planes[2].bytesPerPixel ?? 1;
+
+      for (int y = 0; y < image.height; y++) {
+        for (int x = 0; x < image.width; x++) {
+          final int yIndex = y * yRowStride + x;
+          
+          // U/Vプレーンのインデックスを個別に計算
+          final int uvx = x ~/ 2;
+          final int uvy = y ~/ 2;
+          final int uIndex = uvy * uvRowStride + uvx * uvPixelStride;
+          final int vIndex = uvy * vRowStride + uvx * vPixelStride;
+
+          // 範囲外チェック (RangeError の原因)
+          if (yIndex >= yPlane.length || uIndex >= uPlane.length || vIndex >= vPlane.length) continue; 
+
+          final int yValue = yPlane[yIndex];
+          final int uValue = uPlane[uIndex];
+          final int vValue = vPlane[vIndex]; // Vプレーンから取得
+
+          final int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
+          final int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
+          final int b = (yValue + 2.03211 * (uValue - 128)).round().clamp(0, 255);
+          convertedImage.setPixelRgb(x, y, r, g, b);
+        }
+      }
+    } else if (image.planes.length == 2) {
+      // iOS (NV21)
+      for (int y = 0; y < image.height; y++) {
+        for (int x = 0; x < image.width; x++) {
+          final int yIndex = y * yRowStride + x;
+          // (U/V が Plane 1 に VU VU ... とインターリーブされている)
+          final int uvIndex = (y ~/ 2) * uvRowStride + (x ~/ 2) * uvPixelStride;
+          
+          // 範囲外チェック (RangeError の原因)
+          if (yIndex >= yPlane.length || uvIndex + 1 >= uPlane.length) continue; 
+
+          final int yValue = yPlane[yIndex];
+          final int vValue = uPlane[uvIndex]; // Vが先
+          final int uValue = uPlane[uvIndex + 1]; // Uが後
+
+          final int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
+          final int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
+          final int b = (yValue + 2.03211 * (uValue - 128)).round().clamp(0, 255);
+          convertedImage.setPixelRgb(x, y, r, g, b);
+        }
+      }
+    }
+  } 
+  else if (image.format.group == ImageFormatGroup.bgra8888) {
+    // BGRA (iOSシミュレータなど)
+    convertedImage = img_lib.Image.fromBytes(
+        width: image.width,
+        height: image.height,
+        bytes: image.planes[0].bytes.buffer,
+        format: img_lib.Format.uint8,
+        rowStride: image.planes[0].bytesPerRow,
+        numChannels: 4 // BGRA
+    );
+  }
+  else {
+    debugPrint("未対応の画像フォーマット: ${image.format.group}");
+    return null; // 変換に失敗
+  }
+
+  if (convertedImage == null) return null;
+
+  // 2. ★ 修正: ML Kit が返す座標は「回転前」の画像基準
+  // (InputImageRotation (rotation) に応じて画像を回転)
+  img_lib.Image rotatedImage;
+  if (rotation == InputImageRotation.rotation90deg) {
+    rotatedImage = img_lib.copyRotate(convertedImage, angle: 90);
+  } else if (rotation == InputImageRotation.rotation270deg) {
+    rotatedImage = img_lib.copyRotate(convertedImage, angle: -90);
+  } else if (rotation == InputImageRotation.rotation180deg) {
+    rotatedImage = img_lib.copyRotate(convertedImage, angle: 180);
+  } else {
+    rotatedImage = convertedImage;
+  }
+
+  // 3. ML Kit の BoundingBox で切り抜き (回転させた画像に対する座標に変換)
+  // (回転(rotation)に応じて座標系を変換)
+  Rect cropRect;
+  switch (rotation) {
+    case InputImageRotation.rotation90deg:
+      cropRect = Rect.fromLTRB(
+          face.boundingBox.left.toDouble(),
+          face.boundingBox.top.toDouble(),
+          face.boundingBox.right.toDouble(),
+          face.boundingBox.bottom.toDouble());
+      break;
+    case InputImageRotation.rotation270deg:
+      // (左右反転もここで補正)
+      cropRect = Rect.fromLTRB(
+          face.boundingBox.top.toDouble(),
+          (rotatedImage.height - face.boundingBox.right).toDouble(),
+          face.boundingBox.bottom.toDouble(),
+          (rotatedImage.height - face.boundingBox.left).toDouble());
+      break;
+    default: // 0度または180度
+      cropRect = Rect.fromLTRB(
+          face.boundingBox.left.toDouble(),
+          face.boundingBox.top.toDouble(),
+          face.boundingBox.right.toDouble(),
+          face.boundingBox.bottom.toDouble());
+  }
+
+  final x = cropRect.left.toInt().clamp(0, rotatedImage.width - 1);
+  final y = cropRect.top.toInt().clamp(0, rotatedImage.height - 1);
+  final w = cropRect.width.toInt().clamp(0, rotatedImage.width - x);
+  final h = cropRect.height.toInt().clamp(0, rotatedImage.height - y);
   
-  // 暫定対応: TFLiteが要求するサイズ (112x112) の空の画像を返す
-  return img_lib.Image(width: 112, height: 112, numChannels: 3); 
+  // 4. 切り抜いて TFLite が要求する 112x112 にリサイズ
+  final img_lib.Image croppedFace = img_lib.copyCrop(rotatedImage, x: x, y: y, width: w, height: h);
+  return img_lib.copyResize(croppedFace, width: 112, height: 112);
 }
