@@ -601,7 +601,7 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
   List<Float32List> _scanDescriptors = [];
   String _scanThumbnailBase64 = ''; 
   CameraController? _cameraController;
-  late FaceDetector _faceDetector;
+  FaceDetector? _faceDetector;
   
   // ★ 修正: _faceNetService はグローバル変数を使うため、ここでの 'final' 定義を削除
 
@@ -632,7 +632,7 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
     _cameraController?.dispose();
     // ★ 修正: _faceDetector が初期化済みかチェック (クラッシュ回避)
     if (_faceDetector != null) {
-      _faceDetector.close();
+      _faceDetector?.close();
     }
     globalFaces.removeListener(_buildFaceMatcher);
     super.dispose();
@@ -733,7 +733,7 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
     }
     
     try {
-      final faces = await _faceDetector.processImage(inputImage);
+      final faces = await _faceDetector!.processImage(inputImage);
       
       if (faces.isNotEmpty) {
         _detectedFace = faces.reduce((a, b) => a.boundingBox.width > b.boundingBox.width ? a : b);
@@ -812,11 +812,28 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
     }
     
     setState(() { _isLoading = true; _statusMessage = 'スキャン中... ($_scanStep/5)'; });
+
+    if (_croppedFaceImage != null) {
+      debugPrint("--- DEBUG (A-1): AIモデルに画像を渡します ---");
+      final imageBytes = _croppedFaceImage!.toUint8List();
+      debugPrint("Image Width: ${_croppedFaceImage!.width}");
+      debugPrint("Image Height: ${_croppedFaceImage!.height}");
+      debugPrint("Image Num Channels: ${_croppedFaceImage!.numChannels}");
+      debugPrint("Image Format: ${_croppedFaceImage!.format}");
+      // ★ 修正: 実際のバッファ長を出力
+      debugPrint("Image Buffer Length: ${imageBytes.length}");
+    } else {
+      debugPrint("--- DEBUG (A-1): AIモデルに渡す画像が Null です ---");
+    }
     
     try {
       final List<double> descriptor = await _faceNetService.extractFaceEmbedding(_croppedFaceImage!);
       _scanDescriptors.add(Float32List.fromList(descriptor));
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint("--- DEBUG (A-2): 特徴量エラーが発生しました ---");
+      debugPrint("ERROR: $e");
+      debugPrint("STACKTRACE: $stackTrace"); // スタックトレースをコンソールに出力
+      debugPrint("--- DEBUG (A-2): END ---");
       _showErrorDialog('特徴量エラー', '顔の特徴量の生成に失敗しました: $e');
       _resetState('エラーが発生しました。', clearName: false);
       return;
@@ -1157,139 +1174,125 @@ InputImage? _inputImageFromCameraImage(CameraImage image, InputImageRotation? ro
 }
 
 // main.dart の一番末尾
-// ★ 修正 ★ _cropFace 関数 (YUV -> RGB 変換 / 特徴量エラー 修正版)
+// ★ 修正 ★ _cropFace 関数 (OBO バグ回避のため Float32 形式に変換)
 img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotation) {
   
   img_lib.Image? convertedImage;
 
   // 1. YUV から RGB への変換
   if (image.format.group == ImageFormatGroup.yuv420) {
-    // ★ 修正: RangeError 回避のため、プレーンの数をチェック
-    convertedImage = img_lib.Image(width: image.width, height: image.height); // 空の画像
+    // 3チャンネル (RGB) の Uint8 形式で作成
+    convertedImage = img_lib.Image(
+        width: image.width, height: image.height, 
+        format: img_lib.Format.uint8, numChannels: 3);
     
     final yPlane = image.planes[0].bytes;
-    final uPlane = image.planes[1].bytes;
     final yRowStride = image.planes[0].bytesPerRow;
-    final uvRowStride = image.planes[1].bytesPerRow;
-    final uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
-
-    // ★ 修正: Android(YUV420) と iOS(NV21) でロジックを分岐
     if (image.planes.length == 3) {
-      // Android (YUV420P or YUV_420_888)
+      final uPlane = image.planes[1].bytes;
       final vPlane = image.planes[2].bytes;
+      final uvRowStride = image.planes[1].bytesPerRow;
       final vRowStride = image.planes[2].bytesPerRow;
+      final uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
       final vPixelStride = image.planes[2].bytesPerPixel ?? 1;
-
       for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
           final int yIndex = y * yRowStride + x;
-          
-          // U/Vプレーンのインデックスを個別に計算
           final int uvx = x ~/ 2;
           final int uvy = y ~/ 2;
           final int uIndex = uvy * uvRowStride + uvx * uvPixelStride;
           final int vIndex = uvy * vRowStride + uvx * vPixelStride;
-
-          // 範囲外チェック (RangeError の原因)
-          if (yIndex >= yPlane.length || uIndex >= uPlane.length || vIndex >= vPlane.length) continue; 
-
+          if (yIndex >= yPlane.length || uIndex >= uPlane.length || vIndex >= vPlane.length) continue;
           final int yValue = yPlane[yIndex];
           final int uValue = uPlane[uIndex];
-          final int vValue = vPlane[vIndex]; // Vプレーンから取得
-
+          final int vValue = vPlane[vIndex];
           final int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
           final int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
-          final int b = (yValue + 2.03211 * (uValue - 128)).round().clamp(0, 255);
+          final int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255); 
           convertedImage.setPixelRgb(x, y, r, g, b);
         }
       }
     } else if (image.planes.length == 2) {
-      // iOS (NV21)
+      final uPlane = image.planes[1].bytes;
+      final uvRowStride = image.planes[1].bytesPerRow;
+      final uvPixelStride = image.planes[1].bytesPerPixel ?? 2;
       for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
           final int yIndex = y * yRowStride + x;
-          // (U/V が Plane 1 に VU VU ... とインターリーブされている)
           final int uvIndex = (y ~/ 2) * uvRowStride + (x ~/ 2) * uvPixelStride;
-          
-          // 範囲外チェック (RangeError の原因)
-          if (yIndex >= yPlane.length || uvIndex + 1 >= uPlane.length) continue; 
-
+          if (yIndex >= yPlane.length || uvIndex + 1 >= uPlane.length) continue;
           final int yValue = yPlane[yIndex];
-          final int vValue = uPlane[uvIndex]; // Vが先
-          final int uValue = uPlane[uvIndex + 1]; // Uが後
-
+          final int vValue = uPlane[uvIndex];
+          final int uValue = uPlane[uvIndex + 1];
           final int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
           final int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
-          final int b = (yValue + 2.03211 * (uValue - 128)).round().clamp(0, 255);
+          final int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255);
           convertedImage.setPixelRgb(x, y, r, g, b);
         }
       }
     }
   } 
   else if (image.format.group == ImageFormatGroup.bgra8888) {
-    // BGRA (iOSシミュレータなど)
-    convertedImage = img_lib.Image.fromBytes(
-        width: image.width,
-        height: image.height,
-        bytes: image.planes[0].bytes.buffer,
-        format: img_lib.Format.uint8,
-        rowStride: image.planes[0].bytesPerRow,
-        numChannels: 4 // BGRA
-    );
+    // BGRA (iOS実機など)
+    final img_lib.Image bgraImage = img_lib.Image.fromBytes(
+        width: image.width, height: image.height, bytes: image.planes[0].bytes.buffer,
+        format: img_lib.Format.uint8, rowStride: image.planes[0].bytesPerRow, numChannels: 4);
+    convertedImage = img_lib.Image(
+        width: image.width, height: image.height, 
+        format: img_lib.Format.uint8, numChannels: 3);
+    for (final pixel in bgraImage) {
+        convertedImage.setPixelRgb(pixel.x, pixel.y, pixel.r, pixel.g, pixel.b);
+    }
   }
   else {
     debugPrint("未対応の画像フォーマット: ${image.format.group}");
-    return null; // 変換に失敗
+    return null;
   }
 
-  if (convertedImage == null) return null;
+  // 2. 切り抜き (Crop) (変更なし)
+  final x = face.boundingBox.left.toInt().clamp(0, convertedImage.width - 1);
+  final y = face.boundingBox.top.toInt().clamp(0, convertedImage.height - 1);
+  final w = face.boundingBox.width.toInt().clamp(0, convertedImage.width - x);
+  final h = face.boundingBox.height.toInt().clamp(0, convertedImage.height - y);
+  final img_lib.Image croppedFace = img_lib.copyCrop(convertedImage, x: x, y: y, width: w, height: h);
 
-  // 2. ★ 修正: ML Kit が返す座標は「回転前」の画像基準
-  // (InputImageRotation (rotation) に応じて画像を回転)
+  // 3. 回転 (Rotate) (変更なし)
   img_lib.Image rotatedImage;
   if (rotation == InputImageRotation.rotation90deg) {
-    rotatedImage = img_lib.copyRotate(convertedImage, angle: 90);
+    rotatedImage = img_lib.copyRotate(croppedFace, angle: 90);
   } else if (rotation == InputImageRotation.rotation270deg) {
-    rotatedImage = img_lib.copyRotate(convertedImage, angle: -90);
+    rotatedImage = img_lib.copyRotate(croppedFace, angle: -90);
   } else if (rotation == InputImageRotation.rotation180deg) {
-    rotatedImage = img_lib.copyRotate(convertedImage, angle: 180);
+    rotatedImage = img_lib.copyRotate(croppedFace, angle: 180);
   } else {
-    rotatedImage = convertedImage;
+    rotatedImage = croppedFace;
   }
-
-  // 3. ML Kit の BoundingBox で切り抜き (回転させた画像に対する座標に変換)
-  // (回転(rotation)に応じて座標系を変換)
-  Rect cropRect;
-  switch (rotation) {
-    case InputImageRotation.rotation90deg:
-      cropRect = Rect.fromLTRB(
-          face.boundingBox.left.toDouble(),
-          face.boundingBox.top.toDouble(),
-          face.boundingBox.right.toDouble(),
-          face.boundingBox.bottom.toDouble());
-      break;
-    case InputImageRotation.rotation270deg:
-      // (左右反転もここで補正)
-      cropRect = Rect.fromLTRB(
-          face.boundingBox.top.toDouble(),
-          (rotatedImage.height - face.boundingBox.right).toDouble(),
-          face.boundingBox.bottom.toDouble(),
-          (rotatedImage.height - face.boundingBox.left).toDouble());
-      break;
-    default: // 0度または180度
-      cropRect = Rect.fromLTRB(
-          face.boundingBox.left.toDouble(),
-          face.boundingBox.top.toDouble(),
-          face.boundingBox.right.toDouble(),
-          face.boundingBox.bottom.toDouble());
-  }
-
-  final x = cropRect.left.toInt().clamp(0, rotatedImage.width - 1);
-  final y = cropRect.top.toInt().clamp(0, rotatedImage.height - 1);
-  final w = cropRect.width.toInt().clamp(0, rotatedImage.width - x);
-  final h = cropRect.height.toInt().clamp(0, rotatedImage.height - y);
   
-  // 4. 切り抜いて TFLite が要求する 112x112 にリサイズ
-  final img_lib.Image croppedFace = img_lib.copyCrop(rotatedImage, x: x, y: y, width: w, height: h);
-  return img_lib.copyResize(croppedFace, width: 112, height: 112);
+  // 4. TFLite が要求する 112x112 にリサイズ
+  final img_lib.Image finalImageToReturn = img_lib.copyResize(rotatedImage, width: 112, height: 112);
+  
+  // --- (★ 修正: 'PixelUint8.r' の OBO バグ回避ハック) ---
+  
+  // 4a. 112x112x3 の Uint8List を取得
+  final Uint8List imageBytes = finalImageToReturn.toUint8List();
+  
+  // 4b. 112x112x3 の Float32List を作成
+  final Float32List floatBytes = Float32List(112 * 112 * 3);
+  
+  // 4c. Uint8 (0-255) を Float32 (0.0-255.0) に変換
+  for (int i = 0; i < imageBytes.length; i++) {
+      floatBytes[i] = imageBytes[i].toDouble();
+  }
+
+  // 4d. Float32 形式の新しい Image オブジェクトを作成
+  final img_lib.Image floatImage = img_lib.Image.fromBytes(
+      width: 112,
+      height: 112,
+      bytes: floatBytes.buffer, // ★ Float32List のバッファを渡す
+      numChannels: 3,
+      format: img_lib.Format.float32 // ★ Format.float32 を指定
+  );
+
+  return floatImage; // ★ パディングされた画像を返す
+  // --- (★ 修正ここまで) ---
 }
