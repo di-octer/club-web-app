@@ -16,7 +16,7 @@ import 'models/face_object.dart';
 import 'dart:convert'; // Base64変換用
 import 'package:camera/camera.dart'; // カメラ
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'; // 顔検出
-import 'package:tensorflow_face_verification/tensorflow_face_verification.dart'; // 特徴量生成
+import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img_lib; // 画像処理
 
 // --- グローバル変数 ---
@@ -28,18 +28,11 @@ final ValueNotifier<String> _bleStatus = ValueNotifier('BLE初期化中...');
 final ValueNotifier<String> _nfcStatus = ValueNotifier('NFC待機中...');
 final ValueNotifier<String> _applinkStatus = ValueNotifier('ディープリンク待機中...');
 final _appLinks = AppLinks();
-late FaceVerification _faceNetService;
+late Interpreter _interpreter;
 
 // --- Base64デコード (script.js (v2) 互換) ---
 Float32List _decodeBase64(String base64String) {
-  final String binaryString = utf8.decode(base64Decode(base64String), allowMalformed: true);
-  final len = binaryString.length;
-  final uint8Array = Uint8List(len);
-  
-  // ★ 修正: 'let' (JS) -> 'int' (Dart)
-  for (int i = 0; i < len; i++) {
-    uint8Array[i] = binaryString.codeUnitAt(i);
-  }
+  final Uint8List uint8Array = base64Decode(base64String);
   return uint8Array.buffer.asFloat32List();
 }
 
@@ -114,14 +107,11 @@ void main() async {
 
   // ★★★ 修正: AIモデルをアプリ起動時に1回だけ初期化 ★★★
   try {
-    // この init() が2回呼ばれると "already initialized" エラーでクラッシュする
-    await FaceVerification.init(modelPath: 'assets/mobilefacenet.tflite');
-    _faceNetService = FaceVerification.instance; // グローバル変数にインスタンスを代入
+    _interpreter = await Interpreter.fromAsset('assets/mobilefacenet.tflite');
     debugPrint("FaceNet サービス初期化完了。");
   } catch (e) {
     debugPrint("--- 致命的エラー: FaceNet サービスの初期化に失敗しました ---");
     debugPrint(e.toString());
-    // このエラーはアプリの動作に必須なため、ここで停止
     runApp(MaterialApp(home: Scaffold(body: Center(child: Text("AIモデルのロードに失敗: $e")))));
     return;
   }
@@ -585,10 +575,6 @@ class FaceAdminScreen extends StatefulWidget {
 
 // main.dart の「class _FaceAdminScreenState...」をこれで差し替え
 
-// main.dart の「class _FaceAdminScreenState...」全体をこれで差し替え
-
-// main.dart の「class _FaceAdminScreenState...」全体をこれで差し替え
-
 class _FaceAdminScreenState extends State<FaceAdminScreen> {
   final _nameController = TextEditingController();
   int _scanStep = 0; 
@@ -613,6 +599,7 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
   
   Face? _detectedFace;
   img_lib.Image? _croppedFaceImage;
+  CameraImage? _lastCameraImage;
 
   // --- リアルタイム照合用の状態変数 ---
   String _detectedName = "不明";
@@ -725,6 +712,7 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
   void _processImageStream(CameraImage cameraImage) async {
     if (_isDetecting) return;
     _isDetecting = true;
+    _lastCameraImage = cameraImage;
     
     final inputImage = _inputImageFromCameraImage(cameraImage, _cameraRotation);
     if (inputImage == null) {
@@ -745,8 +733,8 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
 
         if (_scanStep == 0 && _isFaceMatcherBuilt) { // 待機中
           try {
-            final List<double> descriptor = await _faceNetService.extractFaceEmbedding(_croppedFaceImage!);
-            _detectedName = _findBestMatch(Float32List.fromList(descriptor));
+            final Float32List descriptor = await _getEmbedding(_croppedFaceImage!);
+            _detectedName = _findBestMatch(descriptor);
             
             if (_detectedName == "不明") {
                 _boxColor = Colors.red;
@@ -825,10 +813,22 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
     } else {
       debugPrint("--- DEBUG (A-1): AIモデルに渡す画像が Null です ---");
     }
+
+    if (_scanStep == 1) {
+      // ★★★ 修正箇所 (サムネイルの回転と色味の問題を修正) ★★★
+      // AI用の画像 (_croppedFaceImage) は回転・色変換されている可能性があるため、
+      // サムネイルは「元のカメラ画像」から直接、回転させずに切り抜く
+      final originalImage = _cropFace(_lastCameraImage!, _detectedFace!, _cameraRotation!, forThumbnail: true);
+      if (originalImage != null) {
+          final jpgBytes = img_lib.encodeJpg(originalImage, quality: 80);
+          _scanThumbnailBase64 = 'data:image/jpeg;base64,${base64Encode(jpgBytes)}';
+      }
+      // ★★★ 修正ここまで ★★★
+    }
     
     try {
-      final List<double> descriptor = await _faceNetService.extractFaceEmbedding(_croppedFaceImage!);
-      _scanDescriptors.add(Float32List.fromList(descriptor));
+      final Float32List descriptor = await _getEmbedding(_croppedFaceImage!);
+      _scanDescriptors.add(descriptor);
     } catch (e, stackTrace) {
       debugPrint("--- DEBUG (A-2): 特徴量エラーが発生しました ---");
       debugPrint("ERROR: $e");
@@ -839,10 +839,6 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
       return;
     }
 
-    if (_scanStep == 1) {
-      final jpgBytes = img_lib.encodeJpg(_croppedFaceImage!, quality: 80);
-      _scanThumbnailBase64 = 'data:image/jpeg;base64,${base64Encode(jpgBytes)}';
-    }
     _scanStep++;
     if (_scanStep > 5) {
       await _saveFaceToFirestore(newName, _scanDescriptors, _scanThumbnailBase64);
@@ -855,9 +851,38 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
   }
 
   String encodeBase64(Float32List floatList) {
-    final uint8Array = floatList.buffer.asUint8List();
-    final binaryString = String.fromCharCodes(uint8Array);
-    return base64Encode(utf8.encode(binaryString));
+    // Float32Listの生データをUint8Listとして解釈し、それを直接Base64エンコードする
+    return base64Encode(floatList.buffer.asUint8List());
+  }
+
+  // _FaceAdminScreenState クラス内にこの新しい関数を追加
+  Future<Float32List> _getEmbedding(img_lib.Image croppedFaceImage) async {
+    // 1. 画像を -1.0 〜 1.0 の範囲に正規化された Float32List に変換
+    final imageBytes = croppedFaceImage.toUint8List();
+    final Float32List inputBytes = Float32List(1 * 112 * 112 * 3);
+    int pixelIndex = 0;
+    for (int i = 0; i < imageBytes.length; i += 3) {
+      // モデルに合わせて RGB -> BGR の順でピクセルを並び替えることが多いが、
+      // まずはRGBのままで試し、精度が出なければ r と b を入れ替える
+      final r = imageBytes[i];
+      final g = imageBytes[i + 1];
+      final b = imageBytes[i + 2];
+      inputBytes[pixelIndex++] = (b / 127.5) - 1.0; // B
+      inputBytes[pixelIndex++] = (g / 127.5) - 1.0; // G
+      inputBytes[pixelIndex++] = (r / 127.5) - 1.0; // R
+    }
+
+    // 2. TFLiteモデルが要求する形式 [1, 112, 112, 3] に変形
+    final input = inputBytes.reshape([1, 112, 112, 3]);
+
+    // 3. 出力用のバッファを準備 (MobileFaceNetは通常192次元の特徴量を出力)
+    final output = List.filled(1 * 192, 0.0).reshape([1, 192]);
+
+    // 4. 推論を実行
+    _interpreter.run(input, output);
+
+    // 5. 結果を1次元のFloat32Listに変換して返す
+    return Float32List.fromList(output[0]);
   }
 
   Future<void> _saveFaceToFirestore(String label, List<Float32List> descriptors, String thumbnailDataUrl) async {
@@ -1175,7 +1200,7 @@ InputImage? _inputImageFromCameraImage(CameraImage image, InputImageRotation? ro
 
 // main.dart の一番末尾
 // ★ 修正 ★ _cropFace 関数 (OBO バグ回避のため Float32 形式に変換)
-img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotation) {
+img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotation, {bool forThumbnail = false}) {
   
   img_lib.Image? convertedImage;
 
@@ -1249,12 +1274,17 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
     return null;
   }
 
+
   // 2. 切り抜き (Crop) (変更なし)
   final x = face.boundingBox.left.toInt().clamp(0, convertedImage.width - 1);
   final y = face.boundingBox.top.toInt().clamp(0, convertedImage.height - 1);
   final w = face.boundingBox.width.toInt().clamp(0, convertedImage.width - x);
   final h = face.boundingBox.height.toInt().clamp(0, convertedImage.height - y);
   final img_lib.Image croppedFace = img_lib.copyCrop(convertedImage, x: x, y: y, width: w, height: h);
+
+  if (forThumbnail) {
+    return croppedFace;
+  }
 
   // 3. 回転 (Rotate) (変更なし)
   img_lib.Image rotatedImage;
@@ -1267,32 +1297,8 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
   } else {
     rotatedImage = croppedFace;
   }
-  
-  // 4. TFLite が要求する 112x112 にリサイズ
-  final img_lib.Image finalImageToReturn = img_lib.copyResize(rotatedImage, width: 112, height: 112);
-  
-  // --- (★ 修正: 'PixelUint8.r' の OBO バグ回避ハック) ---
-  
-  // 4a. 112x112x3 の Uint8List を取得
-  final Uint8List imageBytes = finalImageToReturn.toUint8List();
-  
-  // 4b. 112x112x3 の Float32List を作成
-  final Float32List floatBytes = Float32List(112 * 112 * 3);
-  
-  // 4c. Uint8 (0-255) を Float32 (0.0-255.0) に変換
-  for (int i = 0; i < imageBytes.length; i++) {
-      floatBytes[i] = imageBytes[i].toDouble();
-  }
 
-  // 4d. Float32 形式の新しい Image オブジェクトを作成
-  final img_lib.Image floatImage = img_lib.Image.fromBytes(
-      width: 112,
-      height: 112,
-      bytes: floatBytes.buffer, // ★ Float32List のバッファを渡す
-      numChannels: 3,
-      format: img_lib.Format.float32 // ★ Format.float32 を指定
-  );
-
-  return floatImage; // ★ パディングされた画像を返す
+  return img_lib.copyResize(rotatedImage, width: 112, height: 112);
+  // ★ 正規化されたFloat32形式の画像を返す
   // --- (★ 修正ここまで) ---
 }

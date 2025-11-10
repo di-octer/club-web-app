@@ -102,22 +102,19 @@ async function saveSingleFaceToFirestore(faceObject) {
       label: faceObject.label,
       thumbnail: faceObject.thumbnail,
       
-      // ★★★ 修正箇所 ★★★
-      // "Blobの配列" ではなく、"Base64文字列の配列" に変換します
+      // ★★★ 修正箇所 (Dart互換のBase64エンコード) ★★★
       descriptors: faceObject.descriptors.map(d => {
         // d は Float32Array
         const uint8Array = new Uint8Array(d.buffer);
-        // Uint8Array -> Binary String
-        const binaryString = String.fromCharCode.apply(null, uint8Array);
-        // Binary String -> Base64 String
+        // Uint8Arrayをbtoaで安全にエンコードするためのトリック
+        let binaryString = '';
+        uint8Array.forEach(byte => {
+          binaryString += String.fromCharCode(byte);
+        });
         return btoa(binaryString);
       })
-      // ★★★ 修正ここまで ★★★
     };
-    
-    const docRef = db.collection("faces").doc(faceObject.label);
-    await docRef.set(dataToSave);
-    
+    await db.collection("faces").doc(faceObject.label).set(dataToSave);
     console.log("Firestore への顔データ保存が成功しました。");
   } catch (e) {
     console.error("Firestore への保存に失敗 (顔):", e);
@@ -153,25 +150,25 @@ async function loadRegisteredFacesFromStorage() {
     const loadedFaces = [];
     snapshot.forEach(doc => {
       const data = doc.data();
+
+      const firstDescriptorLength = data.descriptors[0] ? atob(data.descriptors[0]).length : 0;
+      if (firstDescriptorLength !== 128 * 4) { // 128 (次元) * 4 (Float32のバイト数) = 512
+          console.warn(`[互換性なし] 顔データ「${data.label}」はFlutterアプリで登録されたデータのため、Web版ではスキップします。`);
+          return; // forEachの次のループへ
+      }
       
       loadedFaces.push({
         label: data.label,
         thumbnail: data.thumbnail,
         
-        // ★★★ 修正箇所 ★★★
-        // Base64文字列の配列 を Float32Arrayの配列 に変換し直します
         descriptors: data.descriptors.map(base64String => {
-          // Base64 String -> Binary String
           const binaryString = atob(base64String);
-          // Binary String -> Uint8Array
           const uint8Array = new Uint8Array(binaryString.length);
           for (let i = 0; i < binaryString.length; i++) {
             uint8Array[i] = binaryString.charCodeAt(i);
           }
-          // Uint8Array のバッファを使って Float32Array を復元
           return new Float32Array(uint8Array.buffer);
         })
-        // ★★★ 修正ここまで ★★★
       });
     });
     
