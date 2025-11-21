@@ -29,6 +29,7 @@ final ValueNotifier<String> _nfcStatus = ValueNotifier('NFC待機中...');
 final ValueNotifier<String> _applinkStatus = ValueNotifier('ディープリンク待機中...');
 final _appLinks = AppLinks();
 late Interpreter _interpreter;
+final ValueNotifier<String> _lastScannedCardInfo = ValueNotifier('スキャンされたICカード情報はありません');
 
 // --- Base64デコード (script.js (v2) 互換) ---
 Float32List _decodeBase64(String base64String) {
@@ -172,7 +173,17 @@ Future<void> initAppLinks() async {
 }
 
 // --- 3. ブラウザ復帰 ---
+// main.dart の _returnToBrowser 関数を以下のように修正
+
 Future<void> _returnToBrowser(String baseUrl, {String? cardId, String? error}) async {
+  // ★★★ 修正箇所 ★★★
+  // デバッグ用のスキームの場合はブラウザを開かない
+  if (baseUrl.startsWith('debug://')) {
+    _nfcStatus.value = '✅ デバッグスキャン完了';
+    return;
+  }
+  // ★★★ 修正ここまで ★★★
+
   Map<String, String> queryParams = {};
   if (cardId != null) queryParams['cardId'] = cardId;
   if (error != null) queryParams['nfcError'] = error;
@@ -189,6 +200,8 @@ Future<void> handleNfcScan(String returnUrl) async {
   NfcAvailability availability = await NfcManager.instance.checkAvailability();
   if (availability != NfcAvailability.enabled) {
     _nfcStatus.value = '❌ NFCが利用できません';
+    // ★ 修正: デバッグ情報も更新
+    _lastScannedCardInfo.value = '失敗 - 理由: NFCが利用できません';
     await _returnToBrowser(returnUrl, error: 'NFCが利用できません');
     return;
   }
@@ -201,16 +214,22 @@ Future<void> handleNfcScan(String returnUrl) async {
           var felica = FeliCa.from(tag); 
           if (felica == null) {
             _nfcStatus.value = '❌ FeliCa規格のカードではありません';
+            // ★ 修正: デバッグ情報も更新
+            _lastScannedCardInfo.value = '失敗 - 理由: FeliCa規格のカードではありません';
             await NfcManager.instance.stopSession();
             await _returnToBrowser(returnUrl, error: 'FeliCa規格のカードではありません');
             return;
           }
           String idm = felica.idm.map((e) => e.toRadixString(16).padLeft(2, '0')).join('').toUpperCase();
           _nfcStatus.value = '✅ 認証成功: $idm';
+          // ★ 修正: デバッグ情報も更新
+          _lastScannedCardInfo.value = '成功 - IDm: $idm\n日時: ${DateTime.now()}';
           await NfcManager.instance.stopSession();
           await _returnToBrowser(returnUrl, cardId: idm);
         } catch (e) {
            _nfcStatus.value = '❌ カード読取エラー: $e';
+           // ★ 修正: デバッグ情報も更新
+           _lastScannedCardInfo.value = '失敗 - 理由: カード読取エラー\n詳細: $e';
            await NfcManager.instance.stopSession();
            await _returnToBrowser(returnUrl, error: e.toString());
         }
@@ -218,6 +237,8 @@ Future<void> handleNfcScan(String returnUrl) async {
     );
   } catch (e) {
     _nfcStatus.value = '❌ NFCセッション開始エラー: $e';
+    // ★ 修正: デバッグ情報も更新
+    _lastScannedCardInfo.value = '失敗 - 理由: NFCセッション開始エラー\n詳細: $e';
     await _returnToBrowser(returnUrl, error: e.toString());
   }
 }
@@ -245,26 +266,36 @@ class AdminHomePage extends StatefulWidget {
   State<AdminHomePage> createState() => _AdminHomePageState();
 }
 
+// main.dart の _AdminHomePageState クラスを以下のように修正
+
 class _AdminHomePageState extends State<AdminHomePage> {
   int _selectedIndex = 0; 
-  static final List<Widget> _widgetOptions = <Widget>[
+  
+  // ★★★ 修正箇所: ウィジェットのリストを変更 ★★★
+  final List<Widget> _widgetOptions = <Widget>[
     const StatusScreen(),     
-    const GpsAdminScreen(),   
-    const FaceAdminScreen(),  
+    const InfoAdminScreen(),   // GpsAdminScreen を InfoAdminScreen に変更
+    const FaceRegisterScreen(),// FaceAdminScreen を FaceRegisterScreen に変更
   ];
+
   void _onItemTapped(int index) {
     setState(() { _selectedIndex = index; });
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('管理者用 統合アプリ')),
-      body: Center(child: _widgetOptions.elementAt(_selectedIndex)),
+      body: IndexedStack( // IndexedStack は維持
+        index: _selectedIndex,
+        children: _widgetOptions,
+      ),
       bottomNavigationBar: BottomNavigationBar(
+        // ★★★ 修正箇所: タブのラベルと順序を変更 ★★★
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.radar), label: 'ステータス'),
-          BottomNavigationBarItem(icon: Icon(Icons.location_on), label: 'GPS管理'),
-          BottomNavigationBarItem(icon: Icon(Icons.face), label: '顔登録管理'),
+          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: '登録情報管理'), // ラベルとアイコンを変更
+          BottomNavigationBarItem(icon: Icon(Icons.face_retouching_natural), label: '顔登録'), // ラベルとアイコンを変更
         ],
         currentIndex: _selectedIndex,
         selectedItemColor: Colors.indigo[800],
@@ -275,38 +306,222 @@ class _AdminHomePageState extends State<AdminHomePage> {
 }
 
 // --- 6. ステータス画面 (タブ1) ---
-class StatusScreen extends StatelessWidget {
+class StatusScreen extends StatefulWidget {
   const StatusScreen({super.key});
+
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('認証エージェント 起動中', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-            const SizedBox(height: 10),
-            const Text('（Webアプリ/ユーザーアプリからの認証リクエストを待機しています）', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: Colors.grey)),
-            const SizedBox(height: 30),
-            ValueListenableBuilder<String>(
-              valueListenable: _bleStatus,
-              builder: (context, status, child) => StatusCard(title: 'ビーコン (BLE)', status: status),
-            ),
-            const SizedBox(height: 10),
-            ValueListenableBuilder<String>(
-              valueListenable: _applinkStatus,
-              builder: (context, status, child) => StatusCard(title: 'Web連携 (Deep Link)', status: status),
-            ),
-             const SizedBox(height: 10),
-            ValueListenableBuilder<String>(
-              valueListenable: _nfcStatus,
-              builder: (context, status, child) => StatusCard(title: 'ICカード (NFC)', status: status),
-            ),
-          ],
+  State<StatusScreen> createState() => _StatusScreenState();
+}
+
+class _StatusScreenState extends State<StatusScreen> {
+  // ★★★ 修正: StreamからFutureに変更 ★★★
+  // リアルタイムではなく、ボタンを押した時にデータを取得するためのFuture
+  Future<QuerySnapshot>? _requestsFuture;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 画面が表示された時に一度だけデータを取得する
+    _fetchRequests();
+  }
+
+  // ★★★ 修正: データ取得用のメソッドを新設 ★★★
+  void _fetchRequests() {
+    setState(() {
+      _isLoading = true;
+      _requestsFuture = db
+          .collection('auth_requests')
+          .where('status', isEqualTo: 'pending')
+          .orderBy('requestTimestamp', descending: true)
+          .get();
+    });
+    // 完了したらisLoadingをfalseにする
+    _requestsFuture!.whenComplete(() {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    });
+  }
+
+  void _navigateToProcessingScreen(String requestId, String userName) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AuthProcessingScreen(
+          requestId: requestId,
+          userName: userName,
         ),
       ),
+    );
+  }
+
+  void _triggerDebugNfcScan() {
+    handleNfcScan('debug://scan');
+  }
+
+  // main.dart の _StatusScreenState クラス内にある、
+  // 既存の build メソッドを、以下のコードで完全に差し替えてください。
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // 認証リクエスト一覧
+        Expanded(
+          child: FutureBuilder<QuerySnapshot>(
+            future: _requestsFuture,
+            builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (snapshot.hasError) {
+                return Center(child: Text('エラーが発生しました: ${snapshot.error}'));
+              }
+
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.hourglass_empty, size: 60, color: Colors.grey),
+                        const SizedBox(height: 16),
+                        const Text('認証リクエストはありません', style: TextStyle(fontSize: 18, color: Colors.grey)),
+                        const SizedBox(height: 8),
+                        const Text('下の更新ボタンを押して、最新の情報を取得してください。', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              return ListView(
+                padding: const EdgeInsets.all(8.0),
+                children: snapshot.data!.docs.map((DocumentSnapshot document) {
+                  Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
+                  final String userName = data['userName'] ?? '名前不明';
+                  final Timestamp timestamp = data['requestTimestamp'] ?? Timestamp.now();
+                  final String requestTime = '${timestamp.toDate().month}/${timestamp.toDate().day} ${timestamp.toDate().hour}:${timestamp.toDate().minute.toString().padLeft(2, '0')}';
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                    child: ListTile(
+                      leading: const Icon(Icons.person_pin_circle, color: Colors.indigo, size: 40),
+                      title: Text('$userName さんからの認証リクエスト', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('リクエスト日時: $requestTime'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        _navigateToProcessingScreen(document.id, userName);
+                      },
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ),
+
+        const Divider(height: 1, thickness: 1),
+
+        // 手動更新ボタンとBLEステータス表示
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 1. リクエスト更新ボタン
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  icon: _isLoading 
+                      ? const SizedBox(width: 18, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
+                      : const Icon(Icons.refresh, size: 18),
+                  label: const Text('Request更新'),
+                  onPressed: _isLoading ? null : _fetchRequests,
+                ),
+              ),
+              // 2. BLEステータス表示
+              Expanded(
+                flex: 3,
+                child: ValueListenableBuilder<String>(
+                  valueListenable: _bleStatus,
+                  builder: (context, status, child) {
+                    final isSuccess = status.startsWith('✅');
+                    final isError = status.startsWith('❌');
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Icon(
+                          isSuccess ? Icons.bluetooth_searching : (isError ? Icons.bluetooth_disabled : Icons.bluetooth),
+                          color: isSuccess ? Colors.blue : (isError ? Colors.red : Colors.grey),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            status,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isSuccess ? Colors.blue : (isError ? Colors.red : Colors.grey[700]),
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        // デバッグ領域
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('【デバッグ機能】', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 4),
+              ValueListenableBuilder<String>(
+                valueListenable: _lastScannedCardInfo,
+                builder: (context, info, child) {
+                  final isSuccess = info.startsWith('成功');
+                  return Card(
+                    color: Colors.grey[200],
+                    elevation: 0,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(
+                        isSuccess ? Icons.check_circle : Icons.info_outline,
+                        color: isSuccess ? Colors.green : Colors.grey[600],
+                      ),
+                      title: const Text('ICカードスキャン結果', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      subtitle: Text(info, style: const TextStyle(fontSize: 12)),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 4),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.nfc, size: 18),
+                label: const Text('ICカードスキャン開始 (デバッグ用)'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueGrey,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: _triggerDebugNfcScan,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -339,14 +554,14 @@ class StatusCard extends StatelessWidget {
   }
 }
 
-// --- 7. GPS管理画面 (タブ2) ---
-class GpsAdminScreen extends StatefulWidget {
-  const GpsAdminScreen({super.key});
+// --- 9. 登録情報管理画面 (新タブ2) ---
+class InfoAdminScreen extends StatefulWidget {
+  const InfoAdminScreen({super.key});
   @override
-  State<GpsAdminScreen> createState() => _GpsAdminScreenState();
+  State<InfoAdminScreen> createState() => _InfoAdminScreenState();
 }
 
-class _GpsAdminScreenState extends State<GpsAdminScreen> {
+class _InfoAdminScreenState extends State<InfoAdminScreen> {
   int _gpsScanStep = 0;
   GpsArea? _tempGpsArea;
   final _nameController = TextEditingController();
@@ -382,6 +597,13 @@ class _GpsAdminScreenState extends State<GpsAdminScreen> {
       _showErrorDialog('DB削除エラー', 'データベースからの削除に失敗しました: $e');
       _resetState('エラーが発生しました。', clearName: false);
     }
+  }
+
+  Future<void> _deleteFace(String faceLabel) async {
+    if (await _showConfirmDialog('削除確認', '本当に「$faceLabel」さんを削除しますか？') == false) return;
+    setState(() { _isLoading = true; });
+    await deleteFaceFromFirestore(faceLabel);
+    setState(() { _isLoading = false; });
   }
 
   Future<Position?> _getCurrentLocation() async {
@@ -504,6 +726,40 @@ class _GpsAdminScreenState extends State<GpsAdminScreen> {
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
+        const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+        ValueListenableBuilder<List<FaceObject>>(
+          valueListenable: globalFaces,
+          builder: (context, faces, child) {
+            if (faces.isEmpty) {
+              return const Center(child: Text('登録済みの顔はありません。'));
+            }
+            final reversedFaces = faces.reversed.toList();
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: reversedFaces.length,
+              itemBuilder: (context, index) {
+                final face = reversedFaces[index];
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: ListTile(
+                    leading: Image(
+                      image: MemoryImage(base64Decode(face.thumbnail.split(',').last)),
+                      width: 60, height: 80, fit: BoxFit.cover,
+                    ),
+                    title: Text(face.label),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: _isLoading ? null : () => _deleteFace(face.label),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+        const Divider(height: 40),
         const Text('GPS認証エリア登録', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
         TextField(
@@ -566,63 +822,162 @@ class _GpsAdminScreenState extends State<GpsAdminScreen> {
   }
 }
 
-// --- 8. 顔登録管理画面 (タブ3) ---
-class FaceAdminScreen extends StatefulWidget {
-  const FaceAdminScreen({super.key});
+// --- 8. 顔登録画面 (新タブ3) ---
+class FaceRegisterScreen extends StatefulWidget {
+  const FaceRegisterScreen({super.key});
   @override
-  State<FaceAdminScreen> createState() => _FaceAdminScreenState();
+  State<FaceRegisterScreen> createState() => _FaceRegisterScreenState();
 }
 
-// main.dart の「class _FaceAdminScreenState...」をこれで差し替え
+// main.dart の既存の「class _FaceAdminScreenState...」全体を、以下のコードで差し替えてください。
 
-class _FaceAdminScreenState extends State<FaceAdminScreen> {
-  final _nameController = TextEditingController();
-  int _scanStep = 0; 
+// main.dart の既存の「class _FaceAdminScreenState...」全体を、以下のコードで差し替えてください。
+
+class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
+  // --- Stateを管理するオブジェクト (hot reload対応済) ---
+  final TextEditingController _nameController = TextEditingController();
+  final ValueNotifier<int> _scanStep = ValueNotifier(0);
+  final ValueNotifier<String> _statusMessage = ValueNotifier('名前を入力して登録を開始してください。');
+  final ValueNotifier<bool> _isLoading = ValueNotifier(false);
+  final ValueNotifier<Face?> _detectedFace = ValueNotifier(null);
+  final ValueNotifier<String> _detectedName = ValueNotifier("不明");
+  final ValueNotifier<Color> _boxColor = ValueNotifier(Colors.red);
+
   final List<String> _scanInstructions = [
     "", "1/5: 正面を向いてください", "2/5: 顔を「左」に向けてください", "3/5: 顔を「右」に向けてください",
     "4/5: 顔を「上」に向けてください", "5/5: 顔を「下」に向けてください",
   ];
-  String _statusMessage = '名前を入力して登録を開始してください。';
-  bool _isLoading = false;
+
+  // --- 内部状態変数 ---
   List<Float32List> _scanDescriptors = [];
-  String _scanThumbnailBase64 = ''; 
+  String _scanThumbnailBase64 = '';
   CameraController? _cameraController;
   FaceDetector? _faceDetector;
-  
-  // ★ 修正: _faceNetService はグローバル変数を使うため、ここでの 'final' 定義を削除
-
   bool _isDetecting = false;
   Size? _cameraImageSize;
-  
-  // ★ 修正: 回転情報を保持する
-  InputImageRotation? _cameraRotation; 
-  
-  Face? _detectedFace;
-  img_lib.Image? _croppedFaceImage;
+  InputImageRotation? _cameraRotation;
   CameraImage? _lastCameraImage;
-
-  // --- リアルタイム照合用の状態変数 ---
-  String _detectedName = "不明";
-  Color _boxColor = Colors.red;
-  bool _isGrid = false; // ★ ご要望(格子なし)のため false に固定
-  bool _isFaceMatcherBuilt = false; 
+  bool _isFaceMatcherBuilt = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeServices();
     globalFaces.addListener(_buildFaceMatcher);
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _initializeServices();
+    });
   }
 
   @override
   void dispose() {
     _cameraController?.dispose();
-    // ★ 修正: _faceDetector が初期化済みかチェック (クラッシュ回避)
-    if (_faceDetector != null) {
-      _faceDetector?.close();
-    }
+    _faceDetector?.close();
     globalFaces.removeListener(_buildFaceMatcher);
+    _nameController.dispose();
+    _scanStep.dispose();
+    _statusMessage.dispose();
+    _isLoading.dispose();
+    _detectedFace.dispose();
+    _detectedName.dispose();
+    _boxColor.dispose();
     super.dispose();
+  }
+  
+  // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+  // ★★★ これがロードクラッシュを修正する最重要メソッドです ★★★
+  // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+  // _FaceAdminScreenState クラス内の既存の _initializeServices メソッドを、
+  // 以下のコードで完全に置き換えてください。
+
+  Future<void> _initializeServices() async {
+    try {
+      // ローディングUIを表示するためにsetStateを一度だけ呼ぶ
+      if (mounted) setState(() {});
+
+      _statusMessage.value = 'カメラとAIモデルを初期化中...';
+      _isLoading.value = true;
+      
+      _faceDetector = FaceDetector(
+        options: FaceDetectorOptions(performanceMode: FaceDetectorMode.fast),
+      );
+      
+      final cameras = await availableCameras();
+      if (!mounted) return;
+
+      final frontCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front, orElse: () => cameras.first,
+      );
+      
+      _cameraController = CameraController(
+        frontCamera, ResolutionPreset.medium, enableAudio: false,
+      );
+      
+      await _cameraController!.initialize();
+      if (!mounted) return;
+
+      _cameraImageSize = _cameraController!.value.previewSize;
+      _cameraRotation = InputImageRotationValue.fromRawValue(frontCamera.sensorOrientation) ?? InputImageRotation.rotation270deg;
+      _buildFaceMatcher(); 
+      _cameraController!.startImageStream(_processImageStream);
+      
+      if (!mounted) return;
+      _resetState('顔を検出中...');
+
+      // ★★★ カメラ初期化完了をUIに通知する ★★★
+      setState(() {});
+
+    } catch (e) {
+      if (!mounted) return;
+      _resetState('カメラとAIの初期化に失敗しました。');
+      _showErrorDialog("初期化エラー", "カメラまたはAIモデルの起動に失敗しました: $e");
+      setState(() {}); // エラー時もUIを更新
+    }
+  }
+
+  // --- これ以降のメソッドは変更ありません ---
+  // (dialogs, buildFaceMatcher, findBestMatch, processImageStream, etc...)
+
+  // [以前の回答で提示した、変更のないメソッド群をここに含めます]
+  // _resetState, _showConfirmDialog, _showErrorDialog, _buildFaceMatcher, _findBestMatch...
+  // _processImageStream, _onRegisterButtonPressed, encodeBase64, _saveFaceToFirestore, _getEmbedding...
+  // そして build メソッド
+  void _resetState(String message, {bool clearName = true}) {
+    debugPrint("[STATE] _resetState: 開始 (message: '$message')");
+    _scanStep.value = 0;
+    _isLoading.value = false; // ★★★ ローディングを解除する重要な処理 ★★★
+    debugPrint("[STATE]   -> _isLoading.value を false に設定しました");
+    _statusMessage.value = message;
+    if (clearName) _nameController.clear();
+    _detectedName.value = "不明";
+    _boxColor.value = Colors.red;
+    debugPrint("[STATE] _resetState: 完了");
+  }
+  
+  Future<bool> _showConfirmDialog(String title, String content) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title), content: Text(content),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('キャンセル')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('OK')),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  void _showErrorDialog(String title, String content) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title), content: Text(content),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる')),
+        ],
+      ),
+    );
   }
 
   void _buildFaceMatcher() {
@@ -656,63 +1011,14 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
     return bestMatchLabel;
   }
 
-  Future<void> _initializeServices() async {
-    // ★ 修正: _initializeServices 全体を try-catch
-    try {
-      setState(() { _isLoading = true; _statusMessage = 'カメラとAIモデルを初期化中...'; });
-      
-      // ★ 修正: FaceVerification.init() と _faceNetService の代入を「削除」
-      // (main() で実行済みのため)
-      
-      _faceDetector = FaceDetector(
-        options: FaceDetectorOptions(
-          enableContours: false,
-          enableLandmarks: false,
-          performanceMode: FaceDetectorMode.fast,
-        ),
-      );
-      
-      final cameras = await availableCameras();
-      final frontCamera = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () => cameras.first,
-      );
-      
-      // ★ 修正: 回転方向をOSから取得 (左右反転バグ修正)
-      _cameraRotation = InputImageRotationValue.fromRawValue(
-          frontCamera.sensorOrientation);
-      // (iOSの270とAndroidの90を正規化: MLKitは 0, 90, 180, 270 しか受け付けない)
-      // (多くのフロントカメラは 270 (反時計回り) になる)
-      if (_cameraRotation == null) {
-         _cameraRotation = InputImageRotation.rotation270deg; 
-         debugPrint("カメラ回転の取得に失敗、270deg にフォールバックします");
-      }
-          
-      _cameraController = CameraController(
-        frontCamera,
-        ResolutionPreset.medium,
-        enableAudio: false,
-      );
-      
-      await _cameraController!.initialize();
-      _cameraImageSize = _cameraController!.value.previewSize;
-      
-      _buildFaceMatcher(); 
-      
-      _cameraController!.startImageStream(_processImageStream);
-      _resetState('顔を検出中...');
-    } catch (e) {
-      debugPrint("初期化エラー: $e");
-      _resetState('カメラとAIの初期化に失敗しました。');
-      _showErrorDialog("初期化エラー", "カメラまたはAIモデルの起動に失敗しました: $e");
-    }
-  }
-
-  // --- リアルタイム照合ロジック ---
+  // _FaceAdminScreenState クラス内の _processImageStream メソッドをこれで差し替え
   void _processImageStream(CameraImage cameraImage) async {
-    if (_isDetecting) return;
+    if (_isDetecting || !mounted) return;
     _isDetecting = true;
-    _lastCameraImage = cameraImage;
+    
+    // このメソッドはUIスレッドで実行されるため、重い処理は避ける
+    // ただし、UIの更新はこのメソッドが責任を持つ
+    _lastCameraImage = cameraImage; 
     
     final inputImage = _inputImageFromCameraImage(cameraImage, _cameraRotation);
     if (inputImage == null) {
@@ -722,171 +1028,120 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
     
     try {
       final faces = await _faceDetector!.processImage(inputImage);
-      
-      if (faces.isNotEmpty) {
-        _detectedFace = faces.reduce((a, b) => a.boundingBox.width > b.boundingBox.width ? a : b);
-        
-        _croppedFaceImage = _cropFace(cameraImage, _detectedFace!, _cameraRotation!);
-        if (_croppedFaceImage == null) { 
-            throw Exception("YUV conversion failed");
-        }
+      if (!mounted) { _isDetecting = false; return; }
 
-        if (_scanStep == 0 && _isFaceMatcherBuilt) { // 待機中
-          try {
-            final Float32List descriptor = await _getEmbedding(_croppedFaceImage!);
-            _detectedName = _findBestMatch(descriptor);
-            
-            if (_detectedName == "不明") {
-                _boxColor = Colors.red;
-                _isGrid = false; // ご要望（格子なし）
-            } else {
-                _boxColor = Colors.green;
-                _isGrid = false; // ご要望（格子なし）
-            }
-            
-          } catch (e) {
-            _detectedName = "不明";
-            _boxColor = Colors.red;
-            _isGrid = false;
-          }
-        } else if (_scanStep > 0) { // スキャン中
-           _detectedName = ""; 
-           _boxColor = Colors.green;
-           _isGrid = false;
-        } else { // 待機中 (照合器なし)
-           _detectedName = "不明";
-           _boxColor = Colors.red;
-           _isGrid = false;
-        }
-        
-      } else {
-        _detectedFace = null;
-        _croppedFaceImage = null;
-        _detectedName = "不明";
+      Face? bestFace;
+      if (faces.isNotEmpty) {
+        bestFace = faces.reduce((a, b) => a.boundingBox.width > b.boundingBox.width ? a : b);
       }
+      
+      // 顔照合のための非同期処理（UIスレッドをブロックしない）
+      String detectedName = "不明";
+      Color boxColor = Colors.red;
+      if (bestFace != null && _scanStep.value == 0 && _isFaceMatcherBuilt) {
+        final img_lib.Image? croppedFaceImage = _cropFace(cameraImage, bestFace, _cameraRotation!);
+        if (croppedFaceImage != null) {
+          try {
+            final Float32List descriptor = await _getEmbedding(croppedFaceImage);
+            if (mounted) {
+              final match = _findBestMatch(descriptor);
+              detectedName = match;
+              boxColor = (match == "不明") ? Colors.red : Colors.green;
+            }
+          } catch (e) { /* AIエラー時はデフォルト値のまま */ }
+        }
+      } else if (bestFace != null && _scanStep.value > 0) {
+        detectedName = "";
+        boxColor = Colors.green;
+      }
+
+      // ★★★ これがリアルタイム更新を復活させる修正です ★★★
+      // 全ての計算が終わった後、最後に一度だけ setState を呼び出してUIを更新する
+      if (mounted) {
+        setState(() {
+          _detectedFace.value = bestFace;
+          _detectedName.value = detectedName;
+          _boxColor.value = boxColor;
+        });
+      }
+      // ★★★ 修正ここまで ★★★
+
     } catch (e) {
       debugPrint('顔検出/処理エラー: $e');
-      _detectedFace = null;
-      _croppedFaceImage = null;
-      _detectedName = "不明";
     } finally {
-      if (mounted) setState(() {});
       _isDetecting = false;
     }
   }
 
   Future<void> _onRegisterButtonPressed() async {
     final newName = _nameController.text.trim();
-    if (_scanStep == 0) {
-      if (newName.isEmpty) {
-        _showErrorDialog('入力エラー', '名前を入力してください。');
-        return;
-      }
+    if (_scanStep.value == 0) {
+      if (newName.isEmpty) { _showErrorDialog('入力エラー', '名前を入力してください。'); return; }
       if (globalFaces.value.any((f) => f.label == newName)) {
         if (await _showConfirmDialog('上書き確認', '「$newName」さんは既に登録されています。上書きしますか？') == false) return;
       }
       _scanDescriptors = [];
       _scanThumbnailBase64 = '';
-      setState(() {
-        _scanStep = 1;
-        _statusMessage = _scanInstructions[_scanStep];
-      });
+      _scanStep.value = 1;
+      _statusMessage.value = _scanInstructions[_scanStep.value];
       return;
     }
     
-    if (_detectedFace == null || _croppedFaceImage == null) {
-      _showErrorDialog('スキャンエラー', '${_scanInstructions[_scanStep]} の顔を検出できません。\n(顔を枠内に収めてください)');
+    final currentFace = _detectedFace.value;
+    final currentCameraImage = _lastCameraImage;
+    final currentRotation = _cameraRotation;
+    final currentCameraController = _cameraController;
+
+    if (currentFace == null || currentCameraImage == null || currentRotation == null || currentCameraController == null) {
+      _showErrorDialog('スキャンエラー', '${_scanInstructions[_scanStep.value]} の顔を検出できません。\n(顔を枠内に収めてください)');
       return;
     }
     
-    setState(() { _isLoading = true; _statusMessage = 'スキャン中... ($_scanStep/5)'; });
+    _isLoading.value = true;
+    _statusMessage.value = 'スキャン中... (${_scanStep.value}/5)';
 
-    if (_croppedFaceImage != null) {
-      debugPrint("--- DEBUG (A-1): AIモデルに画像を渡します ---");
-      final imageBytes = _croppedFaceImage!.toUint8List();
-      debugPrint("Image Width: ${_croppedFaceImage!.width}");
-      debugPrint("Image Height: ${_croppedFaceImage!.height}");
-      debugPrint("Image Num Channels: ${_croppedFaceImage!.numChannels}");
-      debugPrint("Image Format: ${_croppedFaceImage!.format}");
-      // ★ 修正: 実際のバッファ長を出力
-      debugPrint("Image Buffer Length: ${imageBytes.length}");
-    } else {
-      debugPrint("--- DEBUG (A-1): AIモデルに渡す画像が Null です ---");
-    }
-
-    if (_scanStep == 1) {
-      // ★★★ 修正箇所 (サムネイルの回転と色味の問題を修正) ★★★
-      // AI用の画像 (_croppedFaceImage) は回転・色変換されている可能性があるため、
-      // サムネイルは「元のカメラ画像」から直接、回転させずに切り抜く
-      final originalImage = _cropFace(_lastCameraImage!, _detectedFace!, _cameraRotation!, forThumbnail: true);
-      if (originalImage != null) {
-          final jpgBytes = img_lib.encodeJpg(originalImage, quality: 80);
-          _scanThumbnailBase64 = 'data:image/jpeg;base64,${base64Encode(jpgBytes)}';
-      }
-      // ★★★ 修正ここまで ★★★
-    }
-    
     try {
-      final Float32List descriptor = await _getEmbedding(_croppedFaceImage!);
-      _scanDescriptors.add(descriptor);
-    } catch (e, stackTrace) {
-      debugPrint("--- DEBUG (A-2): 特徴量エラーが発生しました ---");
-      debugPrint("ERROR: $e");
-      debugPrint("STACKTRACE: $stackTrace"); // スタックトレースをコンソールに出力
-      debugPrint("--- DEBUG (A-2): END ---");
-      _showErrorDialog('特徴量エラー', '顔の特徴量の生成に失敗しました: $e');
-      _resetState('エラーが発生しました。', clearName: false);
-      return;
-    }
+      if (_scanStep.value == 1) {
+        await currentCameraController.stopImageStream();
+        final XFile pictureFile = await currentCameraController.takePicture();
+        if (!mounted) return; // 撮影後もチェック
+        final Uint8List imageBytes = await pictureFile.readAsBytes();
+        _scanThumbnailBase64 = 'data:image/jpeg;base64,${base64Encode(imageBytes)}';
+        await currentCameraController.startImageStream(_processImageStream);
+      }
 
-    _scanStep++;
-    if (_scanStep > 5) {
-      await _saveFaceToFirestore(newName, _scanDescriptors, _scanThumbnailBase64);
-    } else {
-      setState(() {
-        _isLoading = false;
-        _statusMessage = _scanInstructions[_scanStep];
-      });
+      final img_lib.Image? aiImage = _cropFace(currentCameraImage, currentFace, currentRotation);
+      if (aiImage == null) throw Exception("AI用顔画像の変換に失敗しました。");
+      
+      final Float32List descriptor = await _getEmbedding(aiImage);
+      _scanDescriptors.add(descriptor);
+
+      _scanStep.value++;
+      if (_scanStep.value > 5) {
+        await _saveFaceToFirestore(newName, _scanDescriptors, _scanThumbnailBase64);
+      } else {
+        _isLoading.value = false;
+        _statusMessage.value = _scanInstructions[_scanStep.value];
+      }
+    } catch (e, stackTrace) {
+      debugPrint("--- 処理エラーが発生しました ---");
+      debugPrint("ERROR: $e");
+      debugPrint("STACKTRACE: $stackTrace");
+      if (!mounted) return;
+      _showErrorDialog('処理エラー', '写真の撮影またはAI処理に失敗しました: $e');
+      _resetState('エラーが発生しました。', clearName: false);
+      if (currentCameraController.value.isStreamingImages == false) {
+         await currentCameraController.startImageStream(_processImageStream);
+      }
     }
   }
-
+  
   String encodeBase64(Float32List floatList) {
-    // Float32Listの生データをUint8Listとして解釈し、それを直接Base64エンコードする
     return base64Encode(floatList.buffer.asUint8List());
   }
 
-  // _FaceAdminScreenState クラス内にこの新しい関数を追加
-  Future<Float32List> _getEmbedding(img_lib.Image croppedFaceImage) async {
-    // 1. 画像を -1.0 〜 1.0 の範囲に正規化された Float32List に変換
-    final imageBytes = croppedFaceImage.toUint8List();
-    final Float32List inputBytes = Float32List(1 * 112 * 112 * 3);
-    int pixelIndex = 0;
-    for (int i = 0; i < imageBytes.length; i += 3) {
-      // モデルに合わせて RGB -> BGR の順でピクセルを並び替えることが多いが、
-      // まずはRGBのままで試し、精度が出なければ r と b を入れ替える
-      final r = imageBytes[i];
-      final g = imageBytes[i + 1];
-      final b = imageBytes[i + 2];
-      inputBytes[pixelIndex++] = (b / 127.5) - 1.0; // B
-      inputBytes[pixelIndex++] = (g / 127.5) - 1.0; // G
-      inputBytes[pixelIndex++] = (r / 127.5) - 1.0; // R
-    }
-
-    // 2. TFLiteモデルが要求する形式 [1, 112, 112, 3] に変形
-    final input = inputBytes.reshape([1, 112, 112, 3]);
-
-    // 3. 出力用のバッファを準備 (MobileFaceNetは通常192次元の特徴量を出力)
-    final output = List.filled(1 * 192, 0.0).reshape([1, 192]);
-
-    // 4. 推論を実行
-    _interpreter.run(input, output);
-
-    // 5. 結果を1次元のFloat32Listに変換して返す
-    return Float32List.fromList(output[0]);
-  }
-
   Future<void> _saveFaceToFirestore(String label, List<Float32List> descriptors, String thumbnailDataUrl) async {
-    setState(() { _statusMessage = 'データベースに保存中...'; });
+    _statusMessage.value = 'データベースに保存中...';
     try {
       final dataToSave = {
         'label': label,
@@ -894,6 +1149,7 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
         'descriptors': descriptors.map((d) => encodeBase64(d)).toList(),
       };
       await db.collection("faces").doc(label).set(dataToSave);
+      if (!mounted) return;
       final newFace = FaceObject(
         label: label, 
         thumbnail: thumbnailDataUrl,
@@ -905,64 +1161,46 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
       globalFaces.value = currentFaces;
       
       _resetState('✅ 登録成功: 「$label」さんを登録しました。');
-      
     } catch (e) {
+      if (!mounted) return;
       _showErrorDialog('DB保存エラー', 'データベースへの保存に失敗しました: $e');
       _resetState('エラーが発生しました。', clearName: false);
     }
   }
-  
-  void _resetState(String message, {bool clearName = true}) {
-    setState(() {
-      _scanStep = 0;
-      _isLoading = false;
-      _statusMessage = message;
-      if (clearName) _nameController.clear();
-      _detectedName = "不明";
-      _boxColor = Colors.red;
-      _isGrid = false; // ご要望(格子なし)のため false に固定
-    });
-  }
 
-  Future<bool> _showConfirmDialog(String title, String content) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title), content: Text(content),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('キャンセル')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('OK')),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
-  void _showErrorDialog(String title, String content) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title), content: Text(content),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる')),
-        ],
-      ),
-    );
-  }
-  String _getButtonText() {
-    if (_scanStep == 0) return '1. スキャン開始 (5段階)';
-    return 'スキャン ($_scanStep/5)';
+  Future<Float32List> _getEmbedding(img_lib.Image croppedFaceImage) async {
+    final imageBytes = croppedFaceImage.toUint8List();
+    final Float32List inputBytes = Float32List(1 * 112 * 112 * 3);
+    int pixelIndex = 0;
+    for (int i = 0; i < imageBytes.length; i += 3) {
+      final r = imageBytes[i];
+      final g = imageBytes[i + 1];
+      final b = imageBytes[i + 2];
+      inputBytes[pixelIndex++] = (b / 127.5) - 1.0;
+      inputBytes[pixelIndex++] = (g / 127.5) - 1.0;
+      inputBytes[pixelIndex++] = (r / 127.5) - 1.0;
+    }
+    final input = inputBytes.reshape([1, 112, 112, 3]);
+    final output = List.filled(1 * 192, 0.0).reshape([1, 192]);
+    _interpreter.run(input, output);
+    return Float32List.fromList(output[0]);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_cameraController == null || !_cameraController!.value.isInitialized || _isLoading && _scanStep == 0) {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 10),
-            Text(_statusMessage),
+            ValueListenableBuilder<String>(
+              valueListenable: _statusMessage,
+              builder: (context, message, child) {
+                return Text(message);
+              },
+            ),
           ],
         ),
       );
@@ -972,89 +1210,60 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
       children: [
         const Text('顔認証 (登録フェーズ)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
-        SizedBox(
-          width: 320,
-          height: 240,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              CameraPreview(_cameraController!),
-              if (_detectedFace != null && _cameraImageSize != null && _cameraRotation != null)
-                CustomPaint(
-                  painter: FaceBoxPainter(
-                    face: _detectedFace!,
-                    imageSize: _cameraImageSize!,
-                    rotation: _cameraRotation!, // ★ 修正: 回転を渡す
-                    name: _detectedName,
-                    color: _boxColor,
-                    isGrid: _isGrid, // ★ 修正: _isGrid を渡す
+        ClipRect( // 念のため、ウィジェットがはみ出さないようにClipRectで囲みます
+          child: AspectRatio(
+            aspectRatio: 1 / _cameraController!.value.aspectRatio,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CameraPreview(_cameraController!),
+                if (_detectedFace.value != null && _cameraImageSize != null && _cameraRotation != null)
+                  CustomPaint(
+                    painter: FaceBoxPainter(
+                      face: _detectedFace.value!,
+                      imageSize: _cameraImageSize!,
+                      rotation: _cameraRotation!,
+                      name: _detectedName.value,
+                      color: _boxColor.value,
+                      isGrid: false,
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 10),
-        Text(_scanStep > 0 ? _statusMessage : "", 
-            style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _nameController,
-          decoration: const InputDecoration(labelText: '登録名', border: OutlineInputBorder()),
-          enabled: _scanStep == 0,
+        ValueListenableBuilder<String>(
+          valueListenable: _statusMessage,
+          builder: (context, message, child) => 
+            Text(message, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
         ),
         const SizedBox(height: 10),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _onRegisterButtonPressed,
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            backgroundColor: _scanStep == 0 ? Colors.indigo : Colors.amber[700],
-          ),
-          child: _isLoading 
-              ? const CircularProgressIndicator(color: Colors.white)
-              : Text(_getButtonText()),
+        ValueListenableBuilder<int>(
+          valueListenable: _scanStep,
+          builder: (context, step, child) =>
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: '登録名', border: OutlineInputBorder()),
+              enabled: step == 0,
+            ),
         ),
-        const Divider(height: 40),
-        const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
-        ValueListenableBuilder<List<FaceObject>>(
-          valueListenable: globalFaces,
-          builder: (context, faces, child) {
-            if (faces.isEmpty) {
-              return const Center(child: Text('登録済みの顔はありません。'));
-            }
-            final reversedFaces = faces.reversed.toList();
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: reversedFaces.length,
-              itemBuilder: (context, index) {
-                final face = reversedFaces[index];
-                ImageProvider imageProvider;
-                if (face.thumbnail.startsWith('data:image')) {
-                  imageProvider = MemoryImage(base64Decode(face.thumbnail.split(',').last));
-                } else {
-                  imageProvider = const AssetImage('assets/placeholder.png'); 
-                }
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4.0),
-                  child: ListTile(
-                    leading: Image(
-                      image: imageProvider,
-                      width: 60, height: 80, fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => 
-                          Container(width: 60, height: 80, color: Colors.grey[300], child: const Icon(Icons.no_photography)),
-                    ),
-                    title: Text(face.label),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: _isLoading ? null : () async {
-                        if (await _showConfirmDialog('削除確認', '本当に「${face.label}」さんを削除しますか？')) {
-                          await deleteFaceFromFirestore(face.label);
-                          _resetState('「${face.label}」さんを削除しました。');
-                        }
-                      },
-                    ),
+        ValueListenableBuilder<bool>(
+          valueListenable: _isLoading,
+          builder: (context, loading, child) {
+            return ValueListenableBuilder<int>(
+              valueListenable: _scanStep,
+              builder: (context, step, child) {
+                return ElevatedButton(
+                  onPressed: loading ? null : _onRegisterButtonPressed,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    backgroundColor: step == 0 ? Colors.indigo : Colors.amber[700],
                   ),
+                  child: loading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(step == 0 ? '1. スキャン開始 (5段階)' : 'スキャン ($step/5)'),
                 );
               },
             );
@@ -1064,6 +1273,7 @@ class _FaceAdminScreenState extends State<FaceAdminScreen> {
     );
   }
 }
+
 
 // --- ★ 修正 ★ 9. ヘルパー関数群 (ファイルの末尾) ---
 
@@ -1200,7 +1410,7 @@ InputImage? _inputImageFromCameraImage(CameraImage image, InputImageRotation? ro
 
 // main.dart の一番末尾
 // ★ 修正 ★ _cropFace 関数 (OBO バグ回避のため Float32 形式に変換)
-img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotation, {bool forThumbnail = false}) {
+img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotation) {
   
   img_lib.Image? convertedImage;
 
@@ -1257,48 +1467,108 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
       }
     }
   } 
-  else if (image.format.group == ImageFormatGroup.bgra8888) {
-    // BGRA (iOS実機など)
-    final img_lib.Image bgraImage = img_lib.Image.fromBytes(
-        width: image.width, height: image.height, bytes: image.planes[0].bytes.buffer,
-        format: img_lib.Format.uint8, rowStride: image.planes[0].bytesPerRow, numChannels: 4);
-    convertedImage = img_lib.Image(
-        width: image.width, height: image.height, 
-        format: img_lib.Format.uint8, numChannels: 3);
+   else if (image.format.group == ImageFormatGroup.bgra8888) {
+    final plane = image.planes[0];
+    final bgraImage = img_lib.Image.fromBytes(
+        width: image.width, height: image.height, bytes: plane.bytes.buffer,
+        rowStride: plane.bytesPerRow, order: img_lib.ChannelOrder.bgra);
+    convertedImage = img_lib.Image(width: bgraImage.width, height: bgraImage.height);
     for (final pixel in bgraImage) {
-        convertedImage.setPixelRgb(pixel.x, pixel.y, pixel.r, pixel.g, pixel.b);
+      convertedImage.setPixelRgb(pixel.x, pixel.y, pixel.r, pixel.g, pixel.b);
     }
-  }
-  else {
-    debugPrint("未対応の画像フォーマット: ${image.format.group}");
-    return null;
-  }
+  } else { return null; }
 
-
-  // 2. 切り抜き (Crop) (変更なし)
   final x = face.boundingBox.left.toInt().clamp(0, convertedImage.width - 1);
   final y = face.boundingBox.top.toInt().clamp(0, convertedImage.height - 1);
   final w = face.boundingBox.width.toInt().clamp(0, convertedImage.width - x);
   final h = face.boundingBox.height.toInt().clamp(0, convertedImage.height - y);
-  final img_lib.Image croppedFace = img_lib.copyCrop(convertedImage, x: x, y: y, width: w, height: h);
-
-  if (forThumbnail) {
-    return croppedFace;
-  }
-
-  // 3. 回転 (Rotate) (変更なし)
+  img_lib.Image croppedFace = img_lib.copyCrop(convertedImage, x: x, y: y, width: w, height: h);
+  
   img_lib.Image rotatedImage;
-  if (rotation == InputImageRotation.rotation90deg) {
-    rotatedImage = img_lib.copyRotate(croppedFace, angle: 90);
-  } else if (rotation == InputImageRotation.rotation270deg) {
+  if (rotation == InputImageRotation.rotation270deg) {
     rotatedImage = img_lib.copyRotate(croppedFace, angle: -90);
-  } else if (rotation == InputImageRotation.rotation180deg) {
-    rotatedImage = img_lib.copyRotate(croppedFace, angle: 180);
   } else {
     rotatedImage = croppedFace;
   }
-
+  
   return img_lib.copyResize(rotatedImage, width: 112, height: 112);
-  // ★ 正規化されたFloat32形式の画像を返す
-  // --- (★ 修正ここまで) ---
+}
+
+// --- 認証処理画面 (新規作成) ---
+class AuthProcessingScreen extends StatefulWidget {
+  final String requestId;
+  final String userName;
+
+  const AuthProcessingScreen({
+    super.key,
+    required this.requestId,
+    required this.userName,
+  });
+
+  @override
+  State<AuthProcessingScreen> createState() => _AuthProcessingScreenState();
+}
+
+class _AuthProcessingScreenState extends State<AuthProcessingScreen> {
+  // 後のTODO: 将来的にカメラとNFCのロジックをここに実装する
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.userName} さんの認証'),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '「${widget.userName}」さんを認証します',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 30),
+              
+              // 後のTODO: ここにカメラプレビューを実装
+              Container(
+                height: 320,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Center(
+                  child: Icon(Icons.camera_alt, color: Colors.white, size: 60),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // 後のTODO: ここにNFCスキャンステータスを実装
+              const Card(
+                child: ListTile(
+                  leading: Icon(Icons.nfc),
+                  title: Text('ICカードをスキャンしてください'),
+                  subtitle: Text('ステータス: 待機中...'),
+                ),
+              ),
+              const SizedBox(height: 30),
+              
+              // 後のTODO: 条件が満たされたら有効化する
+              ElevatedButton.icon(
+                icon: const Icon(Icons.check_circle),
+                label: const Text('承認'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Colors.grey, // 初期状態は無効
+                ),
+                onPressed: null, // 初期状態は無効
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
