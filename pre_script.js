@@ -483,6 +483,49 @@ function drawBox(detections) {
   });
 }
 
+// --- ★ 新規 ★ 管理者への認証リクエスト送信 ---
+async function sendAuthRequestToAdmin(authType) {
+  const statusEl = document.getElementById("status");
+  statusEl.textContent = "管理者に承認リクエストを送信中...";
+
+  // ユーザー名の取得 (簡易的にプロンプト、またはログイン情報から)
+  let userName = prompt("あなたの名前を入力してください", "");
+  if (!userName) {
+    statusEl.textContent = "名前が必要です。";
+    return;
+  }
+
+  try {
+    // リクエスト作成
+    const docRef = await db.collection('auth_requests').add({
+      userName: userName,
+      authType: authType, // 'code' or 'nfc'
+      status: 'pending',
+      requestTimestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      gps_valid: true, // GPSチェック通過済みとする
+      face_valid: true, // 顔認証通過済みとする
+      platform: 'web'
+    });
+
+    statusEl.textContent = "管理者の承認待ちです... この画面のままお待ちください。";
+
+    // 承認状態を監視
+    docRef.onSnapshot((snapshot) => {
+      const data = snapshot.data();
+      if (data && data.status === 'approved') {
+        statusEl.innerHTML = `<span style="color:green; font-size:1.5em;">✅ 認証成功！</span><br>出席が記録されました。`;
+        // 必要に応じてCanvas等をクリア
+      } else if (data && data.status === 'rejected') {
+        statusEl.textContent = "❌ 管理者に否認されました。";
+      }
+    });
+
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = "リクエスト送信エラー: " + e.message;
+  }
+}
+
 // --- 認証/登録フェーズの処理 (変更なし) ---
 function handleFaceProcessing(detections) {
   const statusEl = document.getElementById("status");
@@ -514,9 +557,29 @@ function handleFaceProcessing(detections) {
       });
   }
   drawBox(currentDetectionsToDraw);
+  // 認証モードかつ、顔が登録済みユーザーと一致した場合
   if (currentMode === 'auth') {
-    const newStatus = "認証中...";
-    if (statusEl.textContent !== newStatus) statusEl.textContent = newStatus;
+    // detections の中に "不明" 以外の顔があるかチェック
+    const match = detections.find(d => d.name !== "不明");
+    
+    if (match) {
+      // 連続検出回数のチェックなどを経て...
+      // ★ 変更点: ここで完了にするのではなく、次のステップ(管理者承認)へ進む
+      
+      // 一旦ループを停止 (重複リクエスト防止)
+      // 注: 実際にはフラグ管理が必要
+      if (!window.requestSent) {
+        window.requestSent = true; 
+        
+        // ユーザーに認証方法を選ばせる、もしくはデフォルト(Code)で進む
+        if (confirm(`${match.name} さんとして認証リクエストを送信しますか？`)) {
+           // WebではNFCは難しいのでカラーコードモードと仮定
+           sendAuthRequestToAdmin('code'); 
+        } else {
+           window.requestSent = false;
+        }
+      }
+    }
   } else if (currentMode === 'reg') { 
     if (scanStep === 0) { 
       const newStatus = "登録モード: 準備完了";
@@ -570,31 +633,31 @@ async function mainLoop() {
   }
 }
 
-// --- GPS認証ハンドラ (変更なし) ---
+// --- GPS認証ボタンの処理更新 ---
 function handleGpsAuthentication() {
   const gpsStatus = document.getElementById("gpsStatus");
-  gpsStatus.textContent = "現在地を取得中...";
+  gpsStatus.textContent = "現在地を確認中...";
+  
   navigator.geolocation.getCurrentPosition(
     (position) => {
-      const userLat = position.coords.latitude;
-      const userLon = position.coords.longitude;
+      // エリア判定 (既存関数利用)
       let inArea = false;
-      let areaName = "";
       for (const area of registeredGpsAreas) {
-        if (isInsideBoundingBox(userLat, userLon, area)) {
+        if (isInsideBoundingBox(position.coords.latitude, position.coords.longitude, area)) {
           inArea = true;
-          areaName = area.name;
           break;
         }
       }
+
       if (inArea) {
-        gpsStatus.textContent = `✅ 認証成功: 「${areaName}」のエリア内にいます。`;
+        gpsStatus.textContent = "✅ エリア内です。顔認証を行ってください。";
+        // 顔認証のビデオを開始する等のトリガー
       } else {
-        gpsStatus.textContent = "❌ 認証失敗: 登録済みのエリア内にいません。";
+        gpsStatus.textContent = "❌ エリア外です。";
       }
     },
-    (error) => {
-      gpsStatus.textContent = "エラー: 位置情報の利用が拒否されました。";
+    (err) => {
+      gpsStatus.textContent = "GPS取得エラー";
     }
   );
 }

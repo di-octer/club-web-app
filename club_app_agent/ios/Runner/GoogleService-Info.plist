@@ -2,6 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Bluetoothを使用します。</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Bluetoothを使用します。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>GPSエリア登録のために現在地情報を使用します。</string>
+	<key>NFCReaderUsageDescription</key>
+	<string>ICカードの情報を読み取るためにNFC機能を使用します。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>顔認証および顔登録のためにカメラを使用します。</string>
 	<key>API_KEY</key>
 	<string>AIzaSyAtRHLVXRFPKHmoDMOmqyEJKA81rTRoT_s</string>
 	<key>GCM_SENDER_ID</key>
@@ -15,15 +25,15 @@
 	<key>STORAGE_BUCKET</key>
 	<string>club-app-db.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
-	<false></false>
+	<false/>
 	<key>IS_ANALYTICS_ENABLED</key>
-	<false></false>
+	<false/>
 	<key>IS_APPINVITE_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>IS_GCM_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>IS_SIGNIN_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>GOOGLE_APP_ID</key>
 	<string>1:993061804495:ios:66962f048e0edda6f59aba</string>
 </dict>

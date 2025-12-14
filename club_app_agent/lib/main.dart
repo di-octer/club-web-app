@@ -1,9 +1,7 @@
-// lib/main.dart (エラー修正済・全文)
-
 import 'package:firebase_core/firebase_core.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // ★ WriteBuffer のために追加
+import 'package:flutter/foundation.dart'; 
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 import 'package:nfc_manager_felica/nfc_manager_felica.dart';
@@ -13,11 +11,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'models/gps_area.dart'; 
 import 'package:geolocator/geolocator.dart'; 
 import 'models/face_object.dart';
-import 'dart:convert'; // Base64変換用
-import 'package:camera/camera.dart'; // カメラ
-import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'; // 顔検出
+import 'dart:convert';
+import 'package:camera/camera.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
-import 'package:image/image.dart' as img_lib; // 画像処理
+import 'package:image/image.dart' as img_lib;
 
 // --- グローバル変数 ---
 final db = FirebaseFirestore.instance;
@@ -27,23 +25,23 @@ final _blePeripheral = FlutterBlePeripheral();
 final ValueNotifier<String> _bleStatus = ValueNotifier('BLE初期化中...');
 final ValueNotifier<String> _nfcStatus = ValueNotifier('NFC待機中...');
 final ValueNotifier<String> _applinkStatus = ValueNotifier('ディープリンク待機中...');
-final _appLinks = AppLinks();
-late Interpreter _interpreter;
 final ValueNotifier<String> _lastScannedCardInfo = ValueNotifier('スキャンされたICカード情報はありません');
+final _appLinks = AppLinks();
 
-// --- Base64デコード (script.js (v2) 互換) ---
+// AIモデルは遅延初期化のためNull許容
+Interpreter? _interpreter;
+
+// --- Base64デコード ---
 Float32List _decodeBase64(String base64String) {
   final Uint8List uint8Array = base64Decode(base64String);
   return uint8Array.buffer.asFloat32List();
 }
 
-// --- 顔データ読み込み (Firebase版) ---
+// --- 顔データ読み込み ---
 Future<void> loadFacesFromFirestore() async {
-  debugPrint("Firestore から顔データを読み込み中...");
   try {
     final snapshot = await db.collection("faces").get();
     if (snapshot.docs.isEmpty) {
-      debugPrint("Firestore に登録済みの顔はありません。");
       globalFaces.value = [];
       return;
     }
@@ -54,39 +52,34 @@ Future<void> loadFacesFromFirestore() async {
           .toList();
       return FaceObject(
         label: data['label'] as String,
-        thumbnail: data['thumbnail'] as String, // Base64 Data URL
+        thumbnail: data['thumbnail'] as String,
         descriptors: descriptors,
       );
     }).toList();
     globalFaces.value = loadedFaces;
-    debugPrint("Firestore から ${loadedFaces.length} 件の顔データを読み込みました。");
   } catch (e) {
-    debugPrint("Firestore からの顔データ読み込みに失敗しました: $e");
+    debugPrint("顔データ読み込み失敗: $e");
     globalFaces.value = [];
   }
 }
 
-// --- 顔データ「単体」削除 (Firebase版) ---
+// --- 顔データ削除 ---
 Future<void> deleteFaceFromFirestore(String faceLabel) async {
-  debugPrint("Firestore から顔データ「$faceLabel」削除を開始...");
   try {
     await db.collection("faces").doc(faceLabel).delete();
-    debugPrint("Firestore からの顔データ削除が成功しました。");
     final currentFaces = globalFaces.value.toList();
     currentFaces.removeWhere((f) => f.label == faceLabel);
     globalFaces.value = currentFaces;
   } catch (e) {
-    debugPrint("Firestore からの削除に失敗 (顔): $e");
+    debugPrint("削除失敗 (顔): $e");
   }
 }
 
-// --- GPSデータ読み込み (Firebase版) ---
+// --- GPSデータ読み込み ---
 Future<void> loadGpsAreasFromFirestore() async {
-  debugPrint("Firestore からGPSエリアデータを読み込み中...");
   try {
     final snapshot = await db.collection("gps_areas").get();
     if (snapshot.docs.isEmpty) {
-      debugPrint("Firestore に登録済みのGPSエリアはありません。");
       globalGpsAreas.value = [];
       return;
     }
@@ -94,9 +87,8 @@ Future<void> loadGpsAreasFromFirestore() async {
       return GpsArea.fromJson(doc.data());
     }).toList();
     globalGpsAreas.value = loadedGpsAreas;
-    debugPrint("Firestore から ${loadedGpsAreas.length} 件のGPSエリアを読み込みました。");
   } catch (e) {
-    debugPrint("Firestore からのGPSエリア読み込みに失敗しました: $e");
+    debugPrint("GPSエリア読み込み失敗: $e");
     globalGpsAreas.value = [];
   }
 }
@@ -104,25 +96,16 @@ Future<void> loadGpsAreasFromFirestore() async {
 // --- メイン関数 ---
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-
-  // ★★★ 修正: AIモデルをアプリ起動時に1回だけ初期化 ★★★
+  
   try {
-    _interpreter = await Interpreter.fromAsset('assets/mobilefacenet.tflite');
-    debugPrint("FaceNet サービス初期化完了。");
+    await Firebase.initializeApp();
   } catch (e) {
-    debugPrint("--- 致命的エラー: FaceNet サービスの初期化に失敗しました ---");
-    debugPrint(e.toString());
-    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("AIモデルのロードに失敗: $e")))));
+    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("Firebase初期化エラー: $e")))));
     return;
   }
-  // ★★★ 修正ここまで ★★★
 
-  // 読み込みを並行して実行
-  await Future.wait([
-     loadGpsAreasFromFirestore(),
-     loadFacesFromFirestore(),
-  ]);
+  loadGpsAreasFromFirestore();
+  loadFacesFromFirestore();
 
   try {
     await startBleAdvertising();
@@ -139,7 +122,7 @@ void main() async {
   runApp(const AdminApp());
 }
 
-// --- 1. BLE発信 ---
+// --- BLE発信 ---
 Future<void> startBleAdvertising() async {
   final advertiseData = AdvertiseData(
     serviceUuid: '0000180F-0000-1000-8000-00805F9B34FB', 
@@ -148,42 +131,34 @@ Future<void> startBleAdvertising() async {
   try {
     if (await _blePeripheral.isSupported) {
       await _blePeripheral.start(advertiseData: advertiseData);
-      _bleStatus.value = '✅ BLE発信中 (Battery Service)';
+      _bleStatus.value = '✅ BLE発信中';
     } else {
-      _bleStatus.value = '❌ BLE発信 (Peripheral) は非対応です';
+      _bleStatus.value = '❌ BLE非対応';
     }
   } catch (e) {
-    _bleStatus.value = '❌ BLE発信の開始に失敗';
+    _bleStatus.value = '❌ BLE発信失敗';
   }
 }
 
-// --- 2. ディープリンクリスナー ---
+// --- ディープリンク ---
 Future<void> initAppLinks() async {
   _appLinks.uriLinkStream.listen((uri) { 
-    _applinkStatus.value = 'ディープリンク受信: ${uri.toString()}';
+    _applinkStatus.value = '受信: ${uri.toString()}';
     if (uri.scheme == 'club-agent' && uri.host == 'scan') {
       final returnUrl = uri.queryParameters['return_url'];
       if (returnUrl != null) {
         handleNfcScan(returnUrl);
-      } else {
-        _nfcStatus.value = '❌ リンクエラー: return_url がありません';
       }
     }
   });
 }
 
-// --- 3. ブラウザ復帰 ---
-// main.dart の _returnToBrowser 関数を以下のように修正
-
+// --- ブラウザ復帰 ---
 Future<void> _returnToBrowser(String baseUrl, {String? cardId, String? error}) async {
-  // ★★★ 修正箇所 ★★★
-  // デバッグ用のスキームの場合はブラウザを開かない
   if (baseUrl.startsWith('debug://')) {
     _nfcStatus.value = '✅ デバッグスキャン完了';
     return;
   }
-  // ★★★ 修正ここまで ★★★
-
   Map<String, String> queryParams = {};
   if (cardId != null) queryParams['cardId'] = cardId;
   if (error != null) queryParams['nfcError'] = error;
@@ -191,59 +166,54 @@ Future<void> _returnToBrowser(String baseUrl, {String? cardId, String? error}) a
   if (await canLaunchUrl(returnUri)) {
     await launchUrl(returnUri, mode: LaunchMode.externalApplication);
   } else {
-    _nfcStatus.value = '❌ 復帰失敗: ブラウザを開けません';
+    _nfcStatus.value = '❌ 復帰失敗';
   }
 }
 
-// --- 4. NFCスキャン ---
+// --- NFCスキャン ---
 Future<void> handleNfcScan(String returnUrl) async {
   NfcAvailability availability = await NfcManager.instance.checkAvailability();
   if (availability != NfcAvailability.enabled) {
-    _nfcStatus.value = '❌ NFCが利用できません';
-    // ★ 修正: デバッグ情報も更新
-    _lastScannedCardInfo.value = '失敗 - 理由: NFCが利用できません';
-    await _returnToBrowser(returnUrl, error: 'NFCが利用できません');
+    _nfcStatus.value = '❌ NFC利用不可';
+    _lastScannedCardInfo.value = '失敗: NFCが無効です';
+    await _returnToBrowser(returnUrl, error: 'NFCが無効');
     return;
   }
   try {
-    _nfcStatus.value = 'ICカードをスキャン中...';
+    _nfcStatus.value = 'ICカードスキャン中...';
     await NfcManager.instance.startSession(
       pollingOptions: {NfcPollingOption.iso18092},
       onDiscovered: (NfcTag tag) async {
         try {
           var felica = FeliCa.from(tag); 
           if (felica == null) {
-            _nfcStatus.value = '❌ FeliCa規格のカードではありません';
-            // ★ 修正: デバッグ情報も更新
-            _lastScannedCardInfo.value = '失敗 - 理由: FeliCa規格のカードではありません';
+            _nfcStatus.value = '❌ 非FeliCa';
+            _lastScannedCardInfo.value = '失敗: FeliCaではありません';
             await NfcManager.instance.stopSession();
-            await _returnToBrowser(returnUrl, error: 'FeliCa規格のカードではありません');
+            await _returnToBrowser(returnUrl, error: 'Non-FeliCa');
             return;
           }
           String idm = felica.idm.map((e) => e.toRadixString(16).padLeft(2, '0')).join('').toUpperCase();
-          _nfcStatus.value = '✅ 認証成功: $idm';
-          // ★ 修正: デバッグ情報も更新
+          _nfcStatus.value = '✅ 成功: $idm';
           _lastScannedCardInfo.value = '成功 - IDm: $idm\n日時: ${DateTime.now()}';
           await NfcManager.instance.stopSession();
           await _returnToBrowser(returnUrl, cardId: idm);
         } catch (e) {
-           _nfcStatus.value = '❌ カード読取エラー: $e';
-           // ★ 修正: デバッグ情報も更新
-           _lastScannedCardInfo.value = '失敗 - 理由: カード読取エラー\n詳細: $e';
+           _nfcStatus.value = '❌ 読取エラー';
+           _lastScannedCardInfo.value = '失敗: $e';
            await NfcManager.instance.stopSession();
            await _returnToBrowser(returnUrl, error: e.toString());
         }
       },
     );
   } catch (e) {
-    _nfcStatus.value = '❌ NFCセッション開始エラー: $e';
-    // ★ 修正: デバッグ情報も更新
-    _lastScannedCardInfo.value = '失敗 - 理由: NFCセッション開始エラー\n詳細: $e';
+    _nfcStatus.value = '❌ セッションエラー';
+    _lastScannedCardInfo.value = '失敗: $e';
     await _returnToBrowser(returnUrl, error: e.toString());
   }
 }
 
-// --- 5. メインUI (タブ切り替え) ---
+// --- アプリ全体構成 ---
 class AdminApp extends StatelessWidget {
   const AdminApp({super.key});
   @override
@@ -260,42 +230,58 @@ class AdminApp extends StatelessWidget {
   }
 }
 
+// --- AdminHomePage (修正: タブ切り替え時の制御を強化) ---
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
   @override
   State<AdminHomePage> createState() => _AdminHomePageState();
 }
 
-// main.dart の _AdminHomePageState クラスを以下のように修正
-
 class _AdminHomePageState extends State<AdminHomePage> {
   int _selectedIndex = 0; 
-  
-  // ★★★ 修正箇所: ウィジェットのリストを変更 ★★★
-  final List<Widget> _widgetOptions = <Widget>[
-    const StatusScreen(),     
-    const InfoAdminScreen(),   // GpsAdminScreen を InfoAdminScreen に変更
-    const FaceRegisterScreen(),// FaceAdminScreen を FaceRegisterScreen に変更
-  ];
+  final GlobalKey<FaceRegisterScreenState> _faceRegisterKey = GlobalKey();
+  late final List<Widget> _widgetOptions;
 
-  void _onItemTapped(int index) {
+  @override
+  void initState() {
+    super.initState();
+    _widgetOptions = <Widget>[
+      const StatusScreen(),     
+      const InfoAdminScreen(),   
+      FaceRegisterScreen(key: _faceRegisterKey),
+    ];
+  }
+
+  void _onItemTapped(int index) async {
+    // 以前のタブが顔登録(index 2)だった場合、カメラを停止
+    if (_selectedIndex == 2 && index != 2) {
+      await _faceRegisterKey.currentState?.stopCamera();
+    }
+    
     setState(() { _selectedIndex = index; });
+
+    // 新しいタブが顔登録(index 2)の場合、カメラを開始
+    if (index == 2) {
+      // 描画完了を待ってから確実に起動
+      Future.delayed(const Duration(milliseconds: 200), () {
+        _faceRegisterKey.currentState?.startCamera();
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('管理者用 統合アプリ')),
-      body: IndexedStack( // IndexedStack は維持
+      body: IndexedStack(
         index: _selectedIndex,
         children: _widgetOptions,
       ),
       bottomNavigationBar: BottomNavigationBar(
-        // ★★★ 修正箇所: タブのラベルと順序を変更 ★★★
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.radar), label: 'ステータス'),
-          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: '登録情報管理'), // ラベルとアイコンを変更
-          BottomNavigationBarItem(icon: Icon(Icons.face_retouching_natural), label: '顔登録'), // ラベルとアイコンを変更
+          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: '登録情報管理'),
+          BottomNavigationBarItem(icon: Icon(Icons.face_retouching_natural), label: '顔登録'),
         ],
         currentIndex: _selectedIndex,
         selectedItemColor: Colors.indigo[800],
@@ -305,28 +291,23 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 }
 
-// --- 6. ステータス画面 (タブ1) ---
+// --- 1. ステータス画面 ---
 class StatusScreen extends StatefulWidget {
   const StatusScreen({super.key});
-
   @override
   State<StatusScreen> createState() => _StatusScreenState();
 }
 
 class _StatusScreenState extends State<StatusScreen> {
-  // ★★★ 修正: StreamからFutureに変更 ★★★
-  // リアルタイムではなく、ボタンを押した時にデータを取得するためのFuture
   Future<QuerySnapshot>? _requestsFuture;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    // 画面が表示された時に一度だけデータを取得する
     _fetchRequests();
   }
 
-  // ★★★ 修正: データ取得用のメソッドを新設 ★★★
   void _fetchRequests() {
     setState(() {
       _isLoading = true;
@@ -336,23 +317,19 @@ class _StatusScreenState extends State<StatusScreen> {
           .orderBy('requestTimestamp', descending: true)
           .get();
     });
-    // 完了したらisLoadingをfalseにする
     _requestsFuture!.whenComplete(() {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() { _isLoading = false; });
     });
   }
 
-  void _navigateToProcessingScreen(String requestId, String userName) {
+  void _navigateToProcessingScreen(String requestId, String userName, String authType) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => AuthProcessingScreen(
           requestId: requestId,
           userName: userName,
+          authType: authType, // ★追加
         ),
       ),
     );
@@ -362,14 +339,10 @@ class _StatusScreenState extends State<StatusScreen> {
     handleNfcScan('debug://scan');
   }
 
-  // main.dart の _StatusScreenState クラス内にある、
-  // 既存の build メソッドを、以下のコードで完全に差し替えてください。
-
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // 認証リクエスト一覧
         Expanded(
           child: FutureBuilder<QuerySnapshot>(
             future: _requestsFuture,
@@ -377,46 +350,47 @@ class _StatusScreenState extends State<StatusScreen> {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-
               if (snapshot.hasError) {
-                return Center(child: Text('エラーが発生しました: ${snapshot.error}'));
+                return Center(child: Text('エラー: ${snapshot.error}'));
               }
-
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.hourglass_empty, size: 60, color: Colors.grey),
-                        const SizedBox(height: 16),
-                        const Text('認証リクエストはありません', style: TextStyle(fontSize: 18, color: Colors.grey)),
-                        const SizedBox(height: 8),
-                        const Text('下の更新ボタンを押して、最新の情報を取得してください。', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
-                      ],
-                    ),
+                return const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.hourglass_empty, size: 60, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text('リクエストはありません', style: TextStyle(fontSize: 18, color: Colors.grey)),
+                    ],
                   ),
                 );
               }
-
+              // _StatusScreenState の ListView 部分を修正
               return ListView(
                 padding: const EdgeInsets.all(8.0),
                 children: snapshot.data!.docs.map((DocumentSnapshot document) {
                   Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
                   final String userName = data['userName'] ?? '名前不明';
+                  // ★追加: 認証タイプを取得 (デフォルトは 'code')
+                  final String authType = data['authType'] ?? 'code'; 
                   final Timestamp timestamp = data['requestTimestamp'] ?? Timestamp.now();
                   final String requestTime = '${timestamp.toDate().month}/${timestamp.toDate().day} ${timestamp.toDate().hour}:${timestamp.toDate().minute.toString().padLeft(2, '0')}';
+
+                  // アイコンもタイプによって変える
+                  IconData listIcon = Icons.help_outline;
+                  if (authType == 'nfc') listIcon = Icons.nfc;
+                  if (authType == 'code') listIcon = Icons.qr_code_scanner;
 
                   return Card(
                     margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
                     child: ListTile(
-                      leading: const Icon(Icons.person_pin_circle, color: Colors.indigo, size: 40),
+                      leading: Icon(listIcon, color: Colors.indigo, size: 40),
                       title: Text('$userName さんからの認証リクエスト', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('リクエスト日時: $requestTime'),
+                      subtitle: Text('タイプ: ${authType == 'nfc' ? 'NFC' : 'カラーコード'} / $requestTime'),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () {
-                        _navigateToProcessingScreen(document.id, userName);
+                        // ★修正: 認証タイプを渡して遷移
+                        _navigateToProcessingScreen(document.id, userName, authType);
                       },
                     ),
                   );
@@ -425,27 +399,22 @@ class _StatusScreenState extends State<StatusScreen> {
             },
           ),
         ),
-
         const Divider(height: 1, thickness: 1),
-
-        // 手動更新ボタンとBLEステータス表示
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // 1. リクエスト更新ボタン
               Expanded(
                 flex: 2,
                 child: ElevatedButton.icon(
                   icon: _isLoading 
-                      ? const SizedBox(width: 18, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
                       : const Icon(Icons.refresh, size: 18),
-                  label: const Text('Request更新'),
+                  label: const Text('更新'),
                   onPressed: _isLoading ? null : _fetchRequests,
                 ),
               ),
-              // 2. BLEステータス表示
+              const SizedBox(width: 12),
               Expanded(
                 flex: 3,
                 child: ValueListenableBuilder<String>(
@@ -481,27 +450,18 @@ class _StatusScreenState extends State<StatusScreen> {
             ],
           ),
         ),
-        // デバッグ領域
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('【デバッグ機能】', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              const SizedBox(height: 4),
               ValueListenableBuilder<String>(
                 valueListenable: _lastScannedCardInfo,
                 builder: (context, info, child) {
-                  final isSuccess = info.startsWith('成功');
                   return Card(
-                    color: Colors.grey[200],
-                    elevation: 0,
+                    color: Colors.grey[200], elevation: 0,
                     child: ListTile(
                       dense: true,
-                      leading: Icon(
-                        isSuccess ? Icons.check_circle : Icons.info_outline,
-                        color: isSuccess ? Colors.green : Colors.grey[600],
-                      ),
                       title: const Text('ICカードスキャン結果', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                       subtitle: Text(info, style: const TextStyle(fontSize: 12)),
                     ),
@@ -511,11 +471,8 @@ class _StatusScreenState extends State<StatusScreen> {
               const SizedBox(height: 4),
               ElevatedButton.icon(
                 icon: const Icon(Icons.nfc, size: 18),
-                label: const Text('ICカードスキャン開始 (デバッグ用)'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueGrey,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+                label: const Text('ICカードスキャン (デバッグ)'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 onPressed: _triggerDebugNfcScan,
               ),
             ],
@@ -526,35 +483,7 @@ class _StatusScreenState extends State<StatusScreen> {
   }
 }
 
-class StatusCard extends StatelessWidget {
-  final String title;
-  final String status;
-  const StatusCard({super.key, required this.title, required this.status});
-  @override
-  Widget build(BuildContext context) {
-    final bool isError = status.startsWith('❌');
-    final bool isSuccess = status.startsWith('✅');
-    Color statusColor = Colors.grey;
-    if (isError) statusColor = Colors.red;
-    if (isSuccess) statusColor = Colors.green;
-    return Card(
-      elevation: 2.0,
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 5),
-            Text(status, style: TextStyle(color: statusColor, fontSize: 14)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// --- 9. 登録情報管理画面 (新タブ2) ---
+// --- 2. 登録情報管理画面 (顔一覧 & GPS管理) ---
 class InfoAdminScreen extends StatefulWidget {
   const InfoAdminScreen({super.key});
   @override
@@ -567,6 +496,32 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
   final _nameController = TextEditingController();
   String _statusMessage = 'エリア名を入力して登録を開始してください。';
   bool _isLoading = false;
+  bool _isRefreshing = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose(); // メモリリーク防止のため追加
+    super.dispose();
+  }
+
+  Future<void> _manualRefresh() async {
+    setState(() { _isRefreshing = true; });
+    try {
+      await Future.wait([
+        loadFacesFromFirestore(),
+        loadGpsAreasFromFirestore(),
+      ]);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('データを最新の状態に更新しました')),
+        );
+      }
+    } catch (e) {
+      _showErrorDialog('更新エラー', 'データの更新に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() { _isRefreshing = false; });
+    }
+  }
 
   Future<void> _saveGpsArea(GpsArea area) async {
     setState(() { _isLoading = true; _statusMessage = 'データベースに保存中...'; });
@@ -578,8 +533,8 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
       globalGpsAreas.value = currentAreas; 
       _resetState('✅ 登録成功: 「${area.name}」を登録しました。');
     } catch (e) {
-      _showErrorDialog('DB保存エラー', 'データベースへの保存に失敗しました: $e');
-      _resetState('エラーが発生しました。', clearName: false);
+      _showErrorDialog('DB保存エラー', '$e');
+      _resetState('エラー発生', clearName: false);
     }
   }
 
@@ -591,12 +546,75 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
       final currentAreas = globalGpsAreas.value.toList();
       currentAreas.removeWhere((a) => a.name == areaName);
       globalGpsAreas.value = currentAreas;
-      // ★ 修正: 不要な括弧を削除
       _resetState('「$areaName」を削除しました。');
     } catch (e) {
-      _showErrorDialog('DB削除エラー', 'データベースからの削除に失敗しました: $e');
-      _resetState('エラーが発生しました。', clearName: false);
+      _showErrorDialog('DB削除エラー', '$e');
+      _resetState('エラー発生', clearName: false);
     }
+  }
+
+  Future<Position?> _getCurrentLocation() async {
+    setState(() { _isLoading = true; });
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        _showErrorDialog('権限エラー', '位置情報の利用が拒否されました。');
+        _resetState('位置情報利用不可', clearName: false);
+        return null;
+      }
+    }
+    try {
+      setState(() { _statusMessage = '座標を取得中...'; });
+      const LocationSettings locationSettings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 0);
+      return await Geolocator.getCurrentPosition(locationSettings: locationSettings);
+    } catch (e) {
+      _showErrorDialog('GPS取得エラー', '$e');
+      _resetState('エラー発生', clearName: false);
+      return null;
+    }
+  }
+
+  Future<void> _onRegisterButtonPressed() async {
+    // キーボードを閉じる (レイアウト崩れ防止)
+    FocusScope.of(context).unfocus();
+    
+    final areaName = _nameController.text.trim();
+    if (_gpsScanStep == 0) {
+      if (areaName.isEmpty) { _showErrorDialog('入力エラー', 'エリア名を入力してください。'); return; }
+      if (globalGpsAreas.value.any((a) => a.name == areaName)) {
+        if (await _showConfirmDialog('上書き確認', '「$areaName」は登録済みです。上書きしますか？') == false) return;
+      }
+      _tempGpsArea = GpsArea(name: areaName, lat1: 0, lon1: 0, lat2: 0, lon2: 0);
+      setState(() { _gpsScanStep = 1; _statusMessage = 'エリアの「1つ目の端」でボタンを押してください。'; _isLoading = false; });
+    } else if (_gpsScanStep == 1) {
+      final position = await _getCurrentLocation();
+      if (position == null) return;
+      _tempGpsArea = GpsArea(name: _tempGpsArea!.name, lat1: position.latitude, lon1: position.longitude, lat2: 0, lon2: 0);
+      setState(() { _gpsScanStep = 2; _statusMessage = 'エリアの「対角の端」でボタンを押してください。'; _isLoading = false; });
+    } else if (_gpsScanStep == 2) {
+      final position = await _getCurrentLocation();
+      if (position == null) return;
+      final finalArea = GpsArea(name: _tempGpsArea!.name, lat1: _tempGpsArea!.lat1, lon1: _tempGpsArea!.lon1, lat2: position.latitude, lon2: position.longitude);
+      await _saveGpsArea(finalArea);
+    }
+  }
+
+  void _resetState(String message, {bool clearName = true}) {
+    setState(() { _gpsScanStep = 0; _tempGpsArea = null; _isLoading = false; _statusMessage = message; if (clearName) _nameController.clear(); });
+  }
+
+  Future<bool> _showConfirmDialog(String title, String content) async {
+    final result = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: Text(title), content: Text(content), actions: [TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('キャンセル')), TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('OK'))]));
+    return result ?? false;
+  }
+
+  void _showErrorDialog(String title, String content) {
+    showDialog(context: context, builder: (context) => AlertDialog(title: Text(title), content: Text(content), actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる'))]));
+  }
+
+  String _getButtonText() {
+    switch (_gpsScanStep) { case 0: return '1. エリア定義を開始'; case 1: return '2. 1つ目の端を登録'; case 2: return '3. 2つ目の端を登録して完了'; default: return ''; }
   }
 
   Future<void> _deleteFace(String faceLabel) async {
@@ -606,238 +624,162 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
     setState(() { _isLoading = false; });
   }
 
-  Future<Position?> _getCurrentLocation() async {
-    setState(() { _isLoading = true; });
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        _showErrorDialog('権限エラー', '位置情報の利用が拒否されました。設定から許可してください。');
-        _resetState('位置情報が利用できません。', clearName: false);
-        return null;
-      }
-    }
-    if (permission == LocationPermission.deniedForever) {
-      _showErrorDialog('権限エラー', '位置情報の利用が恒久的に拒否されています。設定から変更してください。');
-      _resetState('位置情報が利用できません。', clearName: false);
-      return null;
-    }
+  // ★修正: バイト長が0の場合は null を返す (赤い画面の防止策)
+  Uint8List? _getSafeImageBytes(String thumbnailDataUrl) {
     try {
-      setState(() { _statusMessage = '座標を取得中...'; });
-      // ★ 修正: 'desiredAccuracy' -> 'locationSettings'
-      const LocationSettings locationSettings = LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-      );
-      return await Geolocator.getCurrentPosition(locationSettings: locationSettings);
+      if (thumbnailDataUrl.isEmpty) return null;
+      final base64String = thumbnailDataUrl.split(',').last;
+      if (base64String.isEmpty) return null; // 空文字チェック
+      
+      final bytes = base64Decode(base64String);
+      if (bytes.isEmpty) return null; // 0バイトチェック (ここが重要)
+      
+      return bytes;
     } catch (e) {
-      _showErrorDialog('GPS取得エラー', '位置情報の取得に失敗しました: $e');
-      _resetState('エラーが発生しました。', clearName: false);
       return null;
     }
   }
 
-  Future<void> _onRegisterButtonPressed() async {
-    final areaName = _nameController.text.trim();
-    if (_gpsScanStep == 0) {
-      if (areaName.isEmpty) {
-        _showErrorDialog('入力エラー', 'エリア名を入力してください。');
-        return;
-      }
-      if (globalGpsAreas.value.any((a) => a.name == areaName)) {
-        if (await _showConfirmDialog('上書き確認', '「$areaName」は既に登録されています。上書きしますか？') == false) return;
-      }
-      _tempGpsArea = GpsArea(name: areaName, lat1: 0, lon1: 0, lat2: 0, lon2: 0);
-      setState(() {
-        _gpsScanStep = 1;
-        _statusMessage = 'エリアの「1つ目の端」に移動し、ボタンを押してください。';
-        _isLoading = false;
-      });
-    } else if (_gpsScanStep == 1) {
-      final position = await _getCurrentLocation();
-      if (position == null) return;
-      _tempGpsArea = GpsArea(
-        name: _tempGpsArea!.name,
-        lat1: position.latitude, lon1: position.longitude,
-        lat2: 0, lon2: 0,
-      );
-      setState(() {
-        _gpsScanStep = 2;
-        _statusMessage = '1点目 登録完了。エリアの「対角の端」に移動し、ボタンを押してください。';
-        _isLoading = false;
-      });
-    } else if (_gpsScanStep == 2) {
-      final position = await _getCurrentLocation();
-      if (position == null) return;
-      final finalArea = GpsArea(
-        name: _tempGpsArea!.name,
-        lat1: _tempGpsArea!.lat1, lon1: _tempGpsArea!.lon1,
-        lat2: position.latitude, lon2: position.longitude,
-      );
-      await _saveGpsArea(finalArea);
-    }
-  }
-
-  void _resetState(String message, {bool clearName = true}) {
-    setState(() {
-      _gpsScanStep = 0;
-      _tempGpsArea = null;
-      _isLoading = false;
-      _statusMessage = message;
-      if (clearName) _nameController.clear();
-    });
-  }
-
-  Future<bool> _showConfirmDialog(String title, String content) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title), content: Text(content),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('キャンセル')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('OK')),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
-  void _showErrorDialog(String title, String content) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title), content: Text(content),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる')),
-        ],
-      ),
-    );
-  }
-  String _getButtonText() {
-    switch (_gpsScanStep) {
-      case 0: return '1. エリア定義を開始';
-      case 1: return '2. 1つ目の端を登録';
-      case 2: return '3. 2つ目の端を登録して完了';
-      default: return '';
-    }
-  }
-  
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16.0),
+    return Column(
       children: [
-        const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        ValueListenableBuilder<List<FaceObject>>(
-          valueListenable: globalFaces,
-          builder: (context, faces, child) {
-            if (faces.isEmpty) {
-              return const Center(child: Text('登録済みの顔はありません。'));
-            }
-            final reversedFaces = faces.reversed.toList();
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: reversedFaces.length,
-              itemBuilder: (context, index) {
-                final face = reversedFaces[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4.0),
-                  child: ListTile(
-                    leading: Image(
-                      image: MemoryImage(base64Decode(face.thumbnail.split(',').last)),
-                      width: 60, height: 80, fit: BoxFit.cover,
-                    ),
-                    title: Text(face.label),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: _isLoading ? null : () => _deleteFace(face.label),
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-        const Divider(height: 40),
-        const Text('GPS認証エリア登録', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _nameController,
-          decoration: const InputDecoration(labelText: 'エリア名', border: OutlineInputBorder()),
-          enabled: _gpsScanStep == 0, 
-        ),
-        const SizedBox(height: 10),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _onRegisterButtonPressed,
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            backgroundColor: _gpsScanStep == 0 ? Colors.indigo : Colors.amber[700],
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          color: Colors.grey[100],
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: _isRefreshing
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.refresh),
+                  label: const Text('データを更新'),
+                  onPressed: (_isLoading || _isRefreshing) ? null : _manualRefresh,
+                ),
+              ),
+            ],
           ),
-          child: _isLoading 
-              ? const CircularProgressIndicator(color: Colors.white) 
-              : Text(_getButtonText()),
         ),
-        const SizedBox(height: 10),
-        Text(_statusMessage, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-        const Divider(height: 40),
-        const Text('登録済みGPSエリア一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        ValueListenableBuilder<List<GpsArea>>(
-          valueListenable: globalGpsAreas,
-          builder: (context, areas, child) {
-            if (_isLoading && areas.isEmpty) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (areas.isEmpty) {
-              return const Center(child: Text('登録済みのエリアはありません。'));
-            }
-            final reversedAreas = areas.reversed.toList();
-            return ListView.builder(
-              shrinkWrap: true, 
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: reversedAreas.length,
-              itemBuilder: (context, index) {
-                final area = reversedAreas[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4.0),
-                  child: ListTile(
-                    title: Text(area.name),
-                    subtitle: Text(
-                      '端1: ${area.lat1.toStringAsFixed(6)}, ${area.lon1.toStringAsFixed(6)}\n端2: ${area.lat2.toStringAsFixed(6)}, ${area.lon2.toStringAsFixed(6)}',
-                      style: const TextStyle(fontSize: 12.0),
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: _isLoading ? null : () => _deleteGpsArea(area.name),
-                    ),
-                  ),
-                );
-              },
-            );
-          },
+        const Divider(height: 1),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              ValueListenableBuilder<List<FaceObject>>(
+                valueListenable: globalFaces,
+                builder: (context, faces, child) {
+                  if (faces.isEmpty) {
+                    return const Center(child: Text('登録済みの顔はありません。'));
+                  }
+                  final reversedFaces = faces.reversed.toList();
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: reversedFaces.length,
+                    itemBuilder: (context, index) {
+                      final face = reversedFaces[index];
+                      // 安全な画像データ取得
+                      final imageBytes = _getSafeImageBytes(face.thumbnail);
+                      
+                      Widget leadingWidget;
+                      if (imageBytes != null) {
+                        leadingWidget = Image.memory(
+                          imageBytes,
+                          width: 60, height: 80, fit: BoxFit.cover,
+                          // エラー時はアイコンを表示
+                          errorBuilder: (context, error, stackTrace) => 
+                              Container(width: 60, height: 80, color: Colors.grey[300], child: const Icon(Icons.broken_image)),
+                        );
+                      } else {
+                        // データ不正時は最初からアイコンを表示 (これで赤い画面を防ぐ)
+                        leadingWidget = Container(
+                          width: 60, height: 80, color: Colors.indigo[50], 
+                          child: const Icon(Icons.face, color: Colors.indigo),
+                        );
+                      }
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: ListTile(
+                          leading: leadingWidget,
+                          title: Text(face.label),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: _isLoading ? null : () => _deleteFace(face.label),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+              const Divider(height: 40),
+
+              const Text('GPS認証エリア登録', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _nameController,
+                decoration: const InputDecoration(labelText: 'エリア名', border: OutlineInputBorder()),
+                enabled: _gpsScanStep == 0, 
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton(
+                onPressed: _isLoading ? null : _onRegisterButtonPressed,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                  backgroundColor: _gpsScanStep == 0 ? Colors.indigo : Colors.amber[700],
+                ),
+                child: _isLoading 
+                    ? const CircularProgressIndicator(color: Colors.white) 
+                    : Text(_getButtonText()),
+              ),
+              const SizedBox(height: 10),
+              Text(_statusMessage, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+              ValueListenableBuilder<List<GpsArea>>(
+                valueListenable: globalGpsAreas,
+                builder: (context, areas, child) {
+                  if (areas.isEmpty) return const Center(child: Text('登録済みのエリアはありません。'));
+                  return ListView.builder(
+                    shrinkWrap: true, 
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: areas.length,
+                    itemBuilder: (context, index) {
+                      final area = areas[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: ListTile(
+                          title: Text(area.name),
+                          subtitle: Text('端1: ${area.lat1.toStringAsFixed(5)}, ${area.lon1.toStringAsFixed(5)}\n端2: ${area.lat2.toStringAsFixed(5)}, ${area.lon2.toStringAsFixed(5)}', style: const TextStyle(fontSize: 12)),
+                          trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: _isLoading ? null : () => _deleteGpsArea(area.name)),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
-// --- 8. 顔登録画面 (新タブ3) ---
+// --- 3. 顔登録画面 (修正: ロード画面によるディレイ追加) ---
 class FaceRegisterScreen extends StatefulWidget {
   const FaceRegisterScreen({super.key});
   @override
-  State<FaceRegisterScreen> createState() => _FaceRegisterScreenState();
+  State<FaceRegisterScreen> createState() => FaceRegisterScreenState();
 }
 
-// main.dart の既存の「class _FaceAdminScreenState...」全体を、以下のコードで差し替えてください。
-
-// main.dart の既存の「class _FaceAdminScreenState...」全体を、以下のコードで差し替えてください。
-
-class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
-  // --- Stateを管理するオブジェクト (hot reload対応済) ---
+class FaceRegisterScreenState extends State<FaceRegisterScreen> {
   final TextEditingController _nameController = TextEditingController();
   final ValueNotifier<int> _scanStep = ValueNotifier(0);
-  final ValueNotifier<String> _statusMessage = ValueNotifier('名前を入力して登録を開始してください。');
+  final ValueNotifier<String> _statusMessage = ValueNotifier('名前を入力して開始');
   final ValueNotifier<bool> _isLoading = ValueNotifier(false);
   final ValueNotifier<Face?> _detectedFace = ValueNotifier(null);
   final ValueNotifier<String> _detectedName = ValueNotifier("不明");
@@ -848,7 +790,6 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
     "4/5: 顔を「上」に向けてください", "5/5: 顔を「下」に向けてください",
   ];
 
-  // --- 内部状態変数 ---
   List<Float32List> _scanDescriptors = [];
   String _scanThumbnailBase64 = '';
   CameraController? _cameraController;
@@ -858,15 +799,20 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
   InputImageRotation? _cameraRotation;
   CameraImage? _lastCameraImage;
   bool _isFaceMatcherBuilt = false;
+  
+  bool _isCameraInitializing = false; 
+  
+  // ★追加: カメラ表示準備完了フラグ (赤い画面防止用)
+  bool _isCameraReady = false; 
 
   @override
   void initState() {
     super.initState();
+    void rebuild() => setState(() {});
+    _detectedFace.addListener(rebuild);
+    _detectedName.addListener(rebuild);
+    _boxColor.addListener(rebuild);
     globalFaces.addListener(_buildFaceMatcher);
-    
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _initializeServices();
-    });
   }
 
   @override
@@ -883,82 +829,24 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
     _boxColor.dispose();
     super.dispose();
   }
-  
-  // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-  // ★★★ これがロードクラッシュを修正する最重要メソッドです ★★★
-  // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-  // _FaceAdminScreenState クラス内の既存の _initializeServices メソッドを、
-  // 以下のコードで完全に置き換えてください。
 
-  Future<void> _initializeServices() async {
-    try {
-      // ローディングUIを表示するためにsetStateを一度だけ呼ぶ
-      if (mounted) setState(() {});
-
-      _statusMessage.value = 'カメラとAIモデルを初期化中...';
-      _isLoading.value = true;
-      
-      _faceDetector = FaceDetector(
-        options: FaceDetectorOptions(performanceMode: FaceDetectorMode.fast),
-      );
-      
-      final cameras = await availableCameras();
-      if (!mounted) return;
-
-      final frontCamera = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.front, orElse: () => cameras.first,
-      );
-      
-      _cameraController = CameraController(
-        frontCamera, ResolutionPreset.medium, enableAudio: false,
-      );
-      
-      await _cameraController!.initialize();
-      if (!mounted) return;
-
-      _cameraImageSize = _cameraController!.value.previewSize;
-      _cameraRotation = InputImageRotationValue.fromRawValue(frontCamera.sensorOrientation) ?? InputImageRotation.rotation270deg;
-      _buildFaceMatcher(); 
-      _cameraController!.startImageStream(_processImageStream);
-      
-      if (!mounted) return;
-      _resetState('顔を検出中...');
-
-      // ★★★ カメラ初期化完了をUIに通知する ★★★
-      setState(() {});
-
-    } catch (e) {
-      if (!mounted) return;
-      _resetState('カメラとAIの初期化に失敗しました。');
-      _showErrorDialog("初期化エラー", "カメラまたはAIモデルの起動に失敗しました: $e");
-      setState(() {}); // エラー時もUIを更新
-    }
-  }
-
-  // --- これ以降のメソッドは変更ありません ---
-  // (dialogs, buildFaceMatcher, findBestMatch, processImageStream, etc...)
-
-  // [以前の回答で提示した、変更のないメソッド群をここに含めます]
-  // _resetState, _showConfirmDialog, _showErrorDialog, _buildFaceMatcher, _findBestMatch...
-  // _processImageStream, _onRegisterButtonPressed, encodeBase64, _saveFaceToFirestore, _getEmbedding...
-  // そして build メソッド
   void _resetState(String message, {bool clearName = true}) {
-    debugPrint("[STATE] _resetState: 開始 (message: '$message')");
     _scanStep.value = 0;
-    _isLoading.value = false; // ★★★ ローディングを解除する重要な処理 ★★★
-    debugPrint("[STATE]   -> _isLoading.value を false に設定しました");
+    _isLoading.value = false;
     _statusMessage.value = message;
-    if (clearName) _nameController.clear();
+    if (clearName) {
+      _nameController.clear();
+    }
     _detectedName.value = "不明";
     _boxColor.value = Colors.red;
-    debugPrint("[STATE] _resetState: 完了");
   }
-  
+
   Future<bool> _showConfirmDialog(String title, String content) async {
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(title), content: Text(content),
+        title: Text(title),
+        content: Text(content),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('キャンセル')),
           TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('OK')),
@@ -972,73 +860,130 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(title), content: Text(content),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる')),
-        ],
+        title: Text(title),
+        content: Text(content),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる'))],
       ),
     );
   }
 
   void _buildFaceMatcher() {
     _isFaceMatcherBuilt = globalFaces.value.isNotEmpty;
-    debugPrint("FaceMatcher を再構築しました。登録済み: ${globalFaces.value.length} 件");
   }
 
-  String _findBestMatch(Float32List queryDescriptor) {
-    if (!_isFaceMatcherBuilt) return "不明";
-    double minDistance = double.infinity;
-    String bestMatchLabel = "不明";
-    const double threshold = 1.0; 
-
-    double euclideanDistance(Float32List d1, Float32List d2) {
-      double sum = 0.0;
-      for (int i = 0; i < d1.length; i++) {
-        sum += (d1[i] - d2[i]) * (d1[i] - d2[i]);
-      }
-      return sum;
+  // 外部から呼ばれる開始メソッド
+  Future<void> startCamera() async {
+    if (_isCameraInitializing || (_cameraController != null && _cameraController!.value.isInitialized)) {
+      return;
     }
+    await _initializeServices();
+  }
 
-    for (final face in globalFaces.value) {
-      for (final descriptor in face.descriptors) {
-        final double distance = euclideanDistance(descriptor, queryDescriptor);
-        if (distance < minDistance && distance < threshold) {
-          minDistance = distance;
-          bestMatchLabel = face.label;
+  // 外部から呼ばれる停止メソッド
+  Future<void> stopCamera() async {
+    // ★修正: 停止時もフラグをリセットして画面を消す
+    if (mounted) setState(() { _isCameraReady = false; });
+    
+    if (_cameraController != null) {
+      await _cameraController!.stopImageStream();
+      await _cameraController!.dispose();
+      _cameraController = null;
+      _isDetecting = false;
+    }
+  }
+
+  Future<void> _initializeServices() async {
+    if (_isCameraInitializing) return;
+    _isCameraInitializing = true;
+    
+    // ★修正: 初期化開始時にフラグを落とす
+    if (mounted) setState(() { _isCameraReady = false; });
+
+    try {
+      _isLoading.value = true;
+      _statusMessage.value = 'カメラ起動中...';
+
+      if (_interpreter == null) {
+        try {
+          _interpreter = await Interpreter.fromAsset('assets/mobilefacenet.tflite');
+        } catch (e) {
+          debugPrint("モデルロード失敗: $e");
         }
       }
+
+      _faceDetector = FaceDetector(options: FaceDetectorOptions(performanceMode: FaceDetectorMode.fast));
+
+      final cameras = await availableCameras();
+      if (!mounted) return;
+      
+      final frontCamera = cameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.front,
+          orElse: () => cameras.first);
+
+      if (_cameraController != null) {
+        await _cameraController!.dispose();
+      }
+
+      _cameraController = CameraController(frontCamera, ResolutionPreset.medium, enableAudio: false);
+      await _cameraController!.initialize();
+      
+      if (!mounted) return;
+
+      _cameraImageSize = _cameraController!.value.previewSize;
+      _cameraRotation = InputImageRotationValue.fromRawValue(frontCamera.sensorOrientation) ?? InputImageRotation.rotation270deg;
+      _buildFaceMatcher();
+      
+      await _cameraController!.startImageStream(_processImageStream);
+
+      // ★★★ 修正: 赤い画面を防ぐための意図的なディレイ ★★★
+      if (mounted) {
+        _statusMessage.value = 'カメラ準備中...';
+      }
+      await Future.delayed(const Duration(milliseconds: 50)); 
+
+      if (mounted) {
+        _resetState('名前を入力して開始');
+        // ★修正: ここで初めて画面表示を許可
+        setState(() { _isCameraReady = true; });
+      }
+    } catch (e) {
+      if (mounted) {
+        _resetState('初期化エラー');
+        _showErrorDialog("エラー", "$e");
+        setState(() {});
+      }
+    } finally {
+      _isCameraInitializing = false;
     }
-    return bestMatchLabel;
   }
 
-  // _FaceAdminScreenState クラス内の _processImageStream メソッドをこれで差し替え
   void _processImageStream(CameraImage cameraImage) async {
     if (_isDetecting || !mounted) return;
     _isDetecting = true;
-    
-    // このメソッドはUIスレッドで実行されるため、重い処理は避ける
-    // ただし、UIの更新はこのメソッドが責任を持つ
-    _lastCameraImage = cameraImage; 
-    
+    _lastCameraImage = cameraImage;
+
     final inputImage = _inputImageFromCameraImage(cameraImage, _cameraRotation);
     if (inputImage == null) {
       _isDetecting = false;
       return;
     }
-    
+
     try {
       final faces = await _faceDetector!.processImage(inputImage);
-      if (!mounted) { _isDetecting = false; return; }
+      if (!mounted) {
+        _isDetecting = false;
+        return;
+      }
 
       Face? bestFace;
       if (faces.isNotEmpty) {
         bestFace = faces.reduce((a, b) => a.boundingBox.width > b.boundingBox.width ? a : b);
       }
-      
-      // 顔照合のための非同期処理（UIスレッドをブロックしない）
+
       String detectedName = "不明";
       Color boxColor = Colors.red;
-      if (bestFace != null && _scanStep.value == 0 && _isFaceMatcherBuilt) {
+
+      if (bestFace != null && _scanStep.value == 0 && _isFaceMatcherBuilt && _interpreter != null) {
         final img_lib.Image? croppedFaceImage = _cropFace(cameraImage, bestFace, _cameraRotation!);
         if (croppedFaceImage != null) {
           try {
@@ -1048,15 +993,15 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
               detectedName = match;
               boxColor = (match == "不明") ? Colors.red : Colors.green;
             }
-          } catch (e) { /* AIエラー時はデフォルト値のまま */ }
+          } catch (e) {
+            /* error */
+          }
         }
       } else if (bestFace != null && _scanStep.value > 0) {
         detectedName = "";
         boxColor = Colors.green;
       }
 
-      // ★★★ これがリアルタイム更新を復活させる修正です ★★★
-      // 全ての計算が終わった後、最後に一度だけ setState を呼び出してUIを更新する
       if (mounted) {
         setState(() {
           _detectedFace.value = bestFace;
@@ -1064,78 +1009,90 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
           _boxColor.value = boxColor;
         });
       }
-      // ★★★ 修正ここまで ★★★
-
     } catch (e) {
-      debugPrint('顔検出/処理エラー: $e');
+      debugPrint('Error: $e');
     } finally {
       _isDetecting = false;
     }
   }
 
+  String _findBestMatch(Float32List queryDescriptor) {
+    if (!_isFaceMatcherBuilt) return "不明";
+    double minDistance = double.infinity;
+    String bestMatchLabel = "不明";
+    const double threshold = 1.0;
+    for (final face in globalFaces.value) {
+      for (final descriptor in face.descriptors) {
+        double dist = 0.0;
+        for (int i = 0; i < descriptor.length; i++) {
+          dist += (descriptor[i] - queryDescriptor[i]) * (descriptor[i] - queryDescriptor[i]);
+        }
+        if (dist < minDistance && dist < threshold) {
+          minDistance = dist;
+          bestMatchLabel = face.label;
+        }
+      }
+    }
+    return bestMatchLabel;
+  }
+
   Future<void> _onRegisterButtonPressed() async {
     final newName = _nameController.text.trim();
     if (_scanStep.value == 0) {
-      if (newName.isEmpty) { _showErrorDialog('入力エラー', '名前を入力してください。'); return; }
+      if (newName.isEmpty) return;
       if (globalFaces.value.any((f) => f.label == newName)) {
-        if (await _showConfirmDialog('上書き確認', '「$newName」さんは既に登録されています。上書きしますか？') == false) return;
+        if (await _showConfirmDialog('確認', '上書きしますか？') == false) return;
       }
       _scanDescriptors = [];
       _scanThumbnailBase64 = '';
       _scanStep.value = 1;
       _statusMessage.value = _scanInstructions[_scanStep.value];
+      setState(() {});
       return;
     }
-    
-    final currentFace = _detectedFace.value;
-    final currentCameraImage = _lastCameraImage;
-    final currentRotation = _cameraRotation;
-    final currentCameraController = _cameraController;
 
-    if (currentFace == null || currentCameraImage == null || currentRotation == null || currentCameraController == null) {
-      _showErrorDialog('スキャンエラー', '${_scanInstructions[_scanStep.value]} の顔を検出できません。\n(顔を枠内に収めてください)');
-      return;
-    }
-    
+    if (_detectedFace.value == null) return;
+
     _isLoading.value = true;
-    _statusMessage.value = 'スキャン中... (${_scanStep.value}/5)';
-
+    setState(() {});
     try {
       if (_scanStep.value == 1) {
-        await currentCameraController.stopImageStream();
-        final XFile pictureFile = await currentCameraController.takePicture();
-        if (!mounted) return; // 撮影後もチェック
+        await _cameraController!.stopImageStream();
+        final XFile pictureFile = await _cameraController!.takePicture();
+        if (!mounted) return;
         final Uint8List imageBytes = await pictureFile.readAsBytes();
         _scanThumbnailBase64 = 'data:image/jpeg;base64,${base64Encode(imageBytes)}';
-        await currentCameraController.startImageStream(_processImageStream);
+        await _cameraController!.startImageStream(_processImageStream);
       }
 
-      final img_lib.Image? aiImage = _cropFace(currentCameraImage, currentFace, currentRotation);
-      if (aiImage == null) throw Exception("AI用顔画像の変換に失敗しました。");
-      
-      final Float32List descriptor = await _getEmbedding(aiImage);
-      _scanDescriptors.add(descriptor);
+      if (_interpreter != null) {
+        final img_lib.Image? aiImage = _cropFace(_lastCameraImage!, _detectedFace.value!, _cameraRotation!);
+        if (aiImage != null) {
+          final Float32List descriptor = await _getEmbedding(aiImage);
+          _scanDescriptors.add(descriptor);
+        }
+      }
 
       _scanStep.value++;
       if (_scanStep.value > 5) {
         await _saveFaceToFirestore(newName, _scanDescriptors, _scanThumbnailBase64);
+        _scanStep.value = 0;
+        _nameController.clear();
+        _statusMessage.value = '登録完了';
       } else {
-        _isLoading.value = false;
-        _statusMessage.value = _scanInstructions[_scanStep.value];
+        _statusMessage.value = '${_scanInstructions[_scanStep.value]} (${_scanStep.value}/5)';
       }
-    } catch (e, stackTrace) {
-      debugPrint("--- 処理エラーが発生しました ---");
-      debugPrint("ERROR: $e");
-      debugPrint("STACKTRACE: $stackTrace");
-      if (!mounted) return;
-      _showErrorDialog('処理エラー', '写真の撮影またはAI処理に失敗しました: $e');
-      _resetState('エラーが発生しました。', clearName: false);
-      if (currentCameraController.value.isStreamingImages == false) {
-         await currentCameraController.startImageStream(_processImageStream);
+    } catch (e) {
+      _statusMessage.value = 'エラー: $e';
+      if (_cameraController!.value.isStreamingImages == false) {
+        await _cameraController!.startImageStream(_processImageStream);
       }
+    } finally {
+      _isLoading.value = false;
+      setState(() {});
     }
   }
-  
+
   String encodeBase64(Float32List floatList) {
     return base64Encode(floatList.buffer.asUint8List());
   }
@@ -1145,21 +1102,17 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
     try {
       final dataToSave = {
         'label': label,
-        'thumbnail': thumbnailDataUrl, 
+        'thumbnail': thumbnailDataUrl,
         'descriptors': descriptors.map((d) => encodeBase64(d)).toList(),
       };
       await db.collection("faces").doc(label).set(dataToSave);
       if (!mounted) return;
-      final newFace = FaceObject(
-        label: label, 
-        thumbnail: thumbnailDataUrl,
-        descriptors: descriptors
-      );
+      final newFace = FaceObject(label: label, thumbnail: thumbnailDataUrl, descriptors: descriptors);
       final currentFaces = globalFaces.value.toList();
-      currentFaces.removeWhere((f) => f.label == label); 
+      currentFaces.removeWhere((f) => f.label == label);
       currentFaces.add(newFace);
       globalFaces.value = currentFaces;
-      
+
       _resetState('✅ 登録成功: 「$label」さんを登録しました。');
     } catch (e) {
       if (!mounted) return;
@@ -1173,22 +1126,20 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
     final Float32List inputBytes = Float32List(1 * 112 * 112 * 3);
     int pixelIndex = 0;
     for (int i = 0; i < imageBytes.length; i += 3) {
-      final r = imageBytes[i];
-      final g = imageBytes[i + 1];
-      final b = imageBytes[i + 2];
-      inputBytes[pixelIndex++] = (b / 127.5) - 1.0;
-      inputBytes[pixelIndex++] = (g / 127.5) - 1.0;
-      inputBytes[pixelIndex++] = (r / 127.5) - 1.0;
+      inputBytes[pixelIndex++] = (imageBytes[i + 2] / 127.5) - 1.0;
+      inputBytes[pixelIndex++] = (imageBytes[i + 1] / 127.5) - 1.0;
+      inputBytes[pixelIndex++] = (imageBytes[i] / 127.5) - 1.0;
     }
     final input = inputBytes.reshape([1, 112, 112, 3]);
     final output = List.filled(1 * 192, 0.0).reshape([1, 192]);
-    _interpreter.run(input, output);
+    _interpreter!.run(input, output);
     return Float32List.fromList(output[0]);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+    // ★修正: _isCameraReadyフラグをチェックし、準備ができるまではロード画面を表示
+    if (!_isCameraReady || _cameraController == null || !_cameraController!.value.isInitialized) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1197,277 +1148,752 @@ class _FaceRegisterScreenState extends State<FaceRegisterScreen> {
             const SizedBox(height: 10),
             ValueListenableBuilder<String>(
               valueListenable: _statusMessage,
-              builder: (context, message, child) {
-                return Text(message);
-              },
+              builder: (context, message, child) => Text(message),
             ),
           ],
         ),
       );
     }
-    return ListView(
-      padding: const EdgeInsets.all(16.0),
-      children: [
-        const Text('顔認証 (登録フェーズ)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        ClipRect( // 念のため、ウィジェットがはみ出さないようにClipRectで囲みます
-          child: AspectRatio(
-            aspectRatio: 1 / _cameraController!.value.aspectRatio,
+
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            const Text('顔認証 (登録フェーズ)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            ClipRect(
+              child: AspectRatio(
+                aspectRatio: 1 / _cameraController!.value.aspectRatio,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CameraPreview(_cameraController!),
+                    ValueListenableBuilder<Face?>(
+                      valueListenable: _detectedFace,
+                      builder: (context, face, child) {
+                        if (face == null || _cameraImageSize == null || _cameraRotation == null) {
+                          return const SizedBox.shrink();
+                        }
+                        return CustomPaint(
+                          painter: FaceBoxPainter(
+                            face: face,
+                            imageSize: _cameraImageSize!,
+                            rotation: _cameraRotation!,
+                            name: _detectedName.value,
+                            color: _boxColor.value,
+                            isGrid: false,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ValueListenableBuilder<String>(
+              valueListenable: _statusMessage,
+              builder: (context, message, child) => Text(message, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+            ),
+            const SizedBox(height: 10),
+            ValueListenableBuilder<int>(
+              valueListenable: _scanStep,
+              builder: (context, step, child) => TextField(
+                controller: _nameController,
+                decoration: const InputDecoration(labelText: '登録名', border: OutlineInputBorder()),
+                enabled: step == 0,
+              ),
+            ),
+            const SizedBox(height: 10),
+            ValueListenableBuilder<bool>(
+              valueListenable: _isLoading,
+              builder: (context, loading, child) {
+                return ValueListenableBuilder<int>(
+                  valueListenable: _scanStep,
+                  builder: (context, step, child) {
+                    return ElevatedButton(
+                      onPressed: loading ? null : _onRegisterButtonPressed,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16.0),
+                        backgroundColor: step == 0 ? Colors.indigo : Colors.amber[700],
+                      ),
+                      child: loading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : Text(step == 0 ? '1. スキャン開始 (5段階)' : 'スキャン ($step/5)'),
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- 認証処理画面 (顔認証[インカメ] -> コード認証[アウトカメ] シーケンシャル) ---
+class AuthProcessingScreen extends StatefulWidget {
+  final String requestId;
+  final String userName;
+  final String authType;
+
+  const AuthProcessingScreen({
+    super.key,
+    required this.requestId,
+    required this.userName,
+    required this.authType,
+  });
+
+  @override
+  State<AuthProcessingScreen> createState() => _AuthProcessingScreenState();
+}
+
+class _AuthProcessingScreenState extends State<AuthProcessingScreen> {
+  CameraController? _cameraController;
+  bool _isDetecting = false;
+  
+  int _authStep = 0; 
+  String _statusMessage = "顔認証中... 本人を映してください";
+  bool _isSwitchingCamera = false;
+  bool _isFirstLoad = true;
+  List<String> _targetColorCode = [];
+  
+  String _detectedName = "不明";
+  Color _boxColor = Colors.red;
+  Face? _detectedFace;
+  Size? _cameraImageSize;
+  InputImageRotation _currentRotation = InputImageRotation.rotation270deg;
+
+  List<String> _detectedColors = ["?", "?", "?", "?"];
+  
+  @override
+  void initState() {
+    super.initState();
+    _parseAuthType();
+    if (widget.authType.startsWith('code')) {
+      _initializeCamera(CameraLensDirection.front); // 最初はインカメ
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopCamera();
+    super.dispose();
+  }
+
+  void _parseAuthType() {
+    final parts = widget.authType.split(',');
+    if (parts.length >= 5 && parts[0] == 'code') {
+      _targetColorCode = parts.sublist(1, 5);
+    } else {
+      _targetColorCode = ["?", "?", "?", "?"]; 
+    }
+  }
+
+  Future<void> _stopCamera() async {
+    _isDetecting = false;
+    if (_cameraController != null) {
+      await _cameraController!.stopImageStream();
+      await _cameraController!.dispose();
+      _cameraController = null;
+    }
+  }
+
+  Future<void> _initializeCamera(CameraLensDirection lensDirection) async {
+    // 2回目以降（切り替え時）のみロード画面を表示
+    if (!_isFirstLoad && mounted) {
+      setState(() { _isSwitchingCamera = true; });
+      await Future.delayed(const Duration(milliseconds: 700));
+    }
+    _isFirstLoad = false;
+
+    await _stopCamera();
+
+    try {
+      final cameras = await availableCameras();
+      final camera = cameras.firstWhere(
+        (c) => c.lensDirection == lensDirection,
+        orElse: () => cameras.first,
+      );
+
+      _currentRotation = InputImageRotationValue.fromRawValue(camera.sensorOrientation) 
+          ?? (lensDirection == CameraLensDirection.front ? InputImageRotation.rotation270deg : InputImageRotation.rotation90deg);
+
+      _cameraController = CameraController(
+        camera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+      );
+
+      await _cameraController!.initialize();
+      if (!mounted) { await _stopCamera(); return; }
+      
+      _cameraImageSize = _cameraController!.value.previewSize;
+      _cameraController!.startImageStream(_processCameraImage);
+      
+    } catch (e) {
+      debugPrint("カメラ起動エラー: $e");
+    } finally {
+      if (mounted) setState(() { _isSwitchingCamera = false; });
+    }
+  }
+
+  void _processCameraImage(CameraImage image) {
+    if (_isDetecting || !mounted) return;
+    _isDetecting = true;
+
+    Future.microtask(() async {
+      try {
+        if (_authStep == 0) {
+          await _processFaceAuth(image);
+        } else if (_authStep == 1) {
+          // コードスキャン時は全画面をRGB変換して処理
+          final dummyFace = Face(
+            boundingBox: Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+            landmarks: {}, contours: {}, trackingId: null,
+          );
+          
+          final img_lib.Image? fullImage = _cropFace(image, dummyFace, InputImageRotation.rotation0deg);
+
+          if (fullImage != null) {
+            _processCodeScan(fullImage);
+          }
+        }
+      } catch (e) {
+        debugPrint("処理エラー: $e");
+      } finally {
+        if (mounted) _isDetecting = false;
+      }
+    });
+  }
+
+  Future<void> _processFaceAuth(CameraImage image) async {
+    final inputImage = _inputImageFromCameraImage(image, _currentRotation); 
+    if (inputImage == null) return;
+
+    final faceDetector = FaceDetector(options: FaceDetectorOptions(performanceMode: FaceDetectorMode.fast));
+    final faces = await faceDetector.processImage(inputImage);
+    faceDetector.close();
+
+    Face? bestFace;
+    if (faces.isNotEmpty) {
+      bestFace = faces.reduce((a, b) => a.boundingBox.width > b.boundingBox.width ? a : b);
+    }
+
+    String detectedName = "不明";
+    Color boxColor = Colors.red;
+    bool isMatch = false;
+
+    if (bestFace != null && _interpreter != null) {
+      final img_lib.Image? croppedFaceImage = _cropFace(image, bestFace, _currentRotation); 
+      
+      if (croppedFaceImage != null) {
+        try {
+          final Float32List descriptor = await _getEmbedding(croppedFaceImage);
+          detectedName = _findBestMatchLocally(descriptor);
+          
+          if (detectedName == widget.userName) {
+            boxColor = Colors.green;
+            isMatch = true;
+          } else {
+            boxColor = Colors.red;
+          }
+        } catch (e) { /* error */ }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _detectedFace = bestFace;
+        _detectedName = detectedName;
+        _boxColor = boxColor;
+      });
+
+      if (isMatch) {
+        _authStep = 1; 
+        _statusMessage = "顔認証OK! カメラを切り替えます...";
+        _detectedFace = null;
+        setState(() {});
+        
+        await _initializeCamera(CameraLensDirection.back);
+        if (mounted) {
+           setState(() {
+             _statusMessage = "コードを枠に合わせてください";
+           });
+        }
+      }
+    }
+  }
+
+  Future<Float32List> _getEmbedding(img_lib.Image croppedFaceImage) async {
+    final imageBytes = croppedFaceImage.toUint8List();
+    final Float32List inputBytes = Float32List(1 * 112 * 112 * 3);
+    int pixelIndex = 0;
+    for (int i = 0; i < imageBytes.length; i += 3) {
+      inputBytes[pixelIndex++] = (imageBytes[i+2] / 127.5) - 1.0; 
+      inputBytes[pixelIndex++] = (imageBytes[i+1] / 127.5) - 1.0; 
+      inputBytes[pixelIndex++] = (imageBytes[i] / 127.5) - 1.0;   
+    }
+    final input = inputBytes.reshape([1, 112, 112, 3]);
+    final output = List.filled(1 * 192, 0.0).reshape([1, 192]);
+    _interpreter!.run(input, output);
+    return Float32List.fromList(output[0]);
+  }
+
+  String _findBestMatchLocally(Float32List queryDescriptor) {
+    double minDistance = double.infinity;
+    String bestMatchLabel = "不明";
+    const double threshold = 1.0; 
+    for (final face in globalFaces.value) {
+      for (final descriptor in face.descriptors) {
+        double dist = 0.0;
+        for (int i = 0; i < descriptor.length; i++) dist += (descriptor[i] - queryDescriptor[i]) * (descriptor[i] - queryDescriptor[i]);
+        if (dist < minDistance && dist < threshold) {
+          minDistance = dist;
+          bestMatchLabel = face.label;
+        }
+      }
+    }
+    return bestMatchLabel;
+  }
+
+  void _processCodeScan(img_lib.Image image) {
+    final result = _scanColorCode(image);
+    
+    if (mounted) {
+      setState(() {
+        if (result != null) {
+          _detectedColors = result;
+          
+          bool isMatch = true;
+          for (int i = 0; i < 4; i++) {
+            if (_targetColorCode.length <= i || result[i] != _targetColorCode[i]) {
+              isMatch = false; 
+              break;
+            }
+          }
+
+          if (isMatch) {
+            _statusMessage = "認証成功！ 承認ボタンを押してください";
+            _authStep = 2; 
+          } else {
+            _statusMessage = "コード不一致: 認識中...";
+          }
+        }
+      });
+    }
+  }
+
+  List<String>? _scanColorCode(img_lib.Image image) {
+    final int w = image.width;
+    final int h = image.height;
+    
+    // ガイド枠と同じ比率 (前回修正分反映: boxW*0.52, boxH*0.8)
+    final int boxW = (w * 0.52).toInt();
+    final int boxH = ((h / 3) * 0.8).toInt();
+    
+    final int startX = (w - boxW) ~/ 2;
+    final int startY = (h - boxH) ~/ 2;
+    final int endY = startY + boxH;
+
+    final int unitX = boxW ~/ 19;
+    
+    final int lineX_1 = startX + (unitX * 2.5).toInt(); // 左列
+    final int lineX_4 = (startX + boxW) - (unitX * 2.5).toInt(); // 右列
+    final int lineX_Center = w ~/ 2; // 中央列
+
+    final color1 = _findColorBetweenX_Limited(image, lineX_1, startY, endY, _isRed, _isBlue) ?? "?";
+    final color4 = _findColorBetweenX_Limited(image, lineX_4, startY, endY, _isRed, _isBlue) ?? "?";
+    final area2 = _findColorBetweenX_Limited(image, lineX_Center, startY, endY, _isBlack, _isWhite) ?? "?";
+    final area3 = _findColorBetweenX_Limited(image, lineX_Center, startY, endY, _isWhite, _isRed) ?? "?";
+
+    if (color1 == "?" && area2 == "?" && area3 == "?" && color4 == "?") {
+      return null; 
+    }
+
+    return [color1, area2, area3, color4];
+  }
+
+  String? _findColorBetweenX_Limited(
+      img_lib.Image image, int x, int minY, int maxY,
+      bool Function(int, int, int) isStart, bool Function(int, int, int) isEnd) {
+    
+    int startY = -1;
+    int endY = -1;
+    
+    // 画像座標系: 画面上の縦方向(Y) = 画像上の横方向(X)としてスキャンするロジックの場合
+    // しかし登録タブの _cropFace(rotation0deg) は画像をそのまま返すので、
+    // スマホ縦持ち時のカメラ画像(横長)に対して、x, yはそのまま適用される。
+    // つまり画面上の「縦」は画像上の「Y」座標。
+    // _findColorBetweenX は「X軸を走査」する関数だったので、これでは横にスキャンしてしまう。
+    // 縦（Y軸）を走査するように修正が必要。
+    
+    // ★修正: 縦方向(Y)に走査するループに変更
+    final int targetColX = x; // 画面上のX座標
+
+    for (int rowY = minY; rowY < maxY; rowY += 4) {
+      if (targetColX >= image.width || rowY >= image.height) continue;
+
+      final pixel = image.getPixel(targetColX, rowY);
+      final r = pixel.r.toInt();
+      final g = pixel.g.toInt();
+      final b = pixel.b.toInt();
+
+      if (startY == -1) {
+        if (isStart(r, g, b)) startY = rowY;
+      } else {
+        if (isEnd(r, g, b)) {
+          endY = rowY;
+          break;
+        }
+      }
+    }
+
+    if (startY != -1 && endY != -1 && (endY - startY) > 10) {
+      final int targetRowY = (startY + endY) ~/ 2;
+      final p = _getAverageColor(image, targetColX, targetRowY);
+      return _classifyColor(p[0], p[1], p[2]);
+    }
+    return null;
+  }
+
+  List<int> _getAverageColor(img_lib.Image image, int centerX, int centerY) {
+    int rSum = 0, gSum = 0, bSum = 0, count = 0;
+    const int range = 5; 
+
+    for (int y = centerY - range; y <= centerY + range; y++) {
+      for (int x = centerX - range; x <= centerX + range; x++) {
+        if (x < 0 || x >= image.width || y < 0 || y >= image.height) continue;
+        final pixel = image.getPixel(x, y);
+        rSum += pixel.r.toInt();
+        gSum += pixel.g.toInt();
+        bSum += pixel.b.toInt();
+        count++;
+      }
+    }
+
+    if (count == 0) return [0, 0, 0];
+    return [rSum ~/ count, gSum ~/ count, bSum ~/ count];
+  }
+
+  bool _isRed(int r, int g, int b) => r > 150 && g < 100 && b < 100;
+  bool _isBlue(int r, int g, int b) => b > 150 && r < 100 && g < 100;
+  bool _isBlack(int r, int g, int b) => r < 80 && g < 80 && b < 80;
+  bool _isWhite(int r, int g, int b) => r > 180 && g > 180 && b > 180;
+
+  String _classifyColor(int r, int g, int b) {
+    if (r < 50 && g < 50 && b < 50) return "?";
+    if (g > r + 30 && g > b + 30) return "G";
+    if (r > 150 && g > 150 && b < 100) return "Y";
+    if (g > 150 && b > 150 && r < 100) return "C";
+    if (r > 150 && b > 150 && g < 100) return "M";
+    return "?"; 
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // カメラ切り替え中
+    if (_isSwitchingCamera) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.userName)),
+        body: Container(
+          color: Colors.black,
+          child: const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(color: Colors.white),
+                SizedBox(height: 20),
+                Text("顔認証成功！ カメラを切り替えています...", style: TextStyle(color: Colors.white, fontSize: 18)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // NFCモード
+    if (widget.authType == 'nfc') {
+      return Scaffold(
+        appBar: AppBar(title: Text('${widget.userName} さんの認証 (NFC)')),
+        body: const Center(child: Text("NFCスキャン機能は現在調整中です")),
+      );
+    }
+
+    // カメラ初期化中
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return Scaffold(appBar: AppBar(title: Text(widget.userName)), body: const Center(child: CircularProgressIndicator()));
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.userName)),
+      body: Column(
+        children: [
+          Expanded(
             child: Stack(
               fit: StackFit.expand,
               children: [
-                CameraPreview(_cameraController!),
-                if (_detectedFace.value != null && _cameraImageSize != null && _cameraRotation != null)
-                  CustomPaint(
-                    painter: FaceBoxPainter(
-                      face: _detectedFace.value!,
-                      imageSize: _cameraImageSize!,
-                      rotation: _cameraRotation!,
-                      name: _detectedName.value,
-                      color: _boxColor.value,
-                      isGrid: false,
+                // アスペクト比調整 (回転に合わせて比率を切り替え)
+                ClipRect(
+                  child: AspectRatio(
+                    aspectRatio: 1 / _cameraController!.value.aspectRatio,
+                    child: CameraPreview(_cameraController!),
+                  ),
+                ),
+                
+                CustomPaint(
+                  painter: GuideOverlayPainter(
+                    isFaceStep: _authStep == 0,
+                    face: _detectedFace,
+                    imageSize: _cameraImageSize,
+                    rotation: _currentRotation,
+                  ),
+                ),
+                
+                if (_authStep == 0 && _detectedFace != null)
+                  Positioned(
+                    bottom: 20, left: 0, right: 0,
+                    child: Column(
+                      children: [
+                        Text("認識結果: $_detectedName", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: _boxColor, backgroundColor: Colors.black54)),
+                      ],
                     ),
                   ),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 10),
-        ValueListenableBuilder<String>(
-          valueListenable: _statusMessage,
-          builder: (context, message, child) => 
-            Text(message, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-        ),
-        const SizedBox(height: 10),
-        ValueListenableBuilder<int>(
-          valueListenable: _scanStep,
-          builder: (context, step, child) =>
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: '登録名', border: OutlineInputBorder()),
-              enabled: step == 0,
-            ),
-        ),
-        const SizedBox(height: 10),
-        ValueListenableBuilder<bool>(
-          valueListenable: _isLoading,
-          builder: (context, loading, child) {
-            return ValueListenableBuilder<int>(
-              valueListenable: _scanStep,
-              builder: (context, step, child) {
-                return ElevatedButton(
-                  onPressed: loading ? null : _onRegisterButtonPressed,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16.0),
-                    backgroundColor: step == 0 ? Colors.indigo : Colors.amber[700],
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Column(
+              children: [
+                Text(_statusMessage, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                if (_authStep > 0) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _colorBox(_detectedColors[0]),
+                      _colorBox(_detectedColors[1]),
+                      _colorBox(_detectedColors[2]),
+                      _colorBox(_detectedColors[3]),
+                    ],
                   ),
-                  child: loading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(step == 0 ? '1. スキャン開始 (5段階)' : 'スキャン ($step/5)'),
-                );
-              },
-            );
-          },
-        ),
-      ],
+                  const SizedBox(height: 20),
+                ],
+                ElevatedButton(
+                  onPressed: _authStep == 2 ? () {
+                    // TODO: 承認処理 (Firestore更新)
+                    Navigator.pop(context);
+                  } : null, 
+                  child: const Text('承認する'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _colorBox(String code) {
+    Color c = Colors.grey;
+    if (code == "C") c = Colors.cyan;
+    if (code == "Y") c = Colors.yellow;
+    if (code == "M") c = Colors.purpleAccent; 
+    if (code == "G") c = Colors.green;
+    return Container(
+      width: 40, height: 40,
+      decoration: BoxDecoration(color: c, border: Border.all(color: Colors.black), borderRadius: BorderRadius.circular(4)),
+      child: Center(child: Text(code, style: const TextStyle(fontWeight: FontWeight.bold))),
     );
   }
 }
 
+// ガイド枠描画クラス (倍率反映版)
+class GuideOverlayPainter extends CustomPainter {
+  final bool isFaceStep;
+  final Face? face;
+  final Size? imageSize;
+  final InputImageRotation rotation;
 
-// --- ★ 修正 ★ 9. ヘルパー関数群 (ファイルの末尾) ---
-
-// main.dart の一番末尾
-// ★ 修正 ★ FaceBoxPainter クラス (左右反転バグ 最終修正版)
-class FaceBoxPainter extends CustomPainter {
-  final Face face;
-  final Size imageSize;
-  final InputImageRotation rotation; // ★ 回転の向き
-  final String name;
-  final Color color;
-  final bool isGrid; 
-
-  FaceBoxPainter({
-    required this.face, 
-    required this.imageSize,
-    required this.rotation,
-    required this.name,
-    required this.color,
-    required this.isGrid, 
-  });
+  GuideOverlayPainter({required this.isFaceStep, this.face, this.imageSize, required this.rotation});
 
   @override
   void paint(Canvas canvas, Size size) {
-    // プレビュー(size) と 画像(imageSize) のスケール（比率）を計算
-    // 回転(rotation)に応じて、画像の幅と高さを入れ替える
+    final paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 3.0;
+
+    if (isFaceStep) {
+      // 顔認証モード
+      paint.color = Colors.yellow;
+      if (face != null && imageSize != null) {
+        final double scaleX = size.width / imageSize!.height;
+        final double scaleY = size.height / imageSize!.width;
+        final rect = Rect.fromLTRB(
+          face!.boundingBox.left * scaleX,
+          face!.boundingBox.top * scaleY,
+          face!.boundingBox.right * scaleX,
+          face!.boundingBox.bottom * scaleY
+        );
+        canvas.drawRect(rect, paint);
+      }
+    } else {
+      // コードスキャンモード: H型ガイド
+      paint.color = Colors.white.withOpacity(0.5);
+      paint.strokeWidth = 4.0;
+      
+      final double w = size.width;
+      final double h = size.height;
+      
+      // 比率反映: w*0.52, h/3*0.8
+      final double boxW = w * 0.52; 
+      final double boxH = (h / 3) * 0.8;
+      
+      final double left = (w - boxW) / 2;
+      final double top = (h - boxH) / 2;
+      final double right = left + boxW;
+      final double bottom = top + boxH;
+
+      // 四隅の鉤括弧
+      final double cornerLen = boxW * 0.15;
+      final redPen = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 4.0;
+      final bluePen = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 4.0;
+
+      canvas.drawPath(Path()..moveTo(left, top + cornerLen)..lineTo(left, top)..lineTo(left + cornerLen, top), redPen);
+      canvas.drawPath(Path()..moveTo(right - cornerLen, top)..lineTo(right, top)..lineTo(right, top + cornerLen), redPen);
+      canvas.drawPath(Path()..moveTo(left, bottom - cornerLen)..lineTo(left, bottom)..lineTo(left + cornerLen, bottom), bluePen);
+      canvas.drawPath(Path()..moveTo(right - cornerLen, bottom)..lineTo(right, bottom)..lineTo(right, bottom - cornerLen), bluePen);
+
+      // 中央H型 (縦3:1:5, 横5:1:7:1:5)
+      final whiteFill = Paint()..color = Colors.white.withOpacity(0.8)..style = PaintingStyle.fill;
+      
+      final double unitX = boxW / 19;
+      final double unitY = boxH / 9;
+
+      final double hLeftX = left + unitX * 5;
+      final double hRightX = left + unitX * 13;
+      final double barTopY = top + unitY * 3;
+      final double barBottomY = top + unitY * 4;
+
+      canvas.drawRect(Rect.fromLTRB(hLeftX, top, hLeftX + unitX, bottom), whiteFill);
+      canvas.drawRect(Rect.fromLTRB(hRightX, top, hRightX + unitX, bottom), whiteFill);
+      canvas.drawRect(Rect.fromLTRB(hLeftX + unitX, barTopY, hRightX, barBottomY), whiteFill);
+    }
+  }
+  @override
+  bool shouldRepaint(covariant GuideOverlayPainter oldDelegate) => true;
+}
+
+// --- ヘルパー関数 ---
+class FaceBoxPainter extends CustomPainter {
+  final Face face;
+  final Size imageSize;
+  final InputImageRotation rotation;
+  final String name;
+  final Color color;
+  final bool isGrid; 
+  FaceBoxPainter({required this.face, required this.imageSize, required this.rotation, required this.name, required this.color, required this.isGrid});
+  @override
+  void paint(Canvas canvas, Size size) {
     final bool isRotated = rotation == InputImageRotation.rotation90deg || rotation == InputImageRotation.rotation270deg;
-    
     final double scaleX = size.width / (isRotated ? imageSize.height : imageSize.width);
     final double scaleY = size.height / (isRotated ? imageSize.width : imageSize.height);
-
-    // ★ 修正: 回転と反転を考慮した座標変換 (iOS/Android共通)
     Rect scaleRect(Face face) {
-      switch (rotation) {
-        // (省略: 90度は通常リアカメラ)
-        case InputImageRotation.rotation90deg:
-          return Rect.fromLTRB(
-              face.boundingBox.left * scaleX,
-              face.boundingBox.top * scaleY,
-              face.boundingBox.right * scaleX,
-              face.boundingBox.bottom * scaleY);
-        
-        // ★ これがフロントカメラ(270度) + ミラーリング(左右反転)の正しい補正
-        case InputImageRotation.rotation270deg:
+      if (rotation == InputImageRotation.rotation270deg) {
           return Rect.fromLTRB(
               (imageSize.height - face.boundingBox.bottom) * scaleX,
               face.boundingBox.left * scaleY,
               (imageSize.height - face.boundingBox.top) * scaleX,
               face.boundingBox.right * scaleY);
-        
-        default: // 0度または180度
-          return Rect.fromLTRB(
-              face.boundingBox.left * scaleX,
-              face.boundingBox.top * scaleY,
-              face.boundingBox.right * scaleX,
-              face.boundingBox.bottom * scaleY);
       }
+      return Rect.fromLTRB(face.boundingBox.left * scaleX, face.boundingBox.top * scaleY, face.boundingBox.right * scaleX, face.boundingBox.bottom * scaleY);
     }
-    
     final Rect rect = scaleRect(face);
-    final paint = Paint()
-      ..color = color 
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
-
+    final paint = Paint()..color = color ..style = PaintingStyle.stroke ..strokeWidth = 3.0;
     canvas.drawRect(rect, paint);
-    
-    // 格子 (ご要望により 'isGrid' は常に false が渡される)
-    if (isGrid) {
-      paint.strokeWidth = 1.0;
-      canvas.drawLine(
-        Offset(rect.left + rect.width / 2, rect.top),
-        Offset(rect.left + rect.width / 2, rect.bottom),
-        paint
-      );
-      canvas.drawLine(
-        Offset(rect.left, rect.top + rect.height / 2),
-        Offset(rect.right, rect.top + rect.height / 2),
-        paint
-      );
-    }
-    
     if (name.isNotEmpty && name != "不明") {
       final textPainter = TextPainter(
-        text: TextSpan(
-          text: name,
-          style: TextStyle(
-            color: color, 
-            fontSize: 18.0,
-            backgroundColor: const Color.fromRGBO(0, 0, 0, 0.5), 
-          ),
-        ),
+        text: TextSpan(text: name, style: TextStyle(color: color, fontSize: 18.0, backgroundColor: const Color.fromRGBO(0, 0, 0, 0.5))),
         textDirection: TextDirection.ltr,
-      );
-      textPainter.layout();
+      )..layout();
       textPainter.paint(canvas, Offset(rect.left, rect.top - textPainter.height - 4));
     }
   }
-
   @override
-  bool shouldRepaint(covariant FaceBoxPainter oldDelegate) {
-     return oldDelegate.face != face || 
-            oldDelegate.name != name || 
-            oldDelegate.color != color ||
-            oldDelegate.isGrid != isGrid;
-  }
+  bool shouldRepaint(covariant FaceBoxPainter oldDelegate) => true;
 }
 
-// main.dart の一番末尾 (FaceBoxPainter の後)
-
-// main.dart の一番末尾 (FaceBoxPainter の後)
-
-// ★ 修正 ★ カメラ画像をMLKitのInputImageに変換するヘルパー
 InputImage? _inputImageFromCameraImage(CameraImage image, InputImageRotation? rotation) {
-  // ★ 修正: rotation が null なら処理中断
   if (rotation == null) return null;
-
   final WriteBuffer allBytes = WriteBuffer();
-  for (final Plane plane in image.planes) {
-    allBytes.putUint8List(plane.bytes);
-  }
+  for (final Plane plane in image.planes) allBytes.putUint8List(plane.bytes);
   final bytes = allBytes.done().buffer.asUint8List();
   final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
-  
   final InputImageMetadata metadata = InputImageMetadata(
     size: imageSize,
-    rotation: rotation, // ★ 修正: 'late' 変数から取得した回転を渡す
+    rotation: rotation,
     format: InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21,
     bytesPerRow: image.planes[0].bytesPerRow,
   );
-
   return InputImage.fromBytes(bytes: bytes, metadata: metadata);
 }
 
-// main.dart の一番末尾
-// ★ 修正 ★ _cropFace 関数 (OBO バグ回避のため Float32 形式に変換)
 img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotation) {
-  
   img_lib.Image? convertedImage;
 
-  // 1. YUV から RGB への変換
   if (image.format.group == ImageFormatGroup.yuv420) {
-    // 3チャンネル (RGB) の Uint8 形式で作成
     convertedImage = img_lib.Image(
-        width: image.width, height: image.height, 
-        format: img_lib.Format.uint8, numChannels: 3);
+        width: image.width, height: image.height, format: img_lib.Format.uint8, numChannels: 3);
     
-    final yPlane = image.planes[0].bytes;
-    final yRowStride = image.planes[0].bytesPerRow;
+    final int width = image.width;
+    final int height = image.height;
+    final int yRowStride = image.planes[0].bytesPerRow;
+
     if (image.planes.length == 3) {
-      final uPlane = image.planes[1].bytes;
-      final vPlane = image.planes[2].bytes;
-      final uvRowStride = image.planes[1].bytesPerRow;
-      final vRowStride = image.planes[2].bytesPerRow;
-      final uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
-      final vPixelStride = image.planes[2].bytesPerPixel ?? 1;
-      for (int y = 0; y < image.height; y++) {
-        for (int x = 0; x < image.width; x++) {
+      final int uRowStride = image.planes[1].bytesPerRow;
+      final int vRowStride = image.planes[2].bytesPerRow;
+      final int uPixelStride = image.planes[1].bytesPerPixel ?? 1;
+      final int vPixelStride = image.planes[2].bytesPerPixel ?? 1;
+
+      for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
           final int yIndex = y * yRowStride + x;
           final int uvx = x ~/ 2;
           final int uvy = y ~/ 2;
-          final int uIndex = uvy * uvRowStride + uvx * uvPixelStride;
+          final int uIndex = uvy * uRowStride + uvx * uPixelStride;
           final int vIndex = uvy * vRowStride + uvx * vPixelStride;
-          if (yIndex >= yPlane.length || uIndex >= uPlane.length || vIndex >= vPlane.length) continue;
-          final int yValue = yPlane[yIndex];
-          final int uValue = uPlane[uIndex];
-          final int vValue = vPlane[vIndex];
-          final int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
-          final int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
-          final int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255); 
-          convertedImage.setPixelRgb(x, y, r, g, b);
+
+          final int yValue = image.planes[0].bytes[yIndex];
+          final int uValue = image.planes[1].bytes[uIndex];
+          final int vValue = image.planes[2].bytes[vIndex];
+
+          _setPixelRGB(convertedImage, x, y, yValue, uValue, vValue);
         }
       }
     } else if (image.planes.length == 2) {
-      final uPlane = image.planes[1].bytes;
-      final uvRowStride = image.planes[1].bytesPerRow;
-      final uvPixelStride = image.planes[1].bytesPerPixel ?? 2;
-      for (int y = 0; y < image.height; y++) {
-        for (int x = 0; x < image.width; x++) {
+      // 2プレーン (Y, UV)
+      final int uvRowStride = image.planes[1].bytesPerRow;
+      final int uvPixelStride = image.planes[1].bytesPerPixel ?? 2;
+
+      for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
           final int yIndex = y * yRowStride + x;
-          final int uvIndex = (y ~/ 2) * uvRowStride + (x ~/ 2) * uvPixelStride;
-          if (yIndex >= yPlane.length || uvIndex + 1 >= uPlane.length) continue;
-          final int yValue = yPlane[yIndex];
-          final int vValue = uPlane[uvIndex];
-          final int uValue = uPlane[uvIndex + 1];
-          final int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
-          final int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
-          final int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255);
-          convertedImage.setPixelRgb(x, y, r, g, b);
+          final int uvx = x ~/ 2;
+          final int uvy = y ~/ 2;
+          final int uvIndex = uvy * uvRowStride + uvx * uvPixelStride;
+
+          final int yValue = image.planes[0].bytes[yIndex];
+          final int uValue = image.planes[1].bytes[uvIndex];
+          final int vValue = image.planes[1].bytes[uvIndex + 1];
+
+          _setPixelRGB(convertedImage, x, y, yValue, uValue, vValue);
         }
       }
     }
-  } 
-   else if (image.format.group == ImageFormatGroup.bgra8888) {
+  } else if (image.format.group == ImageFormatGroup.bgra8888) {
     final plane = image.planes[0];
     final bgraImage = img_lib.Image.fromBytes(
         width: image.width, height: image.height, bytes: plane.bytes.buffer,
@@ -1476,7 +1902,9 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
     for (final pixel in bgraImage) {
       convertedImage.setPixelRgb(pixel.x, pixel.y, pixel.r, pixel.g, pixel.b);
     }
-  } else { return null; }
+  } else {
+    return null;
+  }
 
   final x = face.boundingBox.left.toInt().clamp(0, convertedImage.width - 1);
   final y = face.boundingBox.top.toInt().clamp(0, convertedImage.height - 1);
@@ -1487,6 +1915,8 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
   img_lib.Image rotatedImage;
   if (rotation == InputImageRotation.rotation270deg) {
     rotatedImage = img_lib.copyRotate(croppedFace, angle: -90);
+  } else if (rotation == InputImageRotation.rotation90deg) {
+    rotatedImage = img_lib.copyRotate(croppedFace, angle: 90);
   } else {
     rotatedImage = croppedFace;
   }
@@ -1494,81 +1924,9 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
   return img_lib.copyResize(rotatedImage, width: 112, height: 112);
 }
 
-// --- 認証処理画面 (新規作成) ---
-class AuthProcessingScreen extends StatefulWidget {
-  final String requestId;
-  final String userName;
-
-  const AuthProcessingScreen({
-    super.key,
-    required this.requestId,
-    required this.userName,
-  });
-
-  @override
-  State<AuthProcessingScreen> createState() => _AuthProcessingScreenState();
-}
-
-class _AuthProcessingScreenState extends State<AuthProcessingScreen> {
-  // 後のTODO: 将来的にカメラとNFCのロジックをここに実装する
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.userName} さんの認証'),
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                '「${widget.userName}」さんを認証します',
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 30),
-              
-              // 後のTODO: ここにカメラプレビューを実装
-              Container(
-                height: 320,
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Center(
-                  child: Icon(Icons.camera_alt, color: Colors.white, size: 60),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // 後のTODO: ここにNFCスキャンステータスを実装
-              const Card(
-                child: ListTile(
-                  leading: Icon(Icons.nfc),
-                  title: Text('ICカードをスキャンしてください'),
-                  subtitle: Text('ステータス: 待機中...'),
-                ),
-              ),
-              const SizedBox(height: 30),
-              
-              // 後のTODO: 条件が満たされたら有効化する
-              ElevatedButton.icon(
-                icon: const Icon(Icons.check_circle),
-                label: const Text('承認'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Colors.grey, // 初期状態は無効
-                ),
-                onPressed: null, // 初期状態は無効
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+void _setPixelRGB(img_lib.Image image, int x, int y, int yValue, int uValue, int vValue) {
+  int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
+  int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round().clamp(0, 255);
+  int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255);
+  image.setPixelRgb(x, y, r, g, b);
 }
