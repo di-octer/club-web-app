@@ -1,7 +1,6 @@
 // @ts-nocheck
 
 // ★★★ 1. Firebase の初期化 (正しいブロックのみ) ★★★
-// (あなたのキー情報を設定済みです)
 const firebaseConfig = {
   apiKey: "AIzaSyD4fimqj2CE89w1qQRJG_fQGRH5GgUDf8Q",
   authDomain: "club-app-db.firebaseapp.com",
@@ -13,8 +12,9 @@ const firebaseConfig = {
 };
 
 // Firebaseアプリを初期化
-firebase.initializeApp(firebaseConfig);
-// Firestore データベースのインスタンスを取得
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
 const db = firebase.firestore();
 // ★★★ 初期化ここまで ★★★
 
@@ -72,7 +72,7 @@ function populateRegisteredList() {
     const name = document.createElement('span');
     name.textContent = face.label;
     
-    // ★追加: 削除ボタン
+    // ★追加: 削除ボタン (定義を確実に行う)
     const deleteBtn = document.createElement('button');
     deleteBtn.textContent = '削除';
     deleteBtn.className = 'delete-face-btn';
@@ -191,12 +191,12 @@ async function loadRegisteredFacesFromStorage() {
 async function saveSingleGpsAreaToFirestore(areaObject) {
   console.log(`Firestore へのGPSエリア「${areaObject.name}」保存を開始...`);
   try {
+    // 新データ構造
     const dataToSave = {
       name: areaObject.name,
-      lat1: areaObject.lat1,
-      lon1: areaObject.lon1,
-      lat2: areaObject.lat2,
-      lon2: areaObject.lon2
+      lat: areaObject.lat,
+      lon: areaObject.lon,
+      isActive: areaObject.isActive || false
     };
     const docRef = db.collection("gps_areas").doc(areaObject.name);
     await docRef.set(dataToSave);
@@ -271,7 +271,7 @@ function populateGpsAreaList() {
     const info = document.createElement('span');
     info.textContent = `[${area.name}] ${area.lat.toFixed(5)}, ${area.lon.toFixed(5)} (${area.isActive ? "活動中" : "停止中"})`;
     
-    // ★追加: 削除ボタン
+    // ★追加: 削除ボタン (ここがエラーの原因でした)
     const deleteBtn = document.createElement('button');
     deleteBtn.textContent = '削除';
     deleteBtn.className = 'delete-gps-btn';
@@ -279,26 +279,71 @@ function populateGpsAreaList() {
     deleteBtn.style.marginLeft = '10px';
     deleteBtn.style.backgroundColor = '#ffcccc';
     
-    // クリックイベント (EventListenerで一括設定するか、ここで設定するか)
-    // ここではセットアップ関数(setupEventListeners)での一括設定を想定して、
-    // classとdatasetのみ付与します。
-    // もし直接onclickをつけるなら:
-    // deleteBtn.onclick = () => deleteGpsAreaFromFirestore(area.name);
-    
     item.appendChild(info);
     item.appendChild(deleteBtn);
     gpsAreaList.appendChild(item);
   });
 }
 
-// --- 四角形エリアの内外判定 (変更なし) ---
-function isInsideBoundingBox(userLat, userLon, area) {
-  const minLat = Math.min(area.lat1, area.lat2) - GPS_PADDING_DEGREES;
-  const maxLat = Math.max(area.lat1, area.lat2) + GPS_PADDING_DEGREES;
-  const minLon = Math.min(area.lon1, area.lon2) - GPS_PADDING_DEGREES;
-  const maxLon = Math.max(area.lon1, area.lon2) + GPS_PADDING_DEGREES;
-  return (userLat >= minLat && userLat <= maxLat &&
-          userLon >= minLon && userLon <= maxLon);
+// --- 距離計算 ---
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // 地球の半径 (メートル)
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // 距離 (メートル)
+}
+
+function handleGpsAuthentication() {
+  const gpsStatus = document.getElementById("gpsStatus");
+  gpsStatus.textContent = "現在地を取得中...";
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const userLat = position.coords.latitude;
+      const userLon = position.coords.longitude;
+      
+      let nearestArea = null;
+      let minDistance = Infinity;
+      const RADIUS = 100; // 半径100メートル
+
+      registeredGpsAreas.forEach(area => {
+        // 活動中のエリアのみ対象
+        if (!area.isActive) return;
+
+        const distance = calculateDistance(userLat, userLon, area.lat, area.lon);
+        
+        // 範囲内かつ、これまで見つけた中で最も近い場合
+        if (distance <= RADIUS && distance < minDistance) {
+          minDistance = distance;
+          nearestArea = area;
+        }
+      });
+
+      if (nearestArea) {
+        gpsStatus.textContent = `✅ 認証成功: 「${nearestArea.name}」のエリア内にいます。(距離: 約${Math.round(minDistance)}m)`;
+        // 必要ならここで認証成功後の処理 (顔認証へ進むボタンの有効化など)
+      } else {
+        gpsStatus.textContent = "❌ 認証失敗: 活動中のエリア内にいません。";
+      }
+    },
+    (error) => {
+      gpsStatus.textContent = "エラー: 位置情報の利用が拒否されました。";
+      console.error(error);
+    },
+    {
+        enableHighAccuracy: true, // 高精度モードを要求
+        timeout: 10000,
+        maximumAge: 0
+    }
+  );
 }
 
 // --- カメラ起動 (変更なし) ---
@@ -653,140 +698,43 @@ async function mainLoop() {
   }
 }
 
-// --- GPS認証ボタンの処理更新 ---
-// script.js 内の handleGpsAuthentication 関数を修正
-
-// ★追加: 2点間の距離(メートル)を計算する関数 (Haversine formula)
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // 地球の半径 (メートル)
-  const φ1 = lat1 * Math.PI / 180;
-  const φ2 = lat2 * Math.PI / 180;
-  const Δφ = (lat2 - lat1) * Math.PI / 180;
-  const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-            Math.cos(φ1) * Math.cos(φ2) *
-            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // 距離 (メートル)
-}
-
-function handleGpsAuthentication() {
-  const gpsStatus = document.getElementById("gpsStatus");
-  gpsStatus.textContent = "現在地を取得中...";
-
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      const userLat = position.coords.latitude;
-      const userLon = position.coords.longitude;
-      
-      let nearestArea = null;
-      let minDistance = Infinity;
-      const RADIUS = 100; // 半径100メートル
-
-      // ★修正: 全エリアを走査し、条件を満たす中で最も近いものを探す
-      registeredGpsAreas.forEach(area => {
-        // 活動中のエリアのみ対象
-        if (!area.isActive) return;
-
-        const distance = calculateDistance(userLat, userLon, area.lat, area.lon);
-        
-        // 範囲内かつ、これまで見つけた中で最も近い場合
-        if (distance <= RADIUS && distance < minDistance) {
-          minDistance = distance;
-          nearestArea = area;
-        }
-      });
-
-      if (nearestArea) {
-        gpsStatus.textContent = `✅ 認証成功: 「${nearestArea.name}」のエリア内にいます。(距離: 約${Math.round(minDistance)}m)`;
-        // 必要ならここで認証成功後の処理 (顔認証へ進むボタンの有効化など)
-      } else {
-        gpsStatus.textContent = "❌ 認証失敗: 活動中のエリア内にいません。";
-      }
-    },
-    (error) => {
-      gpsStatus.textContent = "エラー: 位置情報の利用が拒否されました。";
-      console.error(error);
-    },
-    {
-        enableHighAccuracy: true, // 高精度モードを要求
-        timeout: 10000,
-        maximumAge: 0
-    }
-  );
-}
-
-// --- ★ 修正 ★ GPS登録ハンドラ (単体保存対応) ---
+// --- GPS登録ハンドラ (手入力のみ) ---
+// (script.js にこの関数を置き換えてください)
 function handleGpsRegistration() {
   const adminStatus = document.getElementById("adminStatus");
   const nameInput = document.getElementById("areaNameInput");
-  const registerBtn = document.getElementById("registerAreaBtn");
+  // 緯度・経度の入力欄 (HTML側に追加されている前提)
+  const latInput = document.getElementById("areaLatInput");
+  const lonInput = document.getElementById("areaLonInput");
 
-  // --- ステップ 0: 開始 ---
-  if (gpsScanStep === 0) {
-    const areaName = nameInput.value.trim();
-    if (!areaName) {
-      adminStatus.textContent = "エラー: エリア名を入力してください。";
+  if (!nameInput || !latInput || !lonInput) {
+      adminStatus.textContent = "エラー: 必要な入力欄が見つかりません。";
       return;
-    }
-    if (registeredGpsAreas.some(a => a.name === areaName)) {
-        if (!confirm(`「${areaName}」は既に登録されています。上書きしますか？`)) {
-            return;
-        }
-    }
-    tempGpsArea = { name: areaName };
-    gpsScanStep = 1;
-    adminStatus.textContent = "エリアの「1つ目の端」に移動し、ボタンを押してください。";
-    registerBtn.textContent = "2. 1つ目の端を登録";
-    registerBtn.style.backgroundColor = "#ffc107";
-    nameInput.disabled = true;
+  }
+
+  const areaName = nameInput.value.trim();
+  const lat = parseFloat(latInput.value);
+  const lon = parseFloat(lonInput.value);
+
+  if (!areaName || isNaN(lat) || isNaN(lon)) {
+    adminStatus.textContent = "エラー: 正しい値を入力してください。";
     return;
   }
-  
-  // --- ステップ 1 & 2: 座標取得 ---
-  if (gpsScanStep === 1 || gpsScanStep === 2) {
-    adminStatus.textContent = `座標を取得中... (${gpsScanStep}/2)`;
-    registerBtn.disabled = true;
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (gpsScanStep === 1) {
-          tempGpsArea.lat1 = position.coords.latitude;
-          tempGpsArea.lon1 = position.coords.longitude;
-          gpsScanStep = 2;
-          adminStatus.textContent = `1点目 登録完了。エリアの「対角の端」に移動し、ボタンを押してください。`;
-          registerBtn.textContent = "3. 2つ目の端を登録して完了";
-          registerBtn.disabled = false;
-        } else if (gpsScanStep === 2) {
-          // --- ステップ 3: 登録完了 ---
-          tempGpsArea.lat2 = position.coords.latitude;
-          tempGpsArea.lon2 = position.coords.longitude;
-          
-          registeredGpsAreas = registeredGpsAreas.filter(a => a.name !== tempGpsArea.name);
-          registeredGpsAreas.push(tempGpsArea);
-          
-          // データベースには「このエリア」だけを保存
-          saveSingleGpsAreaToFirestore(tempGpsArea); 
 
-          populateGpsAreaList(); 
-          adminStatus.textContent = `✅ 登録成功: 「${tempGpsArea.name}」を登録しました。`;
-          
-          gpsScanStep = 0;
-          tempGpsArea = {};
-          registerBtn.textContent = "1. エリア定義を開始";
-          registerBtn.style.backgroundColor = "#28a745";
-          registerBtn.disabled = false;
-          nameInput.disabled = false;
-          nameInput.value = "";
-        }
-      },
-      (error) => {
-        adminStatus.textContent = "エラー: 位置情報が取得できません。";
-        registerBtn.disabled = false; 
-      }
-    );
-  }
+  // 重複チェックなど...
+
+  const newArea = { name: areaName, lat: lat, lon: lon, isActive: false };
+  saveSingleGpsAreaToFirestore(newArea);
+  
+  // リスト更新
+  registeredGpsAreas = registeredGpsAreas.filter(a => a.name !== areaName);
+  registeredGpsAreas.push(newArea);
+  populateGpsAreaList();
+  
+  adminStatus.textContent = `✅ 登録成功: ${areaName}`;
+  nameInput.value = "";
+  latInput.value = "";
+  lonInput.value = "";
 }
 
 // --- ビーコンスキャンハンドラ (変更なし) ---
