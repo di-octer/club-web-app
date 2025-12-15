@@ -166,10 +166,15 @@ async function startUserAuthFlow() {
     }, (err) => alert("位置情報エラー: " + err.message));
 }
 
+let isAuthCompleted = false; // 二重送信防止用フラグ
+
 // 顔認証処理
 async function startFaceAuth(userName) {
     const statusEl = document.getElementById('userStatus');
     statusEl.textContent = "モデルを読み込み中...";
+    
+    // ★修正: 開始時にフラグをリセット
+    isAuthCompleted = false;
     
     try {
         await loadModels();
@@ -188,33 +193,38 @@ async function startFaceAuth(userName) {
             
             // 検出ループ開始
             detectionInterval = setInterval(async () => {
+                // ★修正: 既に認証済みなら何もしない（ループを空転させるか即停止）
+                if (isAuthCompleted) {
+                    clearInterval(detectionInterval);
+                    return;
+                }
+
                 const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
                     .withFaceLandmarks()
                     .withFaceDescriptors();
                 
                 const resizedDetections = faceapi.resizeResults(detections, displaySize);
                 
-                // 描画クリア
                 const ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                
-                // 顔枠描画
                 faceapi.draw.drawDetections(canvas, resizedDetections);
                 
                 if (resizedDetections.length > 0) {
-                    // 顔が見つかったら、簡易的に本人とみなして進む
-                    // (Web版での厳密な照合は、登録データとの互換性問題があるため今回は省略)
-                    // 本来はここで faceMatcher.findBestMatch() を行う
-                    
+                    // ★修正: 顔が見つかったら「即座に」フラグを立ててロックする
+                    isAuthCompleted = true;
+                    clearInterval(detectionInterval); // ループも止める
+
                     statusEl.textContent = "顔を認識しました！";
                     
-                    // 少し待ってから次のステップへ
+                    // 念のためループ停止処理を呼ぶ
+                    stopFaceAuth(); 
+
+                    // 1秒待たずに即時、あるいは演出として待ってからリクエスト
                     setTimeout(() => {
-                        stopFaceAuth(); // ループ停止
-                        requestAuth(userName); // リクエスト送信へ
-                    }, 1000);
+                        requestAuth(userName); 
+                    }, 500);
                 }
-            }, 200); // 200msごとに検出
+            }, 200); 
         });
         
     } catch(e) {
@@ -234,11 +244,12 @@ function stopFaceAuth() {
 
 
 let myRequestId = null;
+// リクエスト送信関数
 async function requestAuth(userName) {
     document.getElementById('step-1').classList.remove('active');
     document.getElementById('step-2').classList.add('active');
     
-    // カラーコード生成 (C,Y,M,G)
+    // カラーコード生成
     const colors = ['C', 'Y', 'M', 'G'];
     const myCode = [
         colors[Math.floor(Math.random()*4)],
@@ -247,16 +258,17 @@ async function requestAuth(userName) {
         colors[Math.floor(Math.random()*4)]
     ];
     
-    // H型描画
     drawHCode(myCode);
     
-    // Firestore送信: 不要なフィールド(platform, gps_valid, face_valid)を削除
+    // ★修正: ここでフィールドを確実に指定する
+    // platform, gps_valid, face_valid は書かない限り送信されません
     const docRef = await db.collection('auth_requests').add({
         userName: userName,
         authType: `code,${myCode.join(',')}`,
         status: 'pending',
         requestTimestamp: firebase.firestore.FieldValue.serverTimestamp()
     });
+    
     myRequestId = docRef.id;
     document.getElementById('requestStatus').textContent = "承認待ち...";
 }
