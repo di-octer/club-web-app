@@ -56,6 +56,7 @@ const delay = (ms) => new Promise(res => setTimeout(res, ms));
 function populateRegisteredList() {
   const registeredList = document.getElementById("registeredList");
   if (!registeredList) return; 
+
   if (registeredFaces.length === 0) {
     registeredList.innerHTML = '<h3>登録済み一覧</h3><p>登録者はいません</p>';
     return;
@@ -64,16 +65,21 @@ function populateRegisteredList() {
   registeredFaces.forEach(face => {
     const item = document.createElement('div');
     item.className = 'registered-item';
+    
     const img = document.createElement('img');
     img.src = face.thumbnail;
+    
     const name = document.createElement('span');
     name.textContent = face.label;
+    
+    // ★追加: 削除ボタン
     const deleteBtn = document.createElement('button');
     deleteBtn.textContent = '削除';
     deleteBtn.className = 'delete-face-btn';
-    deleteBtn.dataset.label = face.label; 
+    deleteBtn.dataset.label = face.label;
     deleteBtn.style.marginLeft = 'auto';
     deleteBtn.style.backgroundColor = '#ffcccc';
+
     item.appendChild(img);
     item.appendChild(name);
     item.appendChild(deleteBtn); 
@@ -261,15 +267,25 @@ function populateGpsAreaList() {
     item.style.border = '1px solid #ddd';
     if(area.isActive) item.style.backgroundColor = '#e6ffec';
 
-    // ★修正: 表示内容を中心点+状態に変更
+    // エリア情報
     const info = document.createElement('span');
     info.textContent = `[${area.name}] ${area.lat.toFixed(5)}, ${area.lon.toFixed(5)} (${area.isActive ? "活動中" : "停止中"})`;
+    
+    // ★追加: 削除ボタン
+    const deleteBtn = document.createElement('button');
     deleteBtn.textContent = '削除';
     deleteBtn.className = 'delete-gps-btn';
-    deleteBtn.dataset.name = area.name; 
-    deleteBtn.style.marginLeft = 'auto';
+    deleteBtn.dataset.name = area.name; // データ属性に名前を持たせる
+    deleteBtn.style.marginLeft = '10px';
     deleteBtn.style.backgroundColor = '#ffcccc';
-    item.appendChild(li);
+    
+    // クリックイベント (EventListenerで一括設定するか、ここで設定するか)
+    // ここではセットアップ関数(setupEventListeners)での一括設定を想定して、
+    // classとdatasetのみ付与します。
+    // もし直接onclickをつけるなら:
+    // deleteBtn.onclick = () => deleteGpsAreaFromFirestore(area.name);
+    
+    item.appendChild(info);
     item.appendChild(deleteBtn);
     gpsAreaList.appendChild(item);
   });

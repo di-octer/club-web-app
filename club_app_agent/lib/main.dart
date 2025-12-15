@@ -630,42 +630,10 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
-        // --- 顔データ一覧 (変更なし) ---
-        const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        ValueListenableBuilder<List<FaceObject>>(
-          valueListenable: globalFaces,
-          builder: (context, faces, child) {
-            if (faces.isEmpty) return const Center(child: Text('登録なし'));
-            final reversedFaces = faces.reversed.toList();
-            return ListView.builder(
-              shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-              itemCount: reversedFaces.length,
-              itemBuilder: (context, index) {
-                final face = reversedFaces[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4.0),
-                  child: ListTile(
-                    leading: Image(
-                      image: _getSafeImageProvider(face.thumbnail),
-                      width: 60, height: 80, fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => 
-                          Container(width: 60, height: 80, color: Colors.grey[300], child: const Icon(Icons.broken_image)),
-                    ),
-                    title: Text(face.label),
-                    trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: _isLoading ? null : () => _deleteFace(face.label)),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-        const Divider(height: 40),
-
-        // --- GPS登録フォーム (手入力のみ) ---
+        // ★修正: GPS登録フォームを一番上に移動
         const Text('GPSエリア登録 (中心点)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
-        const Text('※Googleマップ等で座標を確認して入力してください\n  登録したい座標を右クリックするとコピーを選択可能', style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const Text('※Googleマップ等で座標を確認して入力してください', style: TextStyle(fontSize: 12, color: Colors.grey)),
         const SizedBox(height: 10),
         TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'エリア名', border: OutlineInputBorder())),
         const SizedBox(height: 8),
@@ -684,7 +652,7 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
         ),
         const SizedBox(height: 20),
 
-        // --- GPS一覧 ---
+        // ★修正: GPS一覧を次に配置
         ValueListenableBuilder<List<GpsArea>>(
           valueListenable: globalGpsAreas,
           builder: (context, areas, child) {
@@ -705,7 +673,6 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // 活動スイッチ
                         Switch(
                           value: area.isActive,
                           onChanged: (val) => _toggleActive(area),
@@ -715,6 +682,45 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
                       ],
                     ),
                     onTap: () => _toggleActive(area),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+
+        const Divider(height: 40),
+
+        // ★修正: 顔データ一覧を一番下に移動
+        const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+        ValueListenableBuilder<List<FaceObject>>(
+          valueListenable: globalFaces,
+          builder: (context, faces, child) {
+            if (faces.isEmpty) {
+              return const Center(child: Text('登録済みの顔はありません。'));
+            }
+            final reversedFaces = faces.reversed.toList();
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: reversedFaces.length,
+              itemBuilder: (context, index) {
+                final face = reversedFaces[index];
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: ListTile(
+                    leading: Image(
+                      image: _getSafeImageProvider(face.thumbnail),
+                      width: 60, height: 80, fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => 
+                          Container(width: 60, height: 80, color: Colors.grey[300], child: const Icon(Icons.broken_image)),
+                    ),
+                    title: Text(face.label),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: _isLoading ? null : () => _deleteFace(face.label),
+                    ),
                   ),
                 );
               },
