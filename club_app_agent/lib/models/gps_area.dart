@@ -2,38 +2,30 @@
 
 class GpsArea {
   final String name;
-  final double lat1;
-  final double lon1;
-  final double lat2;
-  final double lon2;
+  final double lat; // 中心緯度 (旧lat1)
+  final double lon; // 中心経度 (旧lon1)
+  final bool isActive; // ★追加
 
   GpsArea({
     required this.name,
-    required this.lat1,
-    required this.lon1,
-    required this.lat2,
-    required this.lon2,
+    required this.lat,
+    required this.lon,
+    this.isActive = false, // デフォルトは非活動
   });
 
-  // Firestore の Map (JSON) から GpsArea オブジェクトに変換する
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'lat': lat,
+    'lon': lon,
+    'isActive': isActive,
+  };
+
   factory GpsArea.fromJson(Map<String, dynamic> json) {
     return GpsArea(
-      name: json['name'] as String,
-      lat1: (json['lat1'] as num).toDouble(),
-      lon1: (json['lon1'] as num).toDouble(),
-      lat2: (json['lat2'] as num).toDouble(),
-      lon2: (json['lon2'] as num).toDouble(),
+      name: json['name'] ?? '',
+      lat: (json['lat'] ?? 0.0).toDouble(),
+      lon: (json['lon'] ?? 0.0).toDouble(),
+      isActive: json['isActive'] ?? false,
     );
-  }
-
-  // GpsArea オブジェクトを Firestore に保存する Map (JSON) に変換する
-  Map<String, dynamic> toJson() {
-    return {
-      'name': name,
-      'lat1': lat1,
-      'lon1': lon1,
-      'lat2': lat2,
-      'lon2': lon2,
-    };
   }
 }

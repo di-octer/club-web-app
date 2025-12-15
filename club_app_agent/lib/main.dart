@@ -491,278 +491,235 @@ class InfoAdminScreen extends StatefulWidget {
 }
 
 class _InfoAdminScreenState extends State<InfoAdminScreen> {
-  int _gpsScanStep = 0;
-  GpsArea? _tempGpsArea;
-  final _nameController = TextEditingController();
-  String _statusMessage = 'エリア名を入力して登録を開始してください。';
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _latController = TextEditingController();
+  final TextEditingController _lonController = TextEditingController();
   bool _isLoading = false;
-  bool _isRefreshing = false;
 
   @override
   void dispose() {
-    _nameController.dispose(); // メモリリーク防止のため追加
+    _nameController.dispose();
+    _latController.dispose();
+    _lonController.dispose();
     super.dispose();
   }
 
-  Future<void> _manualRefresh() async {
-    setState(() { _isRefreshing = true; });
+  // --- 登録処理 (手入力のみ) ---
+  Future<void> _registerArea() async {
+    // キーボードを閉じる
+    FocusScope.of(context).unfocus();
+
+    final name = _nameController.text.trim();
+    final latText = _latController.text.trim();
+    final lonText = _lonController.text.trim();
+
+    if (name.isEmpty || latText.isEmpty || lonText.isEmpty) {
+      _showErrorDialog('入力エラー', 'エリア名、緯度、経度をすべて入力してください。');
+      return;
+    }
+
+    final double? lat = double.tryParse(latText);
+    final double? lon = double.tryParse(lonText);
+
+    if (lat == null || lon == null) {
+      _showErrorDialog('入力エラー', '座標は有効な数値で入力してください。\n(例: 35.6895)');
+      return;
+    }
+
+    // 重複チェック
+    if (globalGpsAreas.value.any((a) => a.name == name)) {
+      if (await _showConfirmDialog('上書き確認', '「$name」は登録済みです。上書きしますか？') == false) return;
+    }
+
+    setState(() { _isLoading = true; });
     try {
-      await Future.wait([
-        loadFacesFromFirestore(),
-        loadGpsAreasFromFirestore(),
-      ]);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('データを最新の状態に更新しました')),
-        );
-      }
+      // 新しいデータモデル (中心点 + 活動フラグ)
+      final area = GpsArea(name: name, lat: lat, lon: lon, isActive: false);
+      
+      await db.collection("gps_areas").doc(name).set(area.toJson());
+      
+      // ローカルリスト更新
+      final currentAreas = globalGpsAreas.value.toList();
+      currentAreas.removeWhere((a) => a.name == name);
+      currentAreas.add(area);
+      globalGpsAreas.value = currentAreas;
+
+      // フォームクリア
+      _nameController.clear();
+      _latController.clear();
+      _lonController.clear();
+      
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('エリアを登録しました')));
+
     } catch (e) {
-      _showErrorDialog('更新エラー', 'データの更新に失敗しました: $e');
+      _showErrorDialog('保存エラー', '$e');
     } finally {
-      if (mounted) setState(() { _isRefreshing = false; });
+      setState(() { _isLoading = false; });
     }
   }
 
-  Future<void> _saveGpsArea(GpsArea area) async {
-    setState(() { _isLoading = true; _statusMessage = 'データベースに保存中...'; });
+  Future<void> _toggleActive(GpsArea area) async {
+    final newStatus = !area.isActive;
+    final action = newStatus ? "開始" : "終了";
+    
+    // ダイアログで確認
+    if (await _showConfirmDialog('活動ステータス変更', '「${area.name}」の活動を $action しますか？') == false) return;
+
+    setState(() { _isLoading = true; });
     try {
-      await db.collection("gps_areas").doc(area.name).set(area.toJson());
+      await db.collection("gps_areas").doc(area.name).update({'isActive': newStatus});
+      
       final currentAreas = globalGpsAreas.value.toList();
-      currentAreas.removeWhere((a) => a.name == area.name);
-      currentAreas.add(area);
-      globalGpsAreas.value = currentAreas; 
-      _resetState('✅ 登録成功: 「${area.name}」を登録しました。');
+      final index = currentAreas.indexWhere((a) => a.name == area.name);
+      if (index != -1) {
+        currentAreas[index] = GpsArea(name: area.name, lat: area.lat, lon: area.lon, isActive: newStatus);
+        globalGpsAreas.value = currentAreas;
+      }
     } catch (e) {
-      _showErrorDialog('DB保存エラー', '$e');
-      _resetState('エラー発生', clearName: false);
+      _showErrorDialog('更新エラー', '$e');
+    } finally {
+      setState(() { _isLoading = false; });
     }
   }
 
   Future<void> _deleteGpsArea(String areaName) async {
     if (await _showConfirmDialog('削除確認', '本当に「$areaName」を削除しますか？') == false) return;
-    setState(() { _isLoading = true; _statusMessage = 'データベースから削除中...'; });
+    setState(() { _isLoading = true; });
     try {
       await db.collection("gps_areas").doc(areaName).delete();
       final currentAreas = globalGpsAreas.value.toList();
       currentAreas.removeWhere((a) => a.name == areaName);
       globalGpsAreas.value = currentAreas;
-      _resetState('「$areaName」を削除しました。');
     } catch (e) {
-      _showErrorDialog('DB削除エラー', '$e');
-      _resetState('エラー発生', clearName: false);
+      _showErrorDialog('削除エラー', '$e');
+    } finally {
+      setState(() { _isLoading = false; });
     }
-  }
-
-  Future<Position?> _getCurrentLocation() async {
-    setState(() { _isLoading = true; });
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        _showErrorDialog('権限エラー', '位置情報の利用が拒否されました。');
-        _resetState('位置情報利用不可', clearName: false);
-        return null;
-      }
-    }
-    try {
-      setState(() { _statusMessage = '座標を取得中...'; });
-      const LocationSettings locationSettings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 0);
-      return await Geolocator.getCurrentPosition(locationSettings: locationSettings);
-    } catch (e) {
-      _showErrorDialog('GPS取得エラー', '$e');
-      _resetState('エラー発生', clearName: false);
-      return null;
-    }
-  }
-
-  Future<void> _onRegisterButtonPressed() async {
-    // キーボードを閉じる (レイアウト崩れ防止)
-    FocusScope.of(context).unfocus();
-    
-    final areaName = _nameController.text.trim();
-    if (_gpsScanStep == 0) {
-      if (areaName.isEmpty) { _showErrorDialog('入力エラー', 'エリア名を入力してください。'); return; }
-      if (globalGpsAreas.value.any((a) => a.name == areaName)) {
-        if (await _showConfirmDialog('上書き確認', '「$areaName」は登録済みです。上書きしますか？') == false) return;
-      }
-      _tempGpsArea = GpsArea(name: areaName, lat1: 0, lon1: 0, lat2: 0, lon2: 0);
-      setState(() { _gpsScanStep = 1; _statusMessage = 'エリアの「1つ目の端」でボタンを押してください。'; _isLoading = false; });
-    } else if (_gpsScanStep == 1) {
-      final position = await _getCurrentLocation();
-      if (position == null) return;
-      _tempGpsArea = GpsArea(name: _tempGpsArea!.name, lat1: position.latitude, lon1: position.longitude, lat2: 0, lon2: 0);
-      setState(() { _gpsScanStep = 2; _statusMessage = 'エリアの「対角の端」でボタンを押してください。'; _isLoading = false; });
-    } else if (_gpsScanStep == 2) {
-      final position = await _getCurrentLocation();
-      if (position == null) return;
-      final finalArea = GpsArea(name: _tempGpsArea!.name, lat1: _tempGpsArea!.lat1, lon1: _tempGpsArea!.lon1, lat2: position.latitude, lon2: position.longitude);
-      await _saveGpsArea(finalArea);
-    }
-  }
-
-  void _resetState(String message, {bool clearName = true}) {
-    setState(() { _gpsScanStep = 0; _tempGpsArea = null; _isLoading = false; _statusMessage = message; if (clearName) _nameController.clear(); });
   }
 
   Future<bool> _showConfirmDialog(String title, String content) async {
-    final result = await showDialog<bool>(context: context, builder: (context) => AlertDialog(title: Text(title), content: Text(content), actions: [TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('キャンセル')), TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('OK'))]));
-    return result ?? false;
+    return (await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(title), content: Text(content),
+      actions: [TextButton(onPressed: ()=>Navigator.pop(ctx,false), child: const Text('キャンセル')), TextButton(onPressed: ()=>Navigator.pop(ctx,true), child: const Text('OK'))]
+    ))) ?? false;
   }
-
   void _showErrorDialog(String title, String content) {
-    showDialog(context: context, builder: (context) => AlertDialog(title: Text(title), content: Text(content), actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('閉じる'))]));
+    showDialog(context: context, builder: (ctx) => AlertDialog(title: Text(title), content: Text(content), actions: [TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('閉じる'))]));
   }
 
-  String _getButtonText() {
-    switch (_gpsScanStep) { case 0: return '1. エリア定義を開始'; case 1: return '2. 1つ目の端を登録'; case 2: return '3. 2つ目の端を登録して完了'; default: return ''; }
-  }
-
+  // --- 顔削除メソッド (変更なし) ---
   Future<void> _deleteFace(String faceLabel) async {
     if (await _showConfirmDialog('削除確認', '本当に「$faceLabel」さんを削除しますか？') == false) return;
     setState(() { _isLoading = true; });
     await deleteFaceFromFirestore(faceLabel);
     setState(() { _isLoading = false; });
   }
-
-  // ★修正: バイト長が0の場合は null を返す (赤い画面の防止策)
-  Uint8List? _getSafeImageBytes(String thumbnailDataUrl) {
+  
+  ImageProvider _getSafeImageProvider(String thumbnailDataUrl) {
     try {
-      if (thumbnailDataUrl.isEmpty) return null;
       final base64String = thumbnailDataUrl.split(',').last;
-      if (base64String.isEmpty) return null; // 空文字チェック
-      
-      final bytes = base64Decode(base64String);
-      if (bytes.isEmpty) return null; // 0バイトチェック (ここが重要)
-      
-      return bytes;
+      if (base64String.isEmpty) throw Exception("Empty");
+      return MemoryImage(base64Decode(base64String));
     } catch (e) {
-      return null;
+      return const AssetImage('assets/placeholder.png');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return ListView(
+      padding: const EdgeInsets.all(16.0),
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          color: Colors.grey[100],
-          child: Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  icon: _isRefreshing
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.refresh),
-                  label: const Text('データを更新'),
-                  onPressed: (_isLoading || _isRefreshing) ? null : _manualRefresh,
-                ),
-              ),
-            ],
-          ),
+        // --- 顔データ一覧 (変更なし) ---
+        const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+        ValueListenableBuilder<List<FaceObject>>(
+          valueListenable: globalFaces,
+          builder: (context, faces, child) {
+            if (faces.isEmpty) return const Center(child: Text('登録なし'));
+            final reversedFaces = faces.reversed.toList();
+            return ListView.builder(
+              shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+              itemCount: reversedFaces.length,
+              itemBuilder: (context, index) {
+                final face = reversedFaces[index];
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: ListTile(
+                    leading: Image(
+                      image: _getSafeImageProvider(face.thumbnail),
+                      width: 60, height: 80, fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => 
+                          Container(width: 60, height: 80, color: Colors.grey[300], child: const Icon(Icons.broken_image)),
+                    ),
+                    title: Text(face.label),
+                    trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: _isLoading ? null : () => _deleteFace(face.label)),
+                  ),
+                );
+              },
+            );
+          },
         ),
-        const Divider(height: 1),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(16.0),
-            children: [
-              const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              ValueListenableBuilder<List<FaceObject>>(
-                valueListenable: globalFaces,
-                builder: (context, faces, child) {
-                  if (faces.isEmpty) {
-                    return const Center(child: Text('登録済みの顔はありません。'));
-                  }
-                  final reversedFaces = faces.reversed.toList();
-                  return ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: reversedFaces.length,
-                    itemBuilder: (context, index) {
-                      final face = reversedFaces[index];
-                      // 安全な画像データ取得
-                      final imageBytes = _getSafeImageBytes(face.thumbnail);
-                      
-                      Widget leadingWidget;
-                      if (imageBytes != null) {
-                        leadingWidget = Image.memory(
-                          imageBytes,
-                          width: 60, height: 80, fit: BoxFit.cover,
-                          // エラー時はアイコンを表示
-                          errorBuilder: (context, error, stackTrace) => 
-                              Container(width: 60, height: 80, color: Colors.grey[300], child: const Icon(Icons.broken_image)),
-                        );
-                      } else {
-                        // データ不正時は最初からアイコンを表示 (これで赤い画面を防ぐ)
-                        leadingWidget = Container(
-                          width: 60, height: 80, color: Colors.indigo[50], 
-                          child: const Icon(Icons.face, color: Colors.indigo),
-                        );
-                      }
+        const Divider(height: 40),
 
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4.0),
-                        child: ListTile(
-                          leading: leadingWidget,
-                          title: Text(face.label),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: _isLoading ? null : () => _deleteFace(face.label),
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-              const Divider(height: 40),
+        // --- GPS登録フォーム (手入力のみ) ---
+        const Text('GPSエリア登録 (中心点)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        const Text('※Googleマップ等で座標を確認して入力してください\n  登録したい座標を右クリックするとコピーを選択可能', style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 10),
+        TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'エリア名', border: OutlineInputBorder())),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: TextField(controller: _latController, decoration: const InputDecoration(labelText: '緯度 (例: 35.xxxx)', border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(decimal: true))),
+            const SizedBox(width: 8),
+            Expanded(child: TextField(controller: _lonController, decoration: const InputDecoration(labelText: '経度 (例: 139.xxxx)', border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(decimal: true))),
+          ],
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: _isLoading ? null : _registerArea,
+          style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.indigo),
+          child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('登録', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+        const SizedBox(height: 20),
 
-              const Text('GPS認証エリア登録', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'エリア名', border: OutlineInputBorder()),
-                enabled: _gpsScanStep == 0, 
-              ),
-              const SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _onRegisterButtonPressed,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16.0),
-                  backgroundColor: _gpsScanStep == 0 ? Colors.indigo : Colors.amber[700],
-                ),
-                child: _isLoading 
-                    ? const CircularProgressIndicator(color: Colors.white) 
-                    : Text(_getButtonText()),
-              ),
-              const SizedBox(height: 10),
-              Text(_statusMessage, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-              const SizedBox(height: 20),
-              ValueListenableBuilder<List<GpsArea>>(
-                valueListenable: globalGpsAreas,
-                builder: (context, areas, child) {
-                  if (areas.isEmpty) return const Center(child: Text('登録済みのエリアはありません。'));
-                  return ListView.builder(
-                    shrinkWrap: true, 
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: areas.length,
-                    itemBuilder: (context, index) {
-                      final area = areas[index];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4.0),
-                        child: ListTile(
-                          title: Text(area.name),
-                          subtitle: Text('端1: ${area.lat1.toStringAsFixed(5)}, ${area.lon1.toStringAsFixed(5)}\n端2: ${area.lat2.toStringAsFixed(5)}, ${area.lon2.toStringAsFixed(5)}', style: const TextStyle(fontSize: 12)),
-                          trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: _isLoading ? null : () => _deleteGpsArea(area.name)),
+        // --- GPS一覧 ---
+        ValueListenableBuilder<List<GpsArea>>(
+          valueListenable: globalGpsAreas,
+          builder: (context, areas, child) {
+            if (areas.isEmpty) return const Center(child: Text('登録なし'));
+            return ListView.builder(
+              shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+              itemCount: areas.length,
+              itemBuilder: (context, index) {
+                final area = areas[index];
+                return Card(
+                  color: area.isActive ? Colors.green[50] : null,
+                  child: ListTile(
+                    title: Text(area.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(
+                      '${area.lat.toStringAsFixed(5)}, ${area.lon.toStringAsFixed(5)}\n状態: ${area.isActive ? "活動中" : "停止中"}',
+                      style: TextStyle(color: area.isActive ? Colors.green : Colors.grey),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // 活動スイッチ
+                        Switch(
+                          value: area.isActive,
+                          onChanged: (val) => _toggleActive(area),
+                          activeColor: Colors.green,
                         ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ],
-          ),
+                        IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: _isLoading ? null : () => _deleteGpsArea(area.name)),
+                      ],
+                    ),
+                    onTap: () => _toggleActive(area),
+                  ),
+                );
+              },
+            );
+          },
         ),
       ],
     );

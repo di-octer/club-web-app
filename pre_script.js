@@ -227,12 +227,12 @@ async function loadGpsAreasFromStorage() {
     const loadedGpsAreas = [];
     snapshot.forEach(doc => {
       const data = doc.data();
+      // ★修正: 新しいデータ構造に対応
       loadedGpsAreas.push({
         name: data.name,
-        lat1: data.lat1,
-        lon1: data.lon1,
-        lat2: data.lat2,
-        lon2: data.lon2
+        lat: data.lat, // 中心緯度
+        lon: data.lon, // 中心経度
+        isActive: data.isActive ?? false // 活動フラグ (なければfalse)
       });
     });
     registeredGpsAreas = loadedGpsAreas;
@@ -247,19 +247,23 @@ async function loadGpsAreasFromStorage() {
 function populateGpsAreaList() {
   const gpsAreaList = document.getElementById("gpsAreaList");
   if (!gpsAreaList) return;
+  
   if (registeredGpsAreas.length === 0) {
     gpsAreaList.innerHTML = '<p>登録済みのエリアはありません。</p>';
     return;
   }
+  
   gpsAreaList.innerHTML = '';
   registeredGpsAreas.forEach(area => {
     const item = document.createElement('div');
-    item.style.display = 'flex';
-    item.style.alignItems = 'center';
-    item.style.marginBottom = '5px';
-    const li = document.createElement('span');
-    li.textContent = `[${area.name}] (端1: ${area.lat1.toFixed(7)}, ${area.lon1.toFixed(7)} / 端2: ${area.lat2.toFixed(7)}, ${area.lon2.toFixed(7)})`;
-    const deleteBtn = document.createElement('button');
+    item.style.marginBottom = '10px';
+    item.style.padding = '5px';
+    item.style.border = '1px solid #ddd';
+    if(area.isActive) item.style.backgroundColor = '#e6ffec';
+
+    // ★修正: 表示内容を中心点+状態に変更
+    const info = document.createElement('span');
+    info.textContent = `[${area.name}] ${area.lat.toFixed(5)}, ${area.lon.toFixed(5)} (${area.isActive ? "活動中" : "停止中"})`;
     deleteBtn.textContent = '削除';
     deleteBtn.className = 'delete-gps-btn';
     deleteBtn.dataset.name = area.name; 
@@ -634,30 +638,66 @@ async function mainLoop() {
 }
 
 // --- GPS認証ボタンの処理更新 ---
+// script.js 内の handleGpsAuthentication 関数を修正
+
+// ★追加: 2点間の距離(メートル)を計算する関数 (Haversine formula)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // 地球の半径 (メートル)
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // 距離 (メートル)
+}
+
 function handleGpsAuthentication() {
   const gpsStatus = document.getElementById("gpsStatus");
-  gpsStatus.textContent = "現在地を確認中...";
-  
+  gpsStatus.textContent = "現在地を取得中...";
+
   navigator.geolocation.getCurrentPosition(
     (position) => {
-      // エリア判定 (既存関数利用)
-      let inArea = false;
-      for (const area of registeredGpsAreas) {
-        if (isInsideBoundingBox(position.coords.latitude, position.coords.longitude, area)) {
-          inArea = true;
-          break;
-        }
-      }
+      const userLat = position.coords.latitude;
+      const userLon = position.coords.longitude;
+      
+      let nearestArea = null;
+      let minDistance = Infinity;
+      const RADIUS = 100; // 半径100メートル
 
-      if (inArea) {
-        gpsStatus.textContent = "✅ エリア内です。顔認証を行ってください。";
-        // 顔認証のビデオを開始する等のトリガー
+      // ★修正: 全エリアを走査し、条件を満たす中で最も近いものを探す
+      registeredGpsAreas.forEach(area => {
+        // 活動中のエリアのみ対象
+        if (!area.isActive) return;
+
+        const distance = calculateDistance(userLat, userLon, area.lat, area.lon);
+        
+        // 範囲内かつ、これまで見つけた中で最も近い場合
+        if (distance <= RADIUS && distance < minDistance) {
+          minDistance = distance;
+          nearestArea = area;
+        }
+      });
+
+      if (nearestArea) {
+        gpsStatus.textContent = `✅ 認証成功: 「${nearestArea.name}」のエリア内にいます。(距離: 約${Math.round(minDistance)}m)`;
+        // 必要ならここで認証成功後の処理 (顔認証へ進むボタンの有効化など)
       } else {
-        gpsStatus.textContent = "❌ エリア外です。";
+        gpsStatus.textContent = "❌ 認証失敗: 活動中のエリア内にいません。";
       }
     },
-    (err) => {
-      gpsStatus.textContent = "GPS取得エラー";
+    (error) => {
+      gpsStatus.textContent = "エラー: 位置情報の利用が拒否されました。";
+      console.error(error);
+    },
+    {
+        enableHighAccuracy: true, // 高精度モードを要求
+        timeout: 10000,
+        maximumAge: 0
     }
   );
 }
