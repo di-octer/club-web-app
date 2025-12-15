@@ -8,20 +8,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // ★追加
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img_lib;
 
 // --- 定数 ---
-// 管理者アプリが発信しているUUID (Battery Service)
 const String ADMIN_SERVICE_UUID = "180f"; 
 const double GPS_RADIUS_METERS = 100.0;
 
 // --- グローバル変数 ---
 late FaceVerification _faceService;
 
+// --- メイン関数 ---
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
@@ -35,62 +35,161 @@ class UserApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '部員用アプリ',
-      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      title: '統合アプリ',
+      theme: ThemeData(
+        primarySwatch: Colors.indigo,
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF0F2F5),
+      ),
       home: const HomeScreen(),
     );
   }
 }
 
-class HomeScreen extends StatefulWidget {
+// ==========================================
+//   1. ホーム画面 (Dashboard)
+// ==========================================
+class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
 
-class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _nameController = TextEditingController(); 
-  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('出席認証')),
-      body: Padding(
+      appBar: AppBar(
+        title: const Text('統合アプリ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.indigo,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.white),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'あなたの名前 (登録名)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 30),
-            const Text("認証方法を選択してください", style: TextStyle(fontSize: 16)),
+            const _WelcomeCard(),
             const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _AuthButton(
-                  icon: Icons.qr_code, 
-                  label: "カラーコード認証", 
-                  color: Colors.orange,
-                  onPressed: () => _startAuthSequence(context, 'code'),
-                ),
-                _AuthButton(
-                  icon: Icons.nfc, 
-                  label: "NFC認証", 
-                  color: Colors.blue,
-                  onPressed: () => _startAuthSequence(context, 'nfc'),
-                ),
-              ],
+            const Text("機能一覧", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+            const SizedBox(height: 10),
+            
+            _MenuCard(
+              icon: Icons.camera_alt, 
+              title: "出席認証", 
+              subtitle: "GPS + 顔認証で出席",
+              color: Colors.blue,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceEntryScreen())),
+            ),
+            _MenuCard(
+              icon: Icons.calendar_month, 
+              title: "出席履歴の確認", 
+              subtitle: "過去の出席状況をチェック",
+              color: Colors.green,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckHistoryScreen())),
+            ),
+            _MenuCard(
+              icon: Icons.menu_book, 
+              title: "カリキュラム学習", 
+              subtitle: "教材と課題",
+              color: Colors.orange,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CurriculumScreen())),
+            ),
+            _MenuCard(
+              icon: Icons.edit_note, 
+              title: "欠席・遅刻連絡", 
+              subtitle: "フォームから送信",
+              color: Colors.teal,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FormScreen())),
+            ),
+            _MenuCard(
+              icon: Icons.event, 
+              title: "活動カレンダー", 
+              subtitle: "予定を確認",
+              color: Colors.purple,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CalendarScreen())),
+            ),
+            _MenuCard(
+              icon: Icons.collections, 
+              title: "ポートフォリオ", 
+              subtitle: "作品集",
+              color: Colors.pink,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PortfolioScreen())),
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  void _startAuthSequence(BuildContext context, String type) {
+class _WelcomeCard extends StatelessWidget {
+  const _WelcomeCard();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 2))],
+      ),
+      child: const Column(
+        children: [
+          Text("ようこそ！", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          SizedBox(height: 10),
+          Text("部の活動（出席、学習、交流、成果発表）を一つのアプリで完結させます。", textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+        ],
+      ),
+    );
+  }
+}
+
+class _MenuCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _MenuCard({required this.icon, required this.title, required this.subtitle, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 15),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(15),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+          child: Icon(icon, color: color, size: 30),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+// ==========================================
+//   2. 出席認証：名前入力 & 方式選択画面
+// ==========================================
+class AttendanceEntryScreen extends StatefulWidget {
+  const AttendanceEntryScreen({super.key});
+  @override
+  State<AttendanceEntryScreen> createState() => _AttendanceEntryScreenState();
+}
+
+class _AttendanceEntryScreenState extends State<AttendanceEntryScreen> {
+  final TextEditingController _nameController = TextEditingController();
+
+  void _startAuthSequence(String type) {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("名前を入力してください")));
@@ -103,31 +202,68 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => AuthProcessScreen(userName: name, authType: type))
     );
   }
-}
-
-class _AuthButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onPressed;
-  const _AuthButton({required this.icon, required this.label, required this.color, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color, 
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-      ),
-      onPressed: onPressed,
-      child: Column(
-        children: [Icon(icon, size: 40), const SizedBox(height: 10), Text(label)],
+    return Scaffold(
+      appBar: AppBar(title: const Text('出席認証')),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.face_retouching_natural, size: 80, color: Colors.indigo),
+            const SizedBox(height: 20),
+            const Text("登録名を入力してください", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: '名前 (例: 山田太郎)', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 40),
+            const Text("認証方法を選択", style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 15),
+            Row(
+              children: [
+                Expanded(child: _AuthOptionButton(icon: Icons.qr_code, label: "カラーコード", color: Colors.orange, onPressed: () => _startAuthSequence('code'))),
+                const SizedBox(width: 15),
+                Expanded(child: _AuthOptionButton(icon: Icons.nfc, label: "NFC (ICカード)", color: Colors.blue, onPressed: () => _startAuthSequence('nfc'))),
+              ],
+            )
+          ],
+        ),
       ),
     );
   }
 }
 
+class _AuthOptionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onPressed;
+  const _AuthOptionButton({required this.icon, required this.label, required this.color, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      onPressed: onPressed,
+      child: Column(
+        children: [Icon(icon, size: 30), const SizedBox(height: 8), Text(label, style: const TextStyle(fontWeight: FontWeight.bold))],
+      ),
+    );
+  }
+}
+
+// ==========================================
+//   3. 認証プロセス (GPS -> BLE -> Face -> Request)
+// ==========================================
 class AuthProcessScreen extends StatefulWidget {
   final String userName;
   final String authType;
@@ -138,16 +274,14 @@ class AuthProcessScreen extends StatefulWidget {
 }
 
 class _AuthProcessScreenState extends State<AuthProcessScreen> {
-  int _step = 0; // 0:環境チェック, 1:顔認証, 2:待機(手動確認), 3:完了
+  int _step = 0; 
   String _message = "環境情報を確認中...";
   CameraController? _cameraController;
   bool _isProcessingFace = false;
   String? _requestId;
   List<String> _myColorCode = [];
   InputImageRotation _cameraRotation = InputImageRotation.rotation270deg;
-  
-  // 連打防止用フラグ
-  bool _isCheckingStatus = false;
+  bool _isCheckingStatus = false; 
 
   @override
   void initState() {
@@ -161,44 +295,38 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     super.dispose();
   }
 
-  // ステップ1: 環境チェック (GPS + BLE)
+  // --- ステップ1: 環境チェック ---
   Future<void> _checkEnvironment() async {
     try {
-      // 1. GPSチェック
       setState(() { _message = "GPSエリアを確認中..."; });
       await _checkGps();
 
-      // 2. BLEチェック (★追加)
       setState(() { _message = "管理者のビーコンを捜索中..."; });
       await _checkBle();
 
-      // 環境OK -> 顔認証へ
       _initCamera();
       
     } catch (e) {
-      _showError("環境チェック失敗: $e");
+      _showError("環境チェック失敗:\n$e");
     }
   }
 
   Future<void> _checkGps() async {
     final position = await _determinePosition();
-    final campusesSnapshot = await FirebaseFirestore.instance.collection('campuses').get();
     final areasSnapshot = await FirebaseFirestore.instance.collection('gps_areas').where('isActive', isEqualTo: true).get();
     
-    if (campusesSnapshot.docs.isEmpty || areasSnapshot.docs.isEmpty) {
-      // デバッグのためスルーする場合はここをコメントアウト
-      // throw Exception("エリアデータがありません");
-      debugPrint("エリアデータなし(デバッグ通過)");
-      return;
+    if (areasSnapshot.docs.isEmpty) {
+      debugPrint("有効なGPSエリアがありません。デバッグのため通過します。");
+      return; 
     }
 
     bool inArea = false;
     for (var doc in areasSnapshot.docs) {
       final data = doc.data();
-      final double lat = (data['lat'] ?? 0.0).toDouble();
-      final double lon = (data['lon'] ?? 0.0).toDouble();
-      final double dist = Geolocator.distanceBetween(position.latitude, position.longitude, lat, lon);
+      final double lat = (data['lat1'] ?? 0.0).toDouble();
+      final double lon = (data['lon1'] ?? 0.0).toDouble();
       
+      final double dist = Geolocator.distanceBetween(position.latitude, position.longitude, lat, lon);
       if (dist <= GPS_RADIUS_METERS) {
         inArea = true;
         break;
@@ -206,35 +334,28 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     }
     
     if (!inArea) {
-      // debug: throw Exception("登録エリア外です");
-      debugPrint("エリア外ですがデバッグのため通過します");
+      // debugPrint("エリア外(デバッグ通過)");
+      // 本番用: throw Exception("登録エリアの外にいます。\n活動場所に近づいてください。");
     }
   }
 
-  // ★追加: BLEスキャンロジック
   Future<void> _checkBle() async {
-    // Bluetoothが有効か確認
     if (await FlutterBluePlus.isSupported == false) {
-      throw Exception("このデバイスはBluetooth非対応です");
+      debugPrint("Bluetooth非対応(デバッグ通過)");
+      return;
     }
-    if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
-      // 本来はONにするよう促すが、ここでは簡易的にエラー
-      // throw Exception("BluetoothをONにしてください");
-      debugPrint("BTオフですがデバッグのため通過");
-      return; 
+    final adapterState = await FlutterBluePlus.adapterState.first;
+    if (adapterState != BluetoothAdapterState.on) {
+      debugPrint("Bluetooth OFF(デバッグ通過)");
+      return;
     }
 
     bool adminFound = false;
     final completer = Completer<void>();
 
-    // スキャン開始
-    debugPrint("BLEスキャン開始: $ADMIN_SERVICE_UUID");
-    
     var subscription = FlutterBluePlus.scanResults.listen((results) {
       for (ScanResult r in results) {
-        // アドバタイズデータ内のServiceUUIDsを確認
         if (r.advertisementData.serviceUuids.contains(Guid(ADMIN_SERVICE_UUID))) {
-          debugPrint("管理者ビーコン発見: ${r.device.remoteId}");
           if (!adminFound) {
             adminFound = true;
             completer.complete();
@@ -243,14 +364,10 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
       }
     });
 
-    // 4秒間スキャン
     await FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
     
-    // スキャン終了待ち
     if (!completer.isCompleted) {
-      // タイムアウトしても見つからなかった場合
-      // throw Exception("管理者のビーコンが見つかりません");
-      debugPrint("ビーコン見つからず(デバッグ通過)");
+      debugPrint("管理者ビーコン見つからず(デバッグ通過)");
     }
     
     await subscription.cancel();
@@ -267,7 +384,7 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     return await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
   }
 
-  // ステップ2: 顔認証
+  // --- ステップ2: 顔認証 ---
   Future<void> _initCamera() async {
     setState(() { _step = 1; _message = "本人確認のため顔を映してください"; });
     
@@ -326,7 +443,7 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     _myColorCode = List.generate(4, (_) => colors[random.nextInt(colors.length)]);
   }
 
-  // ステップ3: リクエスト送信 (手動確認へ移行)
+  // --- ステップ3: リクエスト送信と待機 ---
   Future<void> _sendAuthRequest() async {
     setState(() { _step = 2; _message = "管理者に画面を見せてください"; });
     
@@ -336,34 +453,28 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
         finalAuthType = "code,${_myColorCode.join(',')}";
       }
 
+      // ★修正: platform, gps_valid, face_valid を完全に削除
       final docRef = await FirebaseFirestore.instance.collection('auth_requests').add({
         'userName': widget.userName,
         'authType': finalAuthType,
         'status': 'pending',
         'requestTimestamp': FieldValue.serverTimestamp(),
-        'gps_valid': true,
-        'face_valid': true,
       });
 
       setState(() { _requestId = docRef.id; });
-      // ★修正: ここでの自動監視 (snapshots) は廃止
 
     } catch (e) {
       _showError("リクエスト送信エラー: $e");
     }
   }
 
-  // ★追加: 手動ステータス確認メソッド
   Future<void> _checkAuthStatus() async {
     if (_requestId == null) return;
-    
-    // 連打防止ロック
     if (_isCheckingStatus) return;
     setState(() { _isCheckingStatus = true; });
 
     try {
-      // 1秒待機 (グレイアウト演出 & 連打防止)
-      await Future.delayed(const Duration(seconds: 1));
+      await Future.delayed(const Duration(seconds: 1)); 
 
       final doc = await FirebaseFirestore.instance.collection('auth_requests').doc(_requestId).get();
       if (!doc.exists) return;
@@ -441,17 +552,18 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
                 child: CustomPaint(painter: ColorCodePainter(_myColorCode)),
               ),
             
+            if (_step == 2 && widget.authType == 'nfc')
+              const Icon(Icons.nfc, size: 100, color: Colors.blue),
+
             const SizedBox(height: 20),
             
             if (_step == 2) ...[
-              // ★追加: 手動確認ボタン
               ElevatedButton.icon(
-                // 連打防止中は無効化
                 onPressed: _isCheckingStatus ? null : _checkAuthStatus,
                 icon: _isCheckingStatus 
                     ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
                     : const Icon(Icons.refresh),
-                label: const Text("結果を確認する"),
+                label: const Text("承認結果を確認する"),
               ),
             ],
             
@@ -471,7 +583,45 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
   }
 }
 
-// --- ★ カラーコード描画 ---
+// ==========================================
+//   4. プレースホルダー画面群
+// ==========================================
+
+class CheckHistoryScreen extends StatelessWidget {
+  const CheckHistoryScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("出席履歴")), body: const Center(child: Text("履歴機能は準備中です")));
+}
+class CurriculumScreen extends StatelessWidget {
+  const CurriculumScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("カリキュラム")), body: const Center(child: Text("教材機能は準備中です")));
+}
+class FormScreen extends StatelessWidget {
+  const FormScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("連絡フォーム")), body: const Center(child: Text("フォーム機能は準備中です")));
+}
+class CalendarScreen extends StatelessWidget {
+  const CalendarScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("カレンダー")), body: const Center(child: Text("カレンダー機能は準備中です")));
+}
+class PortfolioScreen extends StatelessWidget {
+  const PortfolioScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("ポートフォリオ")), body: const Center(child: Text("ポートフォリオ機能は準備中です")));
+}
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("設定")), body: const Center(child: Text("設定機能は準備中です")));
+}
+
+// ==========================================
+//   ヘルパー & ロジック
+// ==========================================
+
 class ColorCodePainter extends CustomPainter {
   final List<String> codes;
   ColorCodePainter(this.codes);
@@ -481,24 +631,15 @@ class ColorCodePainter extends CustomPainter {
     final double w = size.width;
     final double h = size.height;
     
-    // 背景(黒)はContainerで描画済み
-    
-    // 四隅のマーカー
     final double markerLen = w * 0.15;
     final redPen = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 8.0;
     final bluePen = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 8.0;
 
-    // 左上(赤)
     canvas.drawPath(Path()..moveTo(0, markerLen)..lineTo(0, 0)..lineTo(markerLen, 0), redPen);
-    // 右上(赤)
     canvas.drawPath(Path()..moveTo(w - markerLen, 0)..lineTo(w, 0)..lineTo(w, markerLen), redPen);
-    // 左下(青)
     canvas.drawPath(Path()..moveTo(0, h - markerLen)..lineTo(0, h)..lineTo(markerLen, h), bluePen);
-    // 右下(青)
     canvas.drawPath(Path()..moveTo(w - markerLen, h)..lineTo(w, h)..lineTo(w, h - markerLen), bluePen);
 
-    // H型コード配置 (管理者アプリの比率に合わせる)
-    // 縦1:1:1, 横1:2:1 のエリアにH型を描画
     final double boxW = w * 0.52; 
     final double boxH = (h / 3) * 0.8;
     
@@ -508,21 +649,14 @@ class ColorCodePainter extends CustomPainter {
     final double unitX = boxW / 19;
     final double unitY = boxH / 9;
 
-    // 左棒 (エリア1)
-    _drawColorBox(canvas, codes[0], left + unitX * 5, top, unitX, boxH);
+    _drawColorBox(canvas, codes[0], left + unitX * 5, top, unitX, boxH); 
+    _drawColorBox(canvas, codes[3], left + unitX * 13, top, unitX, boxH); 
     
-    // 右棒 (エリア4)
-    _drawColorBox(canvas, codes[3], left + unitX * 13, top, unitX, boxH);
-    
-    // 中央上 (エリア2)
     final double barTopY = top + unitY * 3;
     final double barBottomY = top + unitY * 4;
-    _drawColorBox(canvas, codes[1], left + unitX * 6, top, unitX * 7, barTopY - top);
+    _drawColorBox(canvas, codes[1], left + unitX * 6, top, unitX * 7, barTopY - top); 
+    _drawColorBox(canvas, codes[2], left + unitX * 6, barBottomY, unitX * 7, (top + boxH) - barBottomY); 
     
-    // 中央下 (エリア3)
-    _drawColorBox(canvas, codes[2], left + unitX * 6, barBottomY, unitX * 7, (top + boxH) - barBottomY);
-    
-    // Hの横棒(白)
     final whitePaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
     canvas.drawRect(Rect.fromLTRB(left + unitX * 6, barTopY, left + unitX * 13, barBottomY), whitePaint);
   }
@@ -533,7 +667,6 @@ class ColorCodePainter extends CustomPainter {
     if (code == "Y") c = Colors.yellow;
     if (code == "M") c = Colors.purpleAccent; 
     if (code == "G") c = Colors.green;
-    
     final paint = Paint()..color = c..style = PaintingStyle.fill;
     canvas.drawRect(Rect.fromLTWH(x, y, w, h), paint);
   }
@@ -542,7 +675,6 @@ class ColorCodePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-// --- 顔認証サービス (変更なし) ---
 class FaceVerification {
   static late FaceVerification instance;
   Interpreter? _interpreter;
@@ -626,7 +758,6 @@ class FaceVerification {
   }
 }
 
-// --- ヘルパー関数 ---
 InputImage? _inputImageFromCameraImage(CameraImage image, InputImageRotation? rotation) {
   if (rotation == null) return null;
   final WriteBuffer allBytes = WriteBuffer();

@@ -250,15 +250,12 @@ async function requestAuth(userName) {
     // H型描画
     drawHCode(myCode);
     
-    // Firestore送信
+    // Firestore送信: 不要なフィールド(platform, gps_valid, face_valid)を削除
     const docRef = await db.collection('auth_requests').add({
         userName: userName,
         authType: `code,${myCode.join(',')}`,
         status: 'pending',
-        requestTimestamp: firebase.firestore.FieldValue.serverTimestamp(),
-        gps_valid: true,
-        face_valid: true,
-        platform: 'web'
+        requestTimestamp: firebase.firestore.FieldValue.serverTimestamp()
     });
     myRequestId = docRef.id;
     document.getElementById('requestStatus').textContent = "承認待ち...";
