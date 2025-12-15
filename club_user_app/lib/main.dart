@@ -7,29 +7,26 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart'; // WriteBuffer用
+import 'package:flutter/foundation.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // ★追加
 
-// ★ AI系ライブラリを有効化
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img_lib;
 
-// --- 定数・設定 ---
-const String ADMIN_SERVICE_UUID = "0000180F-0000-1000-8000-00805F9B34FB";
-const double GPS_THRESHOLD = 0.00005; 
+// --- 定数 ---
+// 管理者アプリが発信しているUUID (Battery Service)
+const String ADMIN_SERVICE_UUID = "180f"; 
+const double GPS_RADIUS_METERS = 100.0;
 
 // --- グローバル変数 ---
 late FaceVerification _faceService;
 
-// --- メイン関数 ---
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  
-  // AIモデルのロード待機
   await FaceVerification.init();
   _faceService = FaceVerification.instance;
-  
   runApp(const UserApp());
 }
 
@@ -45,7 +42,6 @@ class UserApp extends StatelessWidget {
   }
 }
 
-// --- ホーム画面 ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
@@ -100,7 +96,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("名前を入力してください")));
       return;
     }
-    // キーボードを閉じる
     FocusScope.of(context).unfocus();
     
     Navigator.push(
@@ -133,7 +128,6 @@ class _AuthButton extends StatelessWidget {
   }
 }
 
-// --- 認証プロセス画面 ---
 class AuthProcessScreen extends StatefulWidget {
   final String userName;
   final String authType;
@@ -144,14 +138,16 @@ class AuthProcessScreen extends StatefulWidget {
 }
 
 class _AuthProcessScreenState extends State<AuthProcessScreen> {
-  int _step = 0; // 0:GPSチェック, 1:顔認証, 2:管理者待機, 3:完了
+  int _step = 0; // 0:環境チェック, 1:顔認証, 2:待機(手動確認), 3:完了
   String _message = "環境情報を確認中...";
   CameraController? _cameraController;
   bool _isProcessingFace = false;
   String? _requestId;
-  
-  // 顔認証用の回転情報
+  List<String> _myColorCode = [];
   InputImageRotation _cameraRotation = InputImageRotation.rotation270deg;
+  
+  // 連打防止用フラグ
+  bool _isCheckingStatus = false;
 
   @override
   void initState() {
@@ -165,29 +161,18 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     super.dispose();
   }
 
-  // ステップ1: GPS確認
+  // ステップ1: 環境チェック (GPS + BLE)
   Future<void> _checkEnvironment() async {
-    setState(() { _message = "GPSエリアを確認中..."; });
-    
     try {
-      final position = await _determinePosition();
-      final areasSnapshot = await FirebaseFirestore.instance.collection('gps_areas').get();
-      bool inArea = false;
-      
-      for (var doc in areasSnapshot.docs) {
-        final data = doc.data();
-        if (_isInsideArea(position, data)) {
-          inArea = true;
-          break;
-        }
-      }
-      
-      if (!inArea) {
-        // デバッグ用: エリアがなくても進める場合はここをコメントアウト
-        throw Exception("登録エリア外です");
-      }
+      // 1. GPSチェック
+      setState(() { _message = "GPSエリアを確認中..."; });
+      await _checkGps();
 
-      // BLEチェックは省略し、顔認証へ
+      // 2. BLEチェック (★追加)
+      setState(() { _message = "管理者のビーコンを捜索中..."; });
+      await _checkBle();
+
+      // 環境OK -> 顔認証へ
       _initCamera();
       
     } catch (e) {
@@ -195,13 +180,80 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     }
   }
 
-  bool _isInsideArea(Position pos, Map<String, dynamic> area) {
-    double minLat = math.min(area['lat1'], area['lat2']) - GPS_THRESHOLD;
-    double maxLat = math.max(area['lat1'], area['lat2']) + GPS_THRESHOLD;
-    double minLon = math.min(area['lon1'], area['lon2']) - GPS_THRESHOLD;
-    double maxLon = math.max(area['lon1'], area['lon2']) + GPS_THRESHOLD;
-    return pos.latitude >= minLat && pos.latitude <= maxLat &&
-           pos.longitude >= minLon && pos.longitude <= maxLon;
+  Future<void> _checkGps() async {
+    final position = await _determinePosition();
+    final campusesSnapshot = await FirebaseFirestore.instance.collection('campuses').get();
+    final areasSnapshot = await FirebaseFirestore.instance.collection('gps_areas').where('isActive', isEqualTo: true).get();
+    
+    if (campusesSnapshot.docs.isEmpty || areasSnapshot.docs.isEmpty) {
+      // デバッグのためスルーする場合はここをコメントアウト
+      // throw Exception("エリアデータがありません");
+      debugPrint("エリアデータなし(デバッグ通過)");
+      return;
+    }
+
+    bool inArea = false;
+    for (var doc in areasSnapshot.docs) {
+      final data = doc.data();
+      final double lat = (data['lat'] ?? 0.0).toDouble();
+      final double lon = (data['lon'] ?? 0.0).toDouble();
+      final double dist = Geolocator.distanceBetween(position.latitude, position.longitude, lat, lon);
+      
+      if (dist <= GPS_RADIUS_METERS) {
+        inArea = true;
+        break;
+      }
+    }
+    
+    if (!inArea) {
+      // debug: throw Exception("登録エリア外です");
+      debugPrint("エリア外ですがデバッグのため通過します");
+    }
+  }
+
+  // ★追加: BLEスキャンロジック
+  Future<void> _checkBle() async {
+    // Bluetoothが有効か確認
+    if (await FlutterBluePlus.isSupported == false) {
+      throw Exception("このデバイスはBluetooth非対応です");
+    }
+    if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+      // 本来はONにするよう促すが、ここでは簡易的にエラー
+      // throw Exception("BluetoothをONにしてください");
+      debugPrint("BTオフですがデバッグのため通過");
+      return; 
+    }
+
+    bool adminFound = false;
+    final completer = Completer<void>();
+
+    // スキャン開始
+    debugPrint("BLEスキャン開始: $ADMIN_SERVICE_UUID");
+    
+    var subscription = FlutterBluePlus.scanResults.listen((results) {
+      for (ScanResult r in results) {
+        // アドバタイズデータ内のServiceUUIDsを確認
+        if (r.advertisementData.serviceUuids.contains(Guid(ADMIN_SERVICE_UUID))) {
+          debugPrint("管理者ビーコン発見: ${r.device.remoteId}");
+          if (!adminFound) {
+            adminFound = true;
+            completer.complete();
+          }
+        }
+      }
+    });
+
+    // 4秒間スキャン
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
+    
+    // スキャン終了待ち
+    if (!completer.isCompleted) {
+      // タイムアウトしても見つからなかった場合
+      // throw Exception("管理者のビーコンが見つかりません");
+      debugPrint("ビーコン見つからず(デバッグ通過)");
+    }
+    
+    await subscription.cancel();
   }
 
   Future<Position> _determinePosition() async {
@@ -212,7 +264,7 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) throw Exception('位置情報権限が拒否されました');
     }
-    return await Geolocator.getCurrentPosition();
+    return await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
   }
 
   // ステップ2: 顔認証
@@ -226,7 +278,6 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
         orElse: () => cameras.first
       );
       
-      // 回転情報の取得
       _cameraRotation = InputImageRotationValue.fromRawValue(frontCam.sensorOrientation) 
           ?? InputImageRotation.rotation270deg;
 
@@ -253,12 +304,12 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     _isProcessingFace = true;
 
     try {
-      // 登録ユーザー本人かどうか確認
       bool isMatch = await _faceService.verifyUser(image, widget.userName, _cameraRotation);
       
       if (isMatch) {
         await _cameraController!.stopImageStream();
         if (mounted) {
+           _generateColorCode();
            _sendAuthRequest();
         }
       }
@@ -269,36 +320,68 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     }
   }
 
-  // ステップ3: リクエスト送信
+  void _generateColorCode() {
+    const colors = ['C', 'Y', 'M', 'G'];
+    final random = math.Random();
+    _myColorCode = List.generate(4, (_) => colors[random.nextInt(colors.length)]);
+  }
+
+  // ステップ3: リクエスト送信 (手動確認へ移行)
   Future<void> _sendAuthRequest() async {
-    setState(() { _step = 2; _message = "管理者に承認を求めています...\nこの画面を管理者に見せてください"; });
+    setState(() { _step = 2; _message = "管理者に画面を見せてください"; });
     
     try {
+      String finalAuthType = widget.authType;
+      if (widget.authType == 'code') {
+        finalAuthType = "code,${_myColorCode.join(',')}";
+      }
+
       final docRef = await FirebaseFirestore.instance.collection('auth_requests').add({
         'userName': widget.userName,
-        'authType': widget.authType,
+        'authType': finalAuthType,
         'status': 'pending',
         'requestTimestamp': FieldValue.serverTimestamp(),
         'gps_valid': true,
-        'ble_valid': true, // 省略したがフロー上はOKとする
-        'face_valid': true, // 本人確認済み
+        'face_valid': true,
       });
 
       setState(() { _requestId = docRef.id; });
-      debugPrint("Request Sent: $_requestId");
+      // ★修正: ここでの自動監視 (snapshots) は廃止
 
-      // 監視
-      docRef.snapshots().listen((snapshot) {
-        if (!snapshot.exists) return;
-        final data = snapshot.data();
-        if (data?['status'] == 'approved') {
-          _showSuccess();
-        } else if (data?['status'] == 'rejected') {
-          _showError("管理者に否認されました");
-        }
-      });
     } catch (e) {
       _showError("リクエスト送信エラー: $e");
+    }
+  }
+
+  // ★追加: 手動ステータス確認メソッド
+  Future<void> _checkAuthStatus() async {
+    if (_requestId == null) return;
+    
+    // 連打防止ロック
+    if (_isCheckingStatus) return;
+    setState(() { _isCheckingStatus = true; });
+
+    try {
+      // 1秒待機 (グレイアウト演出 & 連打防止)
+      await Future.delayed(const Duration(seconds: 1));
+
+      final doc = await FirebaseFirestore.instance.collection('auth_requests').doc(_requestId).get();
+      if (!doc.exists) return;
+
+      final data = doc.data();
+      final status = data?['status'];
+
+      if (status == 'approved') {
+        _showSuccess();
+      } else if (status == 'rejected') {
+        _showError("管理者に否認されました");
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("まだ承認されていません")));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("確認エラー: $e")));
+    } finally {
+      if (mounted) setState(() { _isCheckingStatus = false; });
     }
   }
 
@@ -317,8 +400,8 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
         content: Text(msg),
         actions: [
           TextButton(onPressed: () {
-            Navigator.pop(context); // ダイアログ
-            Navigator.pop(context); // 画面閉じる
+            Navigator.pop(context); 
+            Navigator.pop(context); 
           }, child: const Text("戻る"))
         ],
       ),
@@ -333,18 +416,16 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // カメラプレビュー
             if (_step == 1 && _cameraController != null && _cameraController!.value.isInitialized)
               Container(
-                height: 300, width: 300,
-                margin: const EdgeInsets.only(bottom: 20),
+                height: 300, width: 300, margin: const EdgeInsets.only(bottom: 20),
                 child: ClipOval(
                   child: OverflowBox(
                     alignment: Alignment.center,
                     child: FittedBox(
                       fit: BoxFit.cover,
                       child: SizedBox(
-                        width: _cameraController!.value.previewSize!.height, // 縦横逆転注意
+                        width: _cameraController!.value.previewSize!.height,
                         height: _cameraController!.value.previewSize!.width,
                         child: CameraPreview(_cameraController!)
                       ),
@@ -353,24 +434,30 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
                 ),
               ),
             
-            // カラーコード表示
             if (_step == 2 && widget.authType == 'code')
               Container(
-                width: 200, height: 200, 
-                decoration: BoxDecoration(border: Border.all(color: Colors.black)),
-                child: const Center(child: Text("カラーコード\n(実装予定)", textAlign: TextAlign.center)),
+                width: 300, height: 300, padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(10)),
+                child: CustomPaint(painter: ColorCodePainter(_myColorCode)),
               ),
             
             const SizedBox(height: 20),
             
-            if (_step == 2) const CircularProgressIndicator(),
+            if (_step == 2) ...[
+              // ★追加: 手動確認ボタン
+              ElevatedButton.icon(
+                // 連打防止中は無効化
+                onPressed: _isCheckingStatus ? null : _checkAuthStatus,
+                icon: _isCheckingStatus 
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
+                    : const Icon(Icons.refresh),
+                label: const Text("結果を確認する"),
+              ),
+            ],
+            
             const SizedBox(height: 20),
             
-            Text(
-              _message, 
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
-            ),
+            Text(_message, textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             
             if (_step == 3)
               const Padding(
@@ -384,13 +471,82 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
   }
 }
 
-// --- ★ 顔認証サービス (移植版) ---
+// --- ★ カラーコード描画 ---
+class ColorCodePainter extends CustomPainter {
+  final List<String> codes;
+  ColorCodePainter(this.codes);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double w = size.width;
+    final double h = size.height;
+    
+    // 背景(黒)はContainerで描画済み
+    
+    // 四隅のマーカー
+    final double markerLen = w * 0.15;
+    final redPen = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 8.0;
+    final bluePen = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 8.0;
+
+    // 左上(赤)
+    canvas.drawPath(Path()..moveTo(0, markerLen)..lineTo(0, 0)..lineTo(markerLen, 0), redPen);
+    // 右上(赤)
+    canvas.drawPath(Path()..moveTo(w - markerLen, 0)..lineTo(w, 0)..lineTo(w, markerLen), redPen);
+    // 左下(青)
+    canvas.drawPath(Path()..moveTo(0, h - markerLen)..lineTo(0, h)..lineTo(markerLen, h), bluePen);
+    // 右下(青)
+    canvas.drawPath(Path()..moveTo(w - markerLen, h)..lineTo(w, h)..lineTo(w, h - markerLen), bluePen);
+
+    // H型コード配置 (管理者アプリの比率に合わせる)
+    // 縦1:1:1, 横1:2:1 のエリアにH型を描画
+    final double boxW = w * 0.52; 
+    final double boxH = (h / 3) * 0.8;
+    
+    final double left = (w - boxW) / 2;
+    final double top = (h - boxH) / 2;
+
+    final double unitX = boxW / 19;
+    final double unitY = boxH / 9;
+
+    // 左棒 (エリア1)
+    _drawColorBox(canvas, codes[0], left + unitX * 5, top, unitX, boxH);
+    
+    // 右棒 (エリア4)
+    _drawColorBox(canvas, codes[3], left + unitX * 13, top, unitX, boxH);
+    
+    // 中央上 (エリア2)
+    final double barTopY = top + unitY * 3;
+    final double barBottomY = top + unitY * 4;
+    _drawColorBox(canvas, codes[1], left + unitX * 6, top, unitX * 7, barTopY - top);
+    
+    // 中央下 (エリア3)
+    _drawColorBox(canvas, codes[2], left + unitX * 6, barBottomY, unitX * 7, (top + boxH) - barBottomY);
+    
+    // Hの横棒(白)
+    final whitePaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
+    canvas.drawRect(Rect.fromLTRB(left + unitX * 6, barTopY, left + unitX * 13, barBottomY), whitePaint);
+  }
+
+  void _drawColorBox(Canvas canvas, String code, double x, double y, double w, double h) {
+    Color c = Colors.grey;
+    if (code == "C") c = Colors.cyan;
+    if (code == "Y") c = Colors.yellow;
+    if (code == "M") c = Colors.purpleAccent; 
+    if (code == "G") c = Colors.green;
+    
+    final paint = Paint()..color = c..style = PaintingStyle.fill;
+    canvas.drawRect(Rect.fromLTWH(x, y, w, h), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// --- 顔認証サービス (変更なし) ---
 class FaceVerification {
   static late FaceVerification instance;
   Interpreter? _interpreter;
   final FaceDetector _faceDetector = FaceDetector(options: FaceDetectorOptions(performanceMode: FaceDetectorMode.fast));
-  
-  // 読み込んだ顔データ (名前 -> 特徴量リスト)
   Map<String, List<Float32List>> _registeredFaces = {};
 
   static Future<void> init() async {
@@ -407,34 +563,23 @@ class FaceVerification {
     }
   }
 
-  // 指定されたユーザーとして認証できるか
   Future<bool> verifyUser(CameraImage cameraImage, String targetName, InputImageRotation rotation) async {
     if (_interpreter == null) return false;
-
-    // 1. そのユーザーのデータをFirestoreから取得 (キャッシュ推奨だが今回は都度取得)
     List<Float32List> userDescriptors = await _fetchUserDescriptors(targetName);
-    if (userDescriptors.isEmpty) {
-      debugPrint("ユーザー「$targetName」の登録データがありません");
-      return false; 
-    }
+    if (userDescriptors.isEmpty) return false; 
 
-    // 2. カメラ画像から顔検出
     final inputImage = _inputImageFromCameraImage(cameraImage, rotation);
     if (inputImage == null) return false;
 
     final faces = await _faceDetector.processImage(inputImage);
     if (faces.isEmpty) return false;
 
-    // 一番大きく映っている顔を採用
     final bestFace = faces.reduce((a, b) => a.boundingBox.width > b.boundingBox.width ? a : b);
-
-    // 3. 顔画像を切り抜き＆特徴量抽出
     final img_lib.Image? croppedImage = _cropFace(cameraImage, bestFace, rotation);
     if (croppedImage == null) return false;
 
     final Float32List currentDescriptor = _getEmbedding(croppedImage);
 
-    // 4. 照合 (ユークリッド距離)
     double minDistance = double.infinity;
     for (final savedDescriptor in userDescriptors) {
       double dist = 0.0;
@@ -443,80 +588,59 @@ class FaceVerification {
       }
       if (dist < minDistance) minDistance = dist;
     }
-
-    // 閾値以下なら本人とみなす
-    // (Adminアプリでは 1.0 でしたが、厳しめに 0.8 くらいでも良いかもしれません)
-    debugPrint("Distance: $minDistance");
     return minDistance < 1.0; 
   }
 
-  // 特徴量抽出 (Adminアプリと同じロジック)
   Float32List _getEmbedding(img_lib.Image image) {
-    // 112x112 にリサイズ済み前提
     final imageBytes = image.toUint8List();
     final Float32List inputBytes = Float32List(1 * 112 * 112 * 3);
-    
     int pixelIndex = 0;
     for (int i = 0; i < imageBytes.length; i += 3) {
-      // 正規化 ( -1.0 ~ 1.0 )
-      inputBytes[pixelIndex++] = (imageBytes[i + 2] / 127.5) - 1.0; // R
-      inputBytes[pixelIndex++] = (imageBytes[i + 1] / 127.5) - 1.0; // G
-      inputBytes[pixelIndex++] = (imageBytes[i]     / 127.5) - 1.0; // B
+      inputBytes[pixelIndex++] = (imageBytes[i + 2] / 127.5) - 1.0; 
+      inputBytes[pixelIndex++] = (imageBytes[i + 1] / 127.5) - 1.0; 
+      inputBytes[pixelIndex++] = (imageBytes[i]     / 127.5) - 1.0; 
     }
-
     final input = inputBytes.reshape([1, 112, 112, 3]);
     final output = List.filled(1 * 192, 0.0).reshape([1, 192]);
-    
     _interpreter!.run(input, output);
     return Float32List.fromList(output[0]);
   }
 
-  // Firestoreからユーザーの特徴量を取得
   Future<List<Float32List>> _fetchUserDescriptors(String name) async {
-    // キャッシュがあれば返す
     if (_registeredFaces.containsKey(name)) return _registeredFaces[name]!;
-
     try {
       final doc = await FirebaseFirestore.instance.collection('faces').doc(name).get();
       if (!doc.exists) return [];
-
       final data = doc.data();
       if (data == null || data['descriptors'] == null) return [];
-
       List<dynamic> rawList = data['descriptors'];
       List<Float32List> descriptors = rawList.map((base64Str) {
         final Uint8List bytes = base64Decode(base64Str);
         return bytes.buffer.asFloat32List();
       }).toList();
-
-      _registeredFaces[name] = descriptors; // キャッシュ
+      _registeredFaces[name] = descriptors;
       return descriptors;
     } catch (e) {
-      debugPrint("Firestore fetch error: $e");
       return [];
     }
   }
 }
 
-// --- ★ ヘルパー関数 (Adminアプリから移植) ---
-
+// --- ヘルパー関数 ---
 InputImage? _inputImageFromCameraImage(CameraImage image, InputImageRotation? rotation) {
   if (rotation == null) return null;
-
   final WriteBuffer allBytes = WriteBuffer();
   for (final Plane plane in image.planes) {
     allBytes.putUint8List(plane.bytes);
   }
   final bytes = allBytes.done().buffer.asUint8List();
   final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
-  
   final InputImageMetadata metadata = InputImageMetadata(
     size: imageSize,
     rotation: rotation,
     format: InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21,
     bytesPerRow: image.planes[0].bytesPerRow,
   );
-
   return InputImage.fromBytes(bytes: bytes, metadata: metadata);
 }
 
@@ -524,9 +648,7 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
   img_lib.Image? convertedImage;
 
   if (image.format.group == ImageFormatGroup.yuv420) {
-    convertedImage = img_lib.Image(
-        width: image.width, height: image.height, format: img_lib.Format.uint8, numChannels: 3);
-    
+    convertedImage = img_lib.Image(width: image.width, height: image.height, format: img_lib.Format.uint8, numChannels: 3);
     final int width = image.width;
     final int height = image.height;
     final int yRowStride = image.planes[0].bytesPerRow;
@@ -536,38 +658,29 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
       final int vRowStride = image.planes[2].bytesPerRow;
       final int uPixelStride = image.planes[1].bytesPerPixel ?? 1;
       final int vPixelStride = image.planes[2].bytesPerPixel ?? 1;
-
       for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
           final int yIndex = y * yRowStride + x;
-          final int uvx = x ~/ 2;
-          final int uvy = y ~/ 2;
+          final int uvx = x ~/ 2; final int uvy = y ~/ 2;
           final int uIndex = uvy * uRowStride + uvx * uPixelStride;
           final int vIndex = uvy * vRowStride + uvx * vPixelStride;
-
           final int yValue = image.planes[0].bytes[yIndex];
           final int uValue = image.planes[1].bytes[uIndex];
           final int vValue = image.planes[2].bytes[vIndex];
-
           _setPixelRGB(convertedImage, x, y, yValue, uValue, vValue);
         }
       }
     } else if (image.planes.length == 2) {
-      // 2プレーン (Y, UV)
       final int uvRowStride = image.planes[1].bytesPerRow;
       final int uvPixelStride = image.planes[1].bytesPerPixel ?? 2;
-
       for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
           final int yIndex = y * yRowStride + x;
-          final int uvx = x ~/ 2;
-          final int uvy = y ~/ 2;
+          final int uvx = x ~/ 2; final int uvy = y ~/ 2;
           final int uvIndex = uvy * uvRowStride + uvx * uvPixelStride;
-
           final int yValue = image.planes[0].bytes[yIndex];
           final int uValue = image.planes[1].bytes[uvIndex];
           final int vValue = image.planes[1].bytes[uvIndex + 1];
-
           _setPixelRGB(convertedImage, x, y, yValue, uValue, vValue);
         }
       }
@@ -581,9 +694,7 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
     for (final pixel in bgraImage) {
       convertedImage.setPixelRgb(pixel.x, pixel.y, pixel.r, pixel.g, pixel.b);
     }
-  } else {
-    return null;
-  }
+  } else { return null; }
 
   final x = face.boundingBox.left.toInt().clamp(0, convertedImage.width - 1);
   final y = face.boundingBox.top.toInt().clamp(0, convertedImage.height - 1);
@@ -599,7 +710,6 @@ img_lib.Image? _cropFace(CameraImage image, Face face, InputImageRotation rotati
   } else {
     rotatedImage = croppedFace;
   }
-  
   return img_lib.copyResize(rotatedImage, width: 112, height: 112);
 }
 

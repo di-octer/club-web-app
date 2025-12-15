@@ -8,8 +8,9 @@ import 'package:nfc_manager_felica/nfc_manager_felica.dart';
 import 'package:app_links/app_links.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'models/campus.dart'; 
 import 'models/gps_area.dart'; 
-import 'package:geolocator/geolocator.dart'; 
+// import 'package:geolocator/geolocator.dart';
 import 'models/face_object.dart';
 import 'dart:convert';
 import 'package:camera/camera.dart';
@@ -19,6 +20,7 @@ import 'package:image/image.dart' as img_lib;
 
 // --- グローバル変数 ---
 final db = FirebaseFirestore.instance;
+final ValueNotifier<List<Campus>> globalCampuses = ValueNotifier([]);
 final ValueNotifier<List<GpsArea>> globalGpsAreas = ValueNotifier([]);
 final ValueNotifier<List<FaceObject>> globalFaces = ValueNotifier([]);
 final _blePeripheral = FlutterBlePeripheral();
@@ -35,6 +37,19 @@ Interpreter? _interpreter;
 Float32List _decodeBase64(String base64String) {
   final Uint8List uint8Array = base64Decode(base64String);
   return uint8Array.buffer.asFloat32List();
+}
+
+Future<void> loadCampusesFromFirestore() async {
+  try {
+    final snapshot = await db.collection("campuses").get();
+    final loaded = snapshot.docs.map((doc) {
+      return Campus.fromSnapshot(doc.id, doc.data());
+    }).toList();
+    globalCampuses.value = loaded;
+  } catch (e) {
+    debugPrint("キャンパス読み込み失敗: $e");
+    globalCampuses.value = [];
+  }
 }
 
 // --- 顔データ読み込み ---
@@ -104,6 +119,7 @@ void main() async {
     return;
   }
 
+  loadCampusesFromFirestore(); 
   loadGpsAreasFromFirestore();
   loadFacesFromFirestore();
 
@@ -308,18 +324,27 @@ class _StatusScreenState extends State<StatusScreen> {
     _fetchRequests();
   }
 
-  void _fetchRequests() {
-    setState(() {
-      _isLoading = true;
-      _requestsFuture = db
+  void _fetchRequests() async {
+    setState(() { _isLoading = true; });
+    
+    // ★追加: 最低1秒間はロード状態を維持（連打防止）
+    final waitMin = Future.delayed(const Duration(seconds: 1));
+    
+    final fetchTask = db
           .collection('auth_requests')
           .where('status', isEqualTo: 'pending')
           .orderBy('requestTimestamp', descending: true)
           .get();
-    });
-    _requestsFuture!.whenComplete(() {
+
+    try {
+      // データ取得とウェイトの両方が終わるのを待つ
+      final results = await Future.wait([fetchTask, waitMin]);
+      _requestsFuture = Future.value(results[0] as QuerySnapshot); // 完了済みのFutureをセット
+    } catch (e) {
+      // エラー処理
+    } finally {
       if (mounted) setState(() { _isLoading = false; });
-    });
+    }
   }
 
   void _navigateToProcessingScreen(String requestId, String userName, String authType) {
@@ -379,7 +404,7 @@ class _StatusScreenState extends State<StatusScreen> {
                   // アイコンもタイプによって変える
                   IconData listIcon = Icons.help_outline;
                   if (authType == 'nfc') listIcon = Icons.nfc;
-                  if (authType == 'code') listIcon = Icons.qr_code_scanner;
+                  if (authType.startsWith('code')) listIcon = Icons.qr_code_scanner;
 
                   return Card(
                     margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
@@ -491,30 +516,70 @@ class InfoAdminScreen extends StatefulWidget {
 }
 
 class _InfoAdminScreenState extends State<InfoAdminScreen> {
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _latController = TextEditingController();
-  final TextEditingController _lonController = TextEditingController();
+  // キャンパス用コントローラ
+  final TextEditingController _campusNameController = TextEditingController();
+  final TextEditingController _campusLatController = TextEditingController();
+  final TextEditingController _campusLonController = TextEditingController();
+
+  // エリア用コントローラ
+  final TextEditingController _areaNameController = TextEditingController();
+  final TextEditingController _areaLatController = TextEditingController();
+  final TextEditingController _areaLonController = TextEditingController();
+  
+  // 選択中のキャンパスID
+  String? _selectedCampusId;
+
   bool _isLoading = false;
+  bool _isRefreshing = false;
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _latController.dispose();
-    _lonController.dispose();
+    _campusNameController.dispose();
+    _campusLatController.dispose();
+    _campusLonController.dispose();
+    _areaNameController.dispose();
+    _areaLatController.dispose();
+    _areaLonController.dispose();
     super.dispose();
   }
 
-  // --- 登録処理 (手入力のみ) ---
-  Future<void> _registerArea() async {
-    // キーボードを閉じる
-    FocusScope.of(context).unfocus();
+  // --- 手動更新 (修正版) ---
+  Future<void> _manualRefresh() async {
+    setState(() { _isRefreshing = true; });
+    
+    // ★追加: 処理本体と1秒待機を並行実行し、遅い方を待つ
+    final refreshTask = Future.wait([
+      loadFacesFromFirestore(),
+      loadCampusesFromFirestore(),
+      loadGpsAreasFromFirestore()
+    ]);
+    
+    final waitMin = Future.delayed(const Duration(seconds: 1));
 
-    final name = _nameController.text.trim();
-    final latText = _latController.text.trim();
-    final lonText = _lonController.text.trim();
+    try {
+      await Future.wait([refreshTask, waitMin]); // 両方終わるまで待つ
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('データを最新の状態に更新しました')),
+        );
+      }
+    } catch (e) {
+      _showErrorDialog('更新エラー', 'データの更新に失敗しました: $e');
+    } finally {
+      if (mounted) setState(() { _isRefreshing = false; });
+    }
+  }
+
+  // --- キャンパス登録処理 ---
+  Future<void> _registerCampus() async {
+    FocusScope.of(context).unfocus();
+    final name = _campusNameController.text.trim();
+    final latText = _campusLatController.text.trim();
+    final lonText = _campusLonController.text.trim();
 
     if (name.isEmpty || latText.isEmpty || lonText.isEmpty) {
-      _showErrorDialog('入力エラー', 'エリア名、緯度、経度をすべて入力してください。');
+      _showErrorDialog('入力エラー', 'キャンパス名、緯度、経度を入力してください');
       return;
     }
 
@@ -522,35 +587,95 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
     final double? lon = double.tryParse(lonText);
 
     if (lat == null || lon == null) {
-      _showErrorDialog('入力エラー', '座標は有効な数値で入力してください。\n(例: 35.6895)');
+      _showErrorDialog('入力エラー', '座標は数値で入力してください');
       return;
     }
 
-    // 重複チェック
+    setState(() { _isLoading = true; });
+    try {
+      // ID自動生成で追加
+      final docRef = await db.collection("campuses").add({
+        'name': name, 'lat': lat, 'lon': lon
+      });
+      
+      final newCampus = Campus(id: docRef.id, name: name, lat: lat, lon: lon);
+      final currentList = globalCampuses.value.toList();
+      currentList.add(newCampus);
+      globalCampuses.value = currentList;
+
+      _campusNameController.clear();
+      _campusLatController.clear();
+      _campusLonController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('キャンパスを登録しました')));
+    } catch (e) {
+      _showErrorDialog('エラー', '$e');
+    } finally {
+      setState(() { _isLoading = false; });
+    }
+  }
+
+  // --- キャンパス削除 ---
+  Future<void> _deleteCampus(String campusId) async {
+    if (await _showConfirmDialog('削除確認', 'キャンパスを削除しますか？\n紐付いているエリアがある場合、それらの表示に影響します。') == false) return;
+    setState(() { _isLoading = true; });
+    try {
+      await db.collection("campuses").doc(campusId).delete();
+      final currentList = globalCampuses.value.toList();
+      currentList.removeWhere((c) => c.id == campusId);
+      globalCampuses.value = currentList;
+      
+      if (_selectedCampusId == campusId) _selectedCampusId = null;
+
+    } catch (e) {
+      _showErrorDialog('エラー', '$e');
+    } finally {
+      setState(() { _isLoading = false; });
+    }
+  }
+
+  // --- 活動場所(エリア)登録処理 ---
+  Future<void> _registerArea() async {
+    FocusScope.of(context).unfocus();
+    final name = _areaNameController.text.trim();
+    final latText = _areaLatController.text.trim();
+    final lonText = _areaLonController.text.trim();
+
+    if (_selectedCampusId == null) {
+      _showErrorDialog('入力エラー', '所属するキャンパスを選択してください');
+      return;
+    }
+    if (name.isEmpty || latText.isEmpty || lonText.isEmpty) {
+      _showErrorDialog('入力エラー', 'エリア名、緯度、経度を入力してください');
+      return;
+    }
+
+    final double? lat = double.tryParse(latText);
+    final double? lon = double.tryParse(lonText);
+
+    if (lat == null || lon == null) {
+      _showErrorDialog('入力エラー', '座標は数値で入力してください');
+      return;
+    }
+
     if (globalGpsAreas.value.any((a) => a.name == name)) {
       if (await _showConfirmDialog('上書き確認', '「$name」は登録済みです。上書きしますか？') == false) return;
     }
 
     setState(() { _isLoading = true; });
     try {
-      // 新しいデータモデル (中心点 + 活動フラグ)
-      final area = GpsArea(name: name, lat: lat, lon: lon, isActive: false);
+      final area = GpsArea(name: name, campusId: _selectedCampusId!, lat: lat, lon: lon, isActive: false);
       
       await db.collection("gps_areas").doc(name).set(area.toJson());
       
-      // ローカルリスト更新
       final currentAreas = globalGpsAreas.value.toList();
       currentAreas.removeWhere((a) => a.name == name);
       currentAreas.add(area);
       globalGpsAreas.value = currentAreas;
 
-      // フォームクリア
-      _nameController.clear();
-      _latController.clear();
-      _lonController.clear();
-      
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('エリアを登録しました')));
-
+      _areaNameController.clear();
+      _areaLatController.clear();
+      _areaLonController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('活動場所を登録しました')));
     } catch (e) {
       _showErrorDialog('保存エラー', '$e');
     } finally {
@@ -558,12 +683,12 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
     }
   }
 
+  // --- エリア活動切り替え ---
   Future<void> _toggleActive(GpsArea area) async {
     final newStatus = !area.isActive;
     final action = newStatus ? "開始" : "終了";
     
-    // ダイアログで確認
-    if (await _showConfirmDialog('活動ステータス変更', '「${area.name}」の活動を $action しますか？') == false) return;
+    if (await _showConfirmDialog('ステータス変更', '「${area.name}」の活動を $action しますか？') == false) return;
 
     setState(() { _isLoading = true; });
     try {
@@ -572,7 +697,10 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
       final currentAreas = globalGpsAreas.value.toList();
       final index = currentAreas.indexWhere((a) => a.name == area.name);
       if (index != -1) {
-        currentAreas[index] = GpsArea(name: area.name, lat: area.lat, lon: area.lon, isActive: newStatus);
+        currentAreas[index] = GpsArea(
+          name: area.name, campusId: area.campusId, 
+          lat: area.lat, lon: area.lon, isActive: newStatus
+        );
         globalGpsAreas.value = currentAreas;
       }
     } catch (e) {
@@ -582,6 +710,7 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
     }
   }
 
+  // --- エリア削除 ---
   Future<void> _deleteGpsArea(String areaName) async {
     if (await _showConfirmDialog('削除確認', '本当に「$areaName」を削除しますか？') == false) return;
     setState(() { _isLoading = true; });
@@ -597,24 +726,38 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
     }
   }
 
-  Future<bool> _showConfirmDialog(String title, String content) async {
-    return (await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: Text(title), content: Text(content),
-      actions: [TextButton(onPressed: ()=>Navigator.pop(ctx,false), child: const Text('キャンセル')), TextButton(onPressed: ()=>Navigator.pop(ctx,true), child: const Text('OK'))]
-    ))) ?? false;
-  }
-  void _showErrorDialog(String title, String content) {
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: Text(title), content: Text(content), actions: [TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('閉じる'))]));
-  }
-
-  // --- 顔削除メソッド (変更なし) ---
+  // --- 顔削除 ---
   Future<void> _deleteFace(String faceLabel) async {
     if (await _showConfirmDialog('削除確認', '本当に「$faceLabel」さんを削除しますか？') == false) return;
     setState(() { _isLoading = true; });
     await deleteFaceFromFirestore(faceLabel);
     setState(() { _isLoading = false; });
   }
-  
+
+  // --- ダイアログヘルパー ---
+  Future<bool> _showConfirmDialog(String title, String content) async {
+    return (await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title), content: Text(content),
+        actions: [
+          TextButton(onPressed: ()=>Navigator.pop(ctx,false), child: const Text('いいえ')), 
+          TextButton(onPressed: ()=>Navigator.pop(ctx,true), child: const Text('はい'))
+        ]
+      )
+    )) ?? false;
+  }
+  void _showErrorDialog(String title, String content) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title), content: Text(content),
+        actions: [TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('OK'))]
+      )
+    );
+  }
+
+  // --- 画像表示ヘルパー ---
   ImageProvider _getSafeImageProvider(String thumbnailDataUrl) {
     try {
       final base64String = thumbnailDataUrl.split(',').last;
@@ -627,105 +770,202 @@ class _InfoAdminScreenState extends State<InfoAdminScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16.0),
+    return Column(
       children: [
-        // ★修正: GPS登録フォームを一番上に移動
-        const Text('GPSエリア登録 (中心点)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        const Text('※Googleマップ等で座標を確認して入力してください', style: TextStyle(fontSize: 12, color: Colors.grey)),
-        const SizedBox(height: 10),
-        TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'エリア名', border: OutlineInputBorder())),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(child: TextField(controller: _latController, decoration: const InputDecoration(labelText: '緯度 (例: 35.xxxx)', border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(decimal: true))),
-            const SizedBox(width: 8),
-            Expanded(child: TextField(controller: _lonController, decoration: const InputDecoration(labelText: '経度 (例: 139.xxxx)', border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(decimal: true))),
-          ],
+        // 更新ボタンエリア
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          color: Colors.grey[100],
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: _isRefreshing 
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
+                  : const Icon(Icons.refresh),
+              label: const Text('全データを更新'),
+              onPressed: (_isLoading || _isRefreshing) ? null : _manualRefresh,
+            ),
+          ),
         ),
-        const SizedBox(height: 16),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _registerArea,
-          style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.indigo),
-          child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('登録', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        ),
-        const SizedBox(height: 20),
+        const Divider(height: 1),
+        
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              // --- 1. キャンパス登録 ---
+              const Text('1. キャンパス管理 (親エリア)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              const SizedBox(height: 4),
+              const Text('※Googleマップ等で中心座標を確認して入力', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const SizedBox(height: 10),
+              TextField(controller: _campusNameController, decoration: const InputDecoration(labelText: 'キャンパス名 (例: 北キャンパス)', isDense: true, border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: TextField(controller: _campusLatController, decoration: const InputDecoration(labelText: '中心緯度', isDense: true, border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),)),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: _campusLonController, decoration: const InputDecoration(labelText: '中心経度', isDense: true, border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _registerCampus,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo.shade100, foregroundColor: Colors.indigo),
+                  child: const Text('キャンパス登録'),
+                ),
+              ),
+              const Divider(height: 30),
 
-        // ★修正: GPS一覧を次に配置
-        ValueListenableBuilder<List<GpsArea>>(
-          valueListenable: globalGpsAreas,
-          builder: (context, areas, child) {
-            if (areas.isEmpty) return const Center(child: Text('登録なし'));
-            return ListView.builder(
-              shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-              itemCount: areas.length,
-              itemBuilder: (context, index) {
-                final area = areas[index];
-                return Card(
-                  color: area.isActive ? Colors.green[50] : null,
-                  child: ListTile(
-                    title: Text(area.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(
-                      '${area.lat.toStringAsFixed(5)}, ${area.lon.toStringAsFixed(5)}\n状態: ${area.isActive ? "活動中" : "停止中"}',
-                      style: TextStyle(color: area.isActive ? Colors.green : Colors.grey),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Switch(
-                          value: area.isActive,
-                          onChanged: (val) => _toggleActive(area),
-                          activeColor: Colors.green,
+              // --- 2. 活動場所登録 ---
+              const Text('2. 活動場所登録 (子エリア)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              const SizedBox(height: 10),
+              
+              // キャンパス選択プルダウン
+              ValueListenableBuilder<List<Campus>>(
+                valueListenable: globalCampuses,
+                builder: (context, campuses, child) {
+                  return DropdownButtonFormField<String>(
+                    value: _selectedCampusId,
+                    decoration: const InputDecoration(labelText: '所属キャンパスを選択', border: OutlineInputBorder()),
+                    items: campuses.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
+                    onChanged: (val) => setState(() => _selectedCampusId = val),
+                    hint: const Text("キャンパスを選択してください"),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              TextField(controller: _areaNameController, decoration: const InputDecoration(labelText: '場所名 (例: 体育館)', isDense: true, border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: TextField(controller: _areaLatController, decoration: const InputDecoration(labelText: '緯度', isDense: true, border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),)),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: _areaLonController, decoration: const InputDecoration(labelText: '経度', isDense: true, border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _registerArea,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+                  child: _isLoading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white)) : const Text('活動場所を登録'),
+                ),
+              ),
+              const Divider(height: 30),
+
+              // --- 3. 登録済みデータ一覧 (キャンパスごとに表示) ---
+              const Text('登録済みデータ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              
+              ValueListenableBuilder<List<Campus>>(
+                valueListenable: globalCampuses,
+                builder: (context, campuses, child) {
+                  if (campuses.isEmpty) return const Padding(padding: EdgeInsets.all(8.0), child: Text("キャンパスが登録されていません"));
+                  
+                  return Column(
+                    children: campuses.map((campus) {
+                      return ValueListenableBuilder<List<GpsArea>>(
+                        valueListenable: globalGpsAreas,
+                        builder: (context, allAreas, child) {
+                          // このキャンパスに紐付くエリアのみ抽出
+                          final campusAreas = allAreas.where((a) => a.campusId == campus.id).toList();
+                          
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 8),
+                            color: Colors.white,
+                            elevation: 2,
+                            child: ExpansionTile(
+                              initiallyExpanded: true, // 最初から展開しておく
+                              title: Text("${campus.name} (${campusAreas.length}箇所)", style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text("中心: ${campus.lat.toStringAsFixed(4)}, ${campus.lon.toStringAsFixed(4)}"),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                                onPressed: _isLoading ? null : () => _deleteCampus(campus.id),
+                              ),
+                              children: campusAreas.map((area) {
+                                return Container(
+                                  decoration: BoxDecoration(
+                                    border: Border(top: BorderSide(color: Colors.grey.shade200)),
+                                    color: area.isActive ? Colors.green.shade50 : null,
+                                  ),
+                                  child: ListTile(
+                                    title: Text(area.name),
+                                    subtitle: Text(
+                                      "${area.lat.toStringAsFixed(5)}, ${area.lon.toStringAsFixed(5)}\n状態: ${area.isActive ? '活動中' : '停止中'}",
+                                      style: TextStyle(color: area.isActive ? Colors.green : Colors.grey, fontSize: 12),
+                                    ),
+                                    leading: Icon(Icons.place, color: area.isActive ? Colors.green : Colors.grey),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Switch(
+                                          value: area.isActive,
+                                          onChanged: (val) => _toggleActive(area),
+                                          activeColor: Colors.green,
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete, color: Colors.red),
+                                          onPressed: _isLoading ? null : () => _deleteGpsArea(area.name),
+                                        ),
+                                      ],
+                                    ),
+                                    onTap: () => _toggleActive(area),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          );
+                        },
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
+
+              const Divider(height: 40),
+              
+              // --- 4. 顔データ一覧 ---
+              const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              ValueListenableBuilder<List<FaceObject>>(
+                valueListenable: globalFaces,
+                builder: (context, faces, child) {
+                  if (faces.isEmpty) {
+                    return const Center(child: Padding(padding: EdgeInsets.all(8.0), child: Text('顔データなし')));
+                  }
+                  final reversedFaces = faces.reversed.toList();
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: reversedFaces.length,
+                    itemBuilder: (context, index) {
+                      final face = reversedFaces[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: ListTile(
+                          leading: Image(
+                            image: _getSafeImageProvider(face.thumbnail),
+                            width: 50, height: 50, fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => 
+                                Container(width: 50, height: 50, color: Colors.grey[300], child: const Icon(Icons.broken_image)),
+                          ),
+                          title: Text(face.label),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: _isLoading ? null : () => _deleteFace(face.label),
+                          ),
                         ),
-                        IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: _isLoading ? null : () => _deleteGpsArea(area.name)),
-                      ],
-                    ),
-                    onTap: () => _toggleActive(area),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-
-        const Divider(height: 40),
-
-        // ★修正: 顔データ一覧を一番下に移動
-        const Text('登録済み顔データ一覧', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        ValueListenableBuilder<List<FaceObject>>(
-          valueListenable: globalFaces,
-          builder: (context, faces, child) {
-            if (faces.isEmpty) {
-              return const Center(child: Text('登録済みの顔はありません。'));
-            }
-            final reversedFaces = faces.reversed.toList();
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: reversedFaces.length,
-              itemBuilder: (context, index) {
-                final face = reversedFaces[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4.0),
-                  child: ListTile(
-                    leading: Image(
-                      image: _getSafeImageProvider(face.thumbnail),
-                      width: 60, height: 80, fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => 
-                          Container(width: 60, height: 80, color: Colors.grey[300], child: const Icon(Icons.broken_image)),
-                    ),
-                    title: Text(face.label),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: _isLoading ? null : () => _deleteFace(face.label),
-                    ),
-                  ),
-                );
-              },
-            );
-          },
+                      );
+                    },
+                  );
+                },
+              ),
+              const SizedBox(height: 40), // 最下部の余白
+            ],
+          ),
         ),
       ],
     );

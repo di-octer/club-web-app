@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出席認証 (Web版)</title>
+    <link rel="stylesheet" href="pre_style.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+</head>
+<body id="page-user">
+
+<div class="user-container">
+    <h2>出席認証</h2>
+
+    <!-- ステップ0: 入力 -->
+    <div id="step-0" class="step-content active">
+        <input type="text" id="userNameInput" placeholder="あなたの名前 (登録名)">
+        <button onclick="startUserAuthFlow()">認証を開始する</button>
+    </div>
+
+    <!-- ステップ1: 環境チェック & 顔認証 -->
+    <div id="step-1" class="step-content">
+        <h3>本人確認</h3>
+        <p id="userStatus">環境を確認中...</p>
+        <div class="camera-wrapper">
+            <video id="userVideo" autoplay muted playsinline></video>
+            <canvas id="userCanvas" class="overlay"></canvas>
+        </div>
+    </div>
+
+    <!-- ステップ2: コード表示 & 待機 -->
+    <div id="step-2" class="step-content">
+        <h3>承認待機中</h3>
+        <p>この画面を管理者に見せてください</p>
+        <div id="colorCodeContainer" class="color-code-box">
+            <!-- CanvasでH型コードを描画 -->
+            <canvas id="codeCanvas" width="300" height="300"></canvas>
+        </div>
+        <p id="requestStatus">リクエスト送信済み...</p>
+        <button onclick="checkRequestStatus()">結果を確認</button>
+    </div>
+
+    <!-- ステップ3: 完了 -->
+    <div id="step-3" class="step-content">
+        <div class="success-icon">✅</div>
+        <h3>認証成功！</h3>
+        <p>出席が記録されました。</p>
+        <a href="pre_check.html">履歴を確認する</a>
+    </div>
+</div>
+
+<script src="pre_script.js"></script>
+</body>
+</html>

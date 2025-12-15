@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出席履歴</title>
+    <link rel="stylesheet" href="pre_style.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+</head>
+<body id="page-check">
+
+<div class="container">
+    <h2>出席状況確認</h2>
+    <div class="input-group">
+        <input type="text" id="checkNameInput" placeholder="名前を入力">
+        <button onclick="checkAttendance()">確認</button>
+    </div>
+    <hr>
+    <div id="resultArea" style="display: none;">
+        <div id="todayStatus" class="status-card status-no">今日の出席：未</div>
+        <div class="calendar-header">
+            <button onclick="changeMonth(-1)">＜</button>
+            <span id="calendarTitle"></span>
+            <button onclick="changeMonth(1)">＞</button>
+        </div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+    </div>
+</div>
+
+<script src="pre_script.js"></script>
+</body>
+</html>

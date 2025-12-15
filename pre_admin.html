@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理者アプリ (Web版)</title>
+    <link rel="stylesheet" href="pre_style.css">
+    <!-- Firebase & FaceAPI -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+</head>
+<body id="page-admin">
+
+<div class="admin-container">
+    <header>
+        <h2>管理者コンソール</h2>
+    </header>
+
+    <!-- タブナビゲーション -->
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('status')">ステータス</button>
+        <button class="tab-btn" onclick="switchTab('info')">登録情報</button>
+        <button class="tab-btn" onclick="switchTab('face')">顔登録</button>
+    </div>
+
+    <!-- 1. ステータスタブ (リクエスト一覧) -->
+    <div id="tab-status" class="tab-content active">
+        <h3>認証リクエスト一覧</h3>
+        <div id="requestList" class="list-container">
+            <p>読み込み中...</p>
+        </div>
+        <button onclick="refreshRequests()" class="refresh-btn">リクエスト更新</button>
+        
+        <!-- 承認モーダル (カメラ起動用) -->
+        <div id="authModal" class="modal" style="display:none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeAuthModal()">&times;</span>
+                <h3 id="modalTitle">認証処理</h3>
+                <div class="camera-wrapper">
+                    <video id="adminVideo" autoplay muted playsinline></video>
+                    <canvas id="adminCanvas" class="overlay"></canvas>
+                </div>
+                <div id="adminAuthStatus">コードを枠に合わせてください</div>
+                <button id="approveBtn" disabled onclick="approveRequest()">承認する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 登録情報タブ (キャンパス・GPS・顔一覧) -->
+    <div id="tab-info" class="tab-content">
+        <h3>1. キャンパス管理</h3>
+        <div class="input-group">
+            <input type="text" id="campusName" placeholder="キャンパス名">
+            <input type="number" id="campusLat" placeholder="緯度" step="0.000001">
+            <input type="number" id="campusLon" placeholder="経度" step="0.000001">
+            <button onclick="registerCampus()">登録</button>
+        </div>
+        <div id="campusList" class="list-container"></div>
+
+        <hr>
+
+        <h3>2. 活動場所登録</h3>
+        <div class="input-group">
+            <select id="campusSelect"><option>キャンパスを選択</option></select>
+            <input type="text" id="areaName" placeholder="場所名 (例: 体育館)">
+            <input type="number" id="areaLat" placeholder="緯度" step="0.000001">
+            <input type="number" id="areaLon" placeholder="経度" step="0.000001">
+            <button onclick="registerArea()">登録</button>
+        </div>
+        <div id="areaList" class="list-container"></div>
+
+        <hr>
+
+        <h3>3. 登録済み顔データ</h3>
+        <div id="faceList" class="list-container"></div>
+    </div>
+
+    <!-- 3. 顔登録タブ -->
+    <div id="tab-face" class="tab-content">
+        <h3>新規顔登録</h3>
+        <div class="camera-wrapper">
+            <video id="regVideo" autoplay muted playsinline></video>
+            <canvas id="regCanvas" class="overlay"></canvas>
+        </div>
+        <div class="input-group">
+            <input type="text" id="regName" placeholder="登録名を入力">
+            <button id="regBtn" onclick="startFaceRegistration()">スキャン開始</button>
+        </div>
+        <div id="regStatus">待機中...</div>
+    </div>
+</div>
+
+<script src="pre_script.js"></script>
+</body>
+</html>
