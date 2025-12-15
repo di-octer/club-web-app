@@ -1,77 +1,44 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ホーム | 部活出席アプリ</title>
-    <link rel="stylesheet" href="pre_style.css">
-    <style>
-        .menu-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 20px;
-            margin-top: 40px;
-        }
-        .menu-card {
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            text-decoration: none;
-            color: #333;
-            transition: transform 0.2s;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .menu-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-        }
-        .icon {
-            font-size: 3em;
-            margin-bottom: 15px;
-        }
-        .title {
-            font-size: 1.2em;
-            font-weight: bold;
-        }
-        .admin-link {
-            margin-top: 50px;
-            display: inline-block;
-            color: #666;
-            font-size: 0.9em;
-            text-decoration: underline;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>ホーム | 統合アプリ</title>
+  <link rel="stylesheet" href="pre_style.css">
+  <style>
+      .appbar { background-color: #007bff; color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+      .appbar a { color: white; text-decoration: none; margin-left: 20px; font-weight: bold; }
+      .logo { font-size: 1.5em; font-weight: bold; }
+      .content { padding: 40px; max-width: 800px; margin: 0 auto; text-align: center; }
+      ul { list-style: none; padding: 0; }
+      li { margin: 15px 0; }
+      li a { display: block; padding: 15px; background: white; border-radius: 8px; text-decoration: none; color: #333; box-shadow: 0 2px 5px rgba(0,0,0,0.1); transition: transform 0.2s; }
+      li a:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+  </style>
 </head>
 <body>
-
-<div class="container" style="max-width: 500px;">
-    <header style="margin-bottom: 30px;">
-        <h1>部活出席アプリ</h1>
-        <p>（Pre環境）</p>
-    </header>
-
-    <div class="menu-grid">
-        <!-- 1. 出席ボタン -->
-        <a href="pre_index.html" class="menu-card">
-            <div class="icon">📷</div>
-            <div class="title">出席する</div>
-            <p>GPSと顔認証で出席を記録します</p>
-        </a>
-
-        <!-- 2. 履歴ボタン -->
-        <a href="pre_check.html" class="menu-card">
-            <div class="icon">📅</div>
-            <div class="title">履歴を見る</div>
-            <p>今月の出席状況を確認します</p>
-        </a>
-    </div>
-
-    <!-- 3. 管理者リンク -->
-    <a href="pre_admin.html" class="admin-link">管理者コンソールへ</a>
-</div>
-
+  <header class="appbar">
+    <div class="logo">統合アプリ</div>
+    <nav>
+      <a href="pre_curriculum.html">カリキュラム</a>
+      <a href="pre_attendance.html">出席認証</a>
+      <a href="pre_settings.html">設定</a>
+    </nav>
+  </header>
+  
+  <main class="content">
+    <h1>ようこそ！</h1>
+    <p>部の活動（出席、学習、交流、成果発表）を一つのアプリで完結させます。</p>
+    
+    <h2>機能一覧</h2>
+    <ul>
+      <li><a href="pre_attendance.html">📷 出席認証 (GPS + 顔認証)</a></li>
+      <li><a href="pre_check.html">📅 出席履歴の確認</a></li>
+      <li><a href="pre_curriculum.html">📚 カリキュラム学習</a></li>
+      <li><a href="pre_form.html">📝 欠席・遅刻連絡フォーム</a></li>
+      <li><a href="pre_calendar.html">🗓 活動カレンダー</a></li>
+      <li><a href="pre_portfolio.html">🎨 ポートフォリオ・作品集</a></li>
+      <li><a href="pre_settings.html">⚙️ 設定 / 管理者メニュー</a></li>
+    </ul>
+  </main>
 </body>
 </html>
