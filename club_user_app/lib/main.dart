@@ -281,7 +281,8 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
   String? _requestId;
   List<String> _myColorCode = [];
   InputImageRotation _cameraRotation = InputImageRotation.rotation270deg;
-  bool _isCheckingStatus = false; 
+  bool _isCheckingStatus = false;
+  bool _isAuthSent = false;
 
   @override
   void initState() {
@@ -417,21 +418,28 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
   }
 
   void _processCameraImage(CameraImage image) async {
-    if (_isProcessingFace || !mounted) return;
+    // 処理中、または既に送信済みなら即リターン
+    if (_isProcessingFace || _isAuthSent || !mounted) return;
     _isProcessingFace = true;
 
     try {
       bool isMatch = await _faceService.verifyUser(image, widget.userName, _cameraRotation);
       
       if (isMatch) {
+        // ★修正: 合致したら即座にフラグを立ててロック
+        _isAuthSent = true;
+        
         await _cameraController!.stopImageStream();
+        
         if (mounted) {
            _generateColorCode();
-           _sendAuthRequest();
+           _sendAuthRequest(); // 1回だけ呼ばれる
         }
       }
     } catch (e) {
       debugPrint("Face Auth Error: $e");
+      // エラー時はフラグを戻さないと再試行できないが、
+      // 致命的なエラーでなければスルー、必要なら _isAuthSent = false;
     } finally {
       if (mounted) _isProcessingFace = false;
     }
@@ -443,7 +451,7 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
     _myColorCode = List.generate(4, (_) => colors[random.nextInt(colors.length)]);
   }
 
-  // --- ステップ3: リクエスト送信と待機 ---
+  // リクエスト送信部分 (念のため再確認)
   Future<void> _sendAuthRequest() async {
     setState(() { _step = 2; _message = "管理者に画面を見せてください"; });
     
@@ -453,18 +461,21 @@ class _AuthProcessScreenState extends State<AuthProcessScreen> {
         finalAuthType = "code,${_myColorCode.join(',')}";
       }
 
-      // ★修正: platform, gps_valid, face_valid を完全に削除
+      // ★確認: ここに余計なフィールドがないことを確認
       final docRef = await FirebaseFirestore.instance.collection('auth_requests').add({
         'userName': widget.userName,
         'authType': finalAuthType,
         'status': 'pending',
         'requestTimestamp': FieldValue.serverTimestamp(),
+        // platform, gps_valid, face_valid は削除済み
       });
 
       setState(() { _requestId = docRef.id; });
 
     } catch (e) {
       _showError("リクエスト送信エラー: $e");
+      // エラー時は再試行できるようにロック解除
+      _isAuthSent = false; 
     }
   }
 

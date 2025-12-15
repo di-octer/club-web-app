@@ -167,65 +167,97 @@ async function startUserAuthFlow() {
 }
 
 let isAuthCompleted = false; // 二重送信防止用フラグ
+let isDetectingLoop = false;
 
 // 顔認証処理
 async function startFaceAuth(userName) {
     const statusEl = document.getElementById('userStatus');
     statusEl.textContent = "モデルを読み込み中...";
     
-    // ★修正: 開始時にフラグをリセット
+    // フラグのリセット
     isAuthCompleted = false;
+    isDetectingLoop = false;
     
+    // 既存のループがあれば停止
+    stopFaceAuth();
+
     try {
         await loadModels();
         statusEl.textContent = "カメラを起動中...";
         
         const video = document.getElementById('userVideo');
+        
+        // カメラ権限取得
         const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
         currentStream = stream;
         video.srcObject = stream;
         
+        // ★修正: イベントが重複しないよう { once: true } を付与
         video.addEventListener('play', () => {
             statusEl.textContent = "顔を映してください...";
             const canvas = document.getElementById('userCanvas');
             const displaySize = { width: video.videoWidth, height: video.videoHeight };
             faceapi.matchDimensions(canvas, displaySize);
             
-            // 検出ループ開始
-            detectionInterval = setInterval(async () => {
-                // ★修正: 既に認証済みなら何もしない（ループを空転させるか即停止）
-                if (isAuthCompleted) {
-                    clearInterval(detectionInterval);
+            // 検出ループ開始関数
+            const detectLoop = async () => {
+                // 完了済み、またはビデオが停止していたら終了
+                if (isAuthCompleted || video.paused || video.ended) return;
+                
+                // 前回の処理が終わっていない場合はスキップ（多重実行防止）
+                if (isDetectingLoop) {
+                    setTimeout(detectLoop, 100); // 少し待って再トライ
                     return;
                 }
 
-                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-                    .withFaceLandmarks()
-                    .withFaceDescriptors();
-                
-                const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                faceapi.draw.drawDetections(canvas, resizedDetections);
-                
-                if (resizedDetections.length > 0) {
-                    // ★修正: 顔が見つかったら「即座に」フラグを立ててロックする
-                    isAuthCompleted = true;
-                    clearInterval(detectionInterval); // ループも止める
+                isDetectingLoop = true; // ロック開始
 
-                    statusEl.textContent = "顔を認識しました！";
+                try {
+                    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+                        .withFaceLandmarks()
+                        .withFaceDescriptors();
                     
-                    // 念のためループ停止処理を呼ぶ
-                    stopFaceAuth(); 
+                    // 処理中に完了していたらここで中断
+                    if (isAuthCompleted) return;
 
-                    // 1秒待たずに即時、あるいは演出として待ってからリクエスト
-                    setTimeout(() => {
-                        requestAuth(userName); 
-                    }, 500);
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    faceapi.draw.drawDetections(canvas, resizedDetections);
+                    
+                    if (resizedDetections.length > 0) {
+                        // ★発見！即座にロック
+                        isAuthCompleted = true; 
+                        
+                        statusEl.textContent = "顔を認識しました！";
+                        
+                        // カメラと描画を停止
+                        stopFaceAuth();
+                        
+                        // リクエスト送信 (1回のみ)
+                        setTimeout(() => {
+                            requestAuth(userName); 
+                        }, 500);
+                        
+                        return; // ループ終了
+                    }
+                } catch (err) {
+                    console.error("検出エラー:", err);
+                } finally {
+                    isDetectingLoop = false; // ロック解除
                 }
-            }, 200); 
-        });
+
+                // 次のフレームを予約 (処理が終わってから200ms後)
+                if (!isAuthCompleted) {
+                    setTimeout(detectLoop, 200);
+                }
+            };
+
+            // ループ始動
+            detectLoop();
+
+        }, { once: true }); // ★重要: 1回だけ実行
         
     } catch(e) {
         console.error(e);
@@ -235,11 +267,19 @@ async function startFaceAuth(userName) {
 }
 
 function stopFaceAuth() {
-    if (detectionInterval) clearInterval(detectionInterval);
-    if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+    // 既存のストリームを停止
+    if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+    }
+    const video = document.getElementById('userVideo');
+    if (video) video.pause(); // ビデオも止める
+
     const canvas = document.getElementById('userCanvas');
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
 }
 
 
