@@ -178,7 +178,7 @@ async function startFaceAuth(userName) {
     isAuthCompleted = false;
     isDetectingLoop = false;
     
-    // 既存のループがあれば停止
+    // 既存のストリームがあれば停止
     stopFaceAuth();
 
     try {
@@ -192,21 +192,29 @@ async function startFaceAuth(userName) {
         currentStream = stream;
         video.srcObject = stream;
         
-        // ★修正: イベントが重複しないよう { once: true } を付与
-        video.addEventListener('play', () => {
-            statusEl.textContent = "顔を映してください...";
+        // ★修正: async関数にして待機処理を入れる
+        video.addEventListener('play', async () => {
             const canvas = document.getElementById('userCanvas');
             const displaySize = { width: video.videoWidth, height: video.videoHeight };
             faceapi.matchDimensions(canvas, displaySize);
             
-            // 検出ループ開始関数
+            // --- ウォームアップ待機 (ここが修正ポイント) ---
+            statusEl.textContent = "カメラ準備中... (安定まで待機)";
+            
+            // 2秒間待つ (この間はリクエストを送らない)
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            if (isAuthCompleted) return; // 待機中に何かあれば終了
+            statusEl.textContent = "顔を映してください...";
+
+            // --- 検出ループ関数 ---
             const detectLoop = async () => {
-                // 完了済み、またはビデオが停止していたら終了
+                // 完了済み、ビデオ停止時は終了
                 if (isAuthCompleted || video.paused || video.ended) return;
                 
-                // 前回の処理が終わっていない場合はスキップ（多重実行防止）
+                // 前の処理が終わっていない場合は少し待って再試行
                 if (isDetectingLoop) {
-                    setTimeout(detectLoop, 100); // 少し待って再トライ
+                    setTimeout(detectLoop, 100);
                     return;
                 }
 
@@ -217,7 +225,7 @@ async function startFaceAuth(userName) {
                         .withFaceLandmarks()
                         .withFaceDescriptors();
                     
-                    // 処理中に完了していたらここで中断
+                    // 処理中に完了していたら中断
                     if (isAuthCompleted) return;
 
                     const resizedDetections = faceapi.resizeResults(detections, displaySize);
@@ -248,16 +256,16 @@ async function startFaceAuth(userName) {
                     isDetectingLoop = false; // ロック解除
                 }
 
-                // 次のフレームを予約 (処理が終わってから200ms後)
+                // 次のフレームを予約 (200ms後)
                 if (!isAuthCompleted) {
                     setTimeout(detectLoop, 200);
                 }
             };
 
-            // ループ始動
+            // 待機後にループ始動
             detectLoop();
 
-        }, { once: true }); // ★重要: 1回だけ実行
+        }, { once: true }); // 1回だけ実行
         
     } catch(e) {
         console.error(e);
