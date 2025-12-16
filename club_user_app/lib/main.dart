@@ -633,53 +633,77 @@ class SettingsScreen extends StatelessWidget {
 //   ヘルパー & ロジック
 // ==========================================
 
+// lib/main.dart の ColorCodePainter クラスをこれに差し替えてください
+
 class ColorCodePainter extends CustomPainter {
   final List<String> codes;
   ColorCodePainter(this.codes);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final double w = size.width;
-    final double h = size.height;
-    
-    final double markerLen = w * 0.15;
-    final redPen = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 8.0;
-    final bluePen = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 8.0;
+    // Fletコードの基準サイズ
+    const double baseW = 230.0;
+    const double baseH = 170.0;
 
-    canvas.drawPath(Path()..moveTo(0, markerLen)..lineTo(0, 0)..lineTo(markerLen, 0), redPen);
-    canvas.drawPath(Path()..moveTo(w - markerLen, 0)..lineTo(w, 0)..lineTo(w, markerLen), redPen);
-    canvas.drawPath(Path()..moveTo(0, h - markerLen)..lineTo(0, h)..lineTo(markerLen, h), bluePen);
-    canvas.drawPath(Path()..moveTo(w - markerLen, h)..lineTo(w, h)..lineTo(w, h - markerLen), bluePen);
+    // 画面サイズに合わせたスケール倍率を計算
+    final double sx = size.width / baseW;
+    final double sy = size.height / baseH;
 
-    final double boxW = w * 0.52; 
-    final double boxH = (h / 3) * 0.8;
-    
-    final double left = (w - boxW) / 2;
-    final double top = (h - boxH) / 2;
+    // 座標変換用ヘルパー関数
+    Rect scaledRect(double x, double y, double w, double h) {
+      return Rect.fromLTWH(x * sx, y * sy, w * sx, h * sy);
+    }
 
-    final double unitX = boxW / 19;
-    final double unitY = boxH / 9;
+    // 1. 背景 (黒)
+    final bgPaint = Paint()..color = Colors.black..style = PaintingStyle.fill;
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
 
-    _drawColorBox(canvas, codes[0], left + unitX * 5, top, unitX, boxH); 
-    _drawColorBox(canvas, codes[3], left + unitX * 13, top, unitX, boxH); 
-    
-    final double barTopY = top + unitY * 3;
-    final double barBottomY = top + unitY * 4;
-    _drawColorBox(canvas, codes[1], left + unitX * 6, top, unitX * 7, barTopY - top); 
-    _drawColorBox(canvas, codes[2], left + unitX * 6, barBottomY, unitX * 7, (top + boxH) - barBottomY); 
-    
+    // 2. マーカー (赤・青)
+    final redPaint = Paint()..color = const Color(0xFFFF0000)..style = PaintingStyle.fill;
+    final bluePaint = Paint()..color = const Color(0xFF0000FF)..style = PaintingStyle.fill;
+
+    // 左上 (赤) 20,20 -> 75,75 (W55, H55)
+    canvas.drawRect(scaledRect(20, 20, 55, 55), redPaint);
+
+    // 右上 (赤) 155,20 -> 210,75 (W55, H55)
+    canvas.drawRect(scaledRect(155, 20, 55, 55), redPaint);
+
+    // 左下 (青) 20,75 -> 75,150 (W55, H75)
+    canvas.drawRect(scaledRect(20, 75, 55, 75), bluePaint);
+
+    // 右下 (青) 155,75 -> 210,150 (W55, H75)
+    canvas.drawRect(scaledRect(155, 75, 55, 75), bluePaint);
+
+    // 中央下部の赤い帯 (Fletコードに基づく) 75,130 -> 155,140
+    canvas.drawRect(scaledRect(75, 130, 80, 10), redPaint);
+
+    // 3. データエリア背景 (白) 40,40 -> 190,130
     final whitePaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTRB(left + unitX * 6, barTopY, left + unitX * 13, barBottomY), whitePaint);
+    canvas.drawRect(scaledRect(40, 40, 150, 90), whitePaint);
+
+    // 4. カラーコード描画 (4箇所)
+    // codes[0]: 左 (Left Bar)
+    _drawColorBlock(canvas, codes[0], scaledRect(40, 40, 30, 90));
+
+    // codes[1]: 中上 (Top Center)
+    _drawColorBlock(canvas, codes[1], scaledRect(80, 40, 70, 30));
+
+    // codes[2]: 中下 (Bottom Center)
+    _drawColorBlock(canvas, codes[2], scaledRect(80, 80, 70, 50));
+
+    // codes[3]: 右 (Right Bar)
+    _drawColorBlock(canvas, codes[3], scaledRect(160, 40, 30, 90));
   }
 
-  void _drawColorBox(Canvas canvas, String code, double x, double y, double w, double h) {
+  void _drawColorBlock(Canvas canvas, String code, Rect rect) {
     Color c = Colors.grey;
-    if (code == "C") c = Colors.cyan;
-    if (code == "Y") c = Colors.yellow;
-    if (code == "M") c = Colors.purpleAccent; 
-    if (code == "G") c = Colors.green;
+    if (code == "C") c = const Color(0xFF00FFFF); // Cyan
+    if (code == "Y") c = const Color(0xFFFFFF00); // Yellow
+    if (code == "M") c = const Color(0xFFFF00FF); // Magenta
+    if (code == "G") c = const Color(0xFF00FF00); // Green (Lime)
+    
     final paint = Paint()..color = c..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTWH(x, y, w, h), paint);
+    canvas.drawRect(rect, paint);
   }
 
   @override

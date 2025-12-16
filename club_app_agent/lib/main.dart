@@ -1927,11 +1927,9 @@ class GuideOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 3.0;
-
     if (isFaceStep) {
-      // 顔認証モード
-      paint.color = Colors.yellow;
+      // (顔枠ロジックは変更なし)
+      final paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 3.0..color = Colors.yellow;
       if (face != null && imageSize != null) {
         final double scaleX = size.width / imageSize!.height;
         final double scaleY = size.height / imageSize!.width;
@@ -1943,49 +1941,51 @@ class GuideOverlayPainter extends CustomPainter {
         );
         canvas.drawRect(rect, paint);
       }
-    } else {
-      // コードスキャンモード: H型ガイド
-      paint.color = Colors.white.withOpacity(0.5);
-      paint.strokeWidth = 4.0;
-      
-      final double w = size.width;
-      final double h = size.height;
-      
-      // 比率反映: w*0.52, h/3*0.8
-      final double boxW = w * 0.52; 
-      final double boxH = (h / 3) * 0.8;
-      
-      final double left = (w - boxW) / 2;
-      final double top = (h - boxH) / 2;
-      final double right = left + boxW;
-      final double bottom = top + boxH;
-
-      // 四隅の鉤括弧
-      final double cornerLen = boxW * 0.15;
-      final redPen = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 4.0;
-      final bluePen = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 4.0;
-
-      canvas.drawPath(Path()..moveTo(left, top + cornerLen)..lineTo(left, top)..lineTo(left + cornerLen, top), redPen);
-      canvas.drawPath(Path()..moveTo(right - cornerLen, top)..lineTo(right, top)..lineTo(right, top + cornerLen), redPen);
-      canvas.drawPath(Path()..moveTo(left, bottom - cornerLen)..lineTo(left, bottom)..lineTo(left + cornerLen, bottom), bluePen);
-      canvas.drawPath(Path()..moveTo(right - cornerLen, bottom)..lineTo(right, bottom)..lineTo(right, bottom - cornerLen), bluePen);
-
-      // 中央H型 (縦3:1:5, 横5:1:7:1:5)
-      final whiteFill = Paint()..color = Colors.white.withOpacity(0.8)..style = PaintingStyle.fill;
-      
-      final double unitX = boxW / 19;
-      final double unitY = boxH / 9;
-
-      final double hLeftX = left + unitX * 5;
-      final double hRightX = left + unitX * 13;
-      final double barTopY = top + unitY * 3;
-      final double barBottomY = top + unitY * 4;
-
-      canvas.drawRect(Rect.fromLTRB(hLeftX, top, hLeftX + unitX, bottom), whiteFill);
-      canvas.drawRect(Rect.fromLTRB(hRightX, top, hRightX + unitX, bottom), whiteFill);
-      canvas.drawRect(Rect.fromLTRB(hLeftX + unitX, barTopY, hRightX, barBottomY), whiteFill);
+      return;
     }
+
+    // --- コードスキャンモード (Pythonコードのデザイン移植) ---
+    
+    // Pythonコードの基準サイズ
+    const double refW = 230.0;
+    const double refH = 170.0;
+    
+    // 画面サイズに合わせてスケール計算 (画面幅の80%くらいに収まるように)
+    final double scale = (size.width * 0.8) / refW;
+    
+    // 中央配置のためのオフセット
+    final double offsetX = (size.width - refW * scale) / 2;
+    final double offsetY = (size.height - refH * scale) / 2;
+
+    // 座標変換ヘルパー
+    Offset t(double x, double y) => Offset(x * scale + offsetX, y * scale + offsetY);
+    
+    // ペン設定
+    final redStroke = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 4.0;
+    final blueStroke = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 4.0;
+    final whiteFill = Paint()..color = Colors.white.withOpacity(0.8)..style = PaintingStyle.fill;
+
+    // 1. 四隅のL字 (赤: 上, 青: 下)
+    // 左上 (赤)
+    canvas.drawPath(Path()..moveTo(t(30, 50).dx, t(30, 50).dy)..lineTo(t(30, 30).dx, t(30, 30).dy)..lineTo(t(50, 30).dx, t(50, 30).dy), redStroke);
+    // 右上 (赤)
+    canvas.drawPath(Path()..moveTo(t(200, 50).dx, t(200, 50).dy)..lineTo(t(200, 30).dx, t(200, 30).dy)..lineTo(t(180, 30).dx, t(180, 30).dy), redStroke);
+    // 左下 (青)
+    canvas.drawPath(Path()..moveTo(t(30, 120).dx, t(30, 120).dy)..lineTo(t(30, 140).dx, t(30, 140).dy)..lineTo(t(50, 140).dx, t(50, 140).dy), blueStroke);
+    // 右下 (青)
+    canvas.drawPath(Path()..moveTo(t(200, 120).dx, t(200, 120).dy)..lineTo(t(200, 140).dx, t(200, 140).dy)..lineTo(t(180, 140).dx, t(180, 140).dy), blueStroke);
+
+    // 2. 中央のH型 (白)
+    // 左縦棒: x=70~80, y=40~130
+    canvas.drawRect(Rect.fromPoints(t(70, 40), t(80, 130)), whiteFill);
+    
+    // 横棒: x=80~150, y=70~80
+    canvas.drawRect(Rect.fromPoints(t(80, 70), t(150, 80)), whiteFill);
+
+    // 右縦棒: x=150~160, y=40~130
+    canvas.drawRect(Rect.fromPoints(t(150, 40), t(160, 130)), whiteFill);
   }
+
   @override
   bool shouldRepaint(covariant GuideOverlayPainter oldDelegate) => true;
 }

@@ -332,55 +332,70 @@ async function checkRequestStatus() {
     }
 }
 
+// pre_script.js の drawHCode 関数をこれに差し替えてください
+
 function drawHCode(codes) {
     const canvas = document.getElementById('codeCanvas');
-    if (!canvas.getContext) return;
+    if (!canvas || !canvas.getContext) return;
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
-    
-    // 背景
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0,0,w,h);
-    
-    // 四隅マーカー (赤/青)
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = "red";
-    ctx.beginPath(); ctx.moveTo(0,30); ctx.lineTo(0,0); ctx.lineTo(30,0); ctx.stroke(); // 左上
-    ctx.beginPath(); ctx.moveTo(w-30,0); ctx.lineTo(w,0); ctx.lineTo(w,30); ctx.stroke(); // 右上
-    ctx.strokeStyle = "blue";
-    ctx.beginPath(); ctx.moveTo(0,h-30); ctx.lineTo(0,h); ctx.lineTo(30,h); ctx.stroke(); // 左下
-    ctx.beginPath(); ctx.moveTo(w-30,h); ctx.lineTo(w,h); ctx.lineTo(w,h-30); ctx.stroke(); // 右下
-    
-    // H型配置
-    const boxW = w * 0.6;
-    const boxH = boxW * 0.7; // 縦圧縮
-    const startX = (w - boxW)/2;
-    const startY = (h - boxH)/2;
-    const unitX = boxW / 19;
-    
-    const colorMap = {'C':'cyan', 'Y':'yellow', 'M':'magenta', 'G':'lime'};
-    
-    // 左 (Code[0])
-    ctx.fillStyle = colorMap[codes[0]];
-    ctx.fillRect(startX + unitX*5, startY, unitX, boxH);
-    
-    // 右 (Code[3])
-    ctx.fillStyle = colorMap[codes[3]];
-    ctx.fillRect(startX + unitX*13, startY, unitX, boxH);
-    
-    // 中上 (Code[1])
-    const unitY = boxH/9;
-    ctx.fillStyle = colorMap[codes[1]];
-    ctx.fillRect(startX + unitX*6, startY, unitX*7, unitY*3);
-    
-    // 中下 (Code[2])
-    ctx.fillStyle = colorMap[codes[2]];
-    ctx.fillRect(startX + unitX*6, startY + unitY*4, unitX*7, unitY*5);
-    
-    // 横棒 (白)
-    ctx.fillStyle = "white";
-    ctx.fillRect(startX + unitX*6, startY + unitY*3, unitX*7, unitY);
+
+    // Fletコードの基準サイズ
+    const baseW = 230;
+    const baseH = 170;
+
+    // スケール計算
+    const sx = w / baseW;
+    const sy = h / baseH;
+
+    // 座標変換ヘルパー
+    const r = (x, y, rw, rh) => [x * sx, y * sy, rw * sx, rh * sy];
+
+    // 1. 背景 (黒) 0,0 -> 230,170
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, w, h);
+
+    // 2. マーカー描画
+    // 左上 (赤) 20,20 -> 75,75 (W55, H55)
+    ctx.fillStyle = "#FF0000";
+    ctx.fillRect(...r(20, 20, 55, 55));
+
+    // 右上 (赤) 155,20 -> 210,75
+    ctx.fillRect(...r(155, 20, 55, 55));
+
+    // 中央下部の赤い帯 75,130 -> 155,140 (W80, H10)
+    ctx.fillRect(...r(75, 130, 80, 10));
+
+    // 左下 (青) 20,75 -> 75,150 (W55, H75)
+    ctx.fillStyle = "#0000FF";
+    ctx.fillRect(...r(20, 75, 55, 75));
+
+    // 右下 (青) 155,75 -> 210,150
+    ctx.fillRect(...r(155, 75, 55, 75));
+
+    // 3. データエリア背景 (白) 40,40 -> 190,130 (W150, H90)
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(...r(40, 40, 150, 90));
+
+    // 4. カラーコード描画
+    const colorMap = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#00FF00' };
+
+    // 左 (Left Bar) 40,40 -> 70,130 (W30, H90)
+    ctx.fillStyle = colorMap[codes[0]] || '#808080';
+    ctx.fillRect(...r(40, 40, 30, 90));
+
+    // 中上 (Top Center) 80,40 -> 150,70 (W70, H30)
+    ctx.fillStyle = colorMap[codes[1]] || '#808080';
+    ctx.fillRect(...r(80, 40, 70, 30));
+
+    // 中下 (Bottom Center) 80,80 -> 150,130 (W70, H50)
+    ctx.fillStyle = colorMap[codes[2]] || '#808080';
+    ctx.fillRect(...r(80, 80, 70, 50));
+
+    // 右 (Right Bar) 160,40 -> 190,130 (W30, H90)
+    ctx.fillStyle = colorMap[codes[3]] || '#808080';
+    ctx.fillRect(...r(160, 40, 30, 90));
 }
 
 
