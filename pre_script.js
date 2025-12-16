@@ -345,55 +345,70 @@ function drawHCode(codes) {
     const baseW = 230;
     const baseH = 170;
 
-    // スケール計算
-    const sx = w / baseW;
-    const sy = h / baseH;
+    // 1. 比率維持のためのスケール計算
+    const scale = Math.min(w / baseW, h / baseH);
+
+    // 2. 中央寄せオフセット
+    const dx = (w - (baseW * scale)) / 2;
+    const dy = (h - (baseH * scale)) / 2;
 
     // 座標変換ヘルパー
-    const r = (x, y, rw, rh) => [x * sx, y * sy, rw * sx, rh * sy];
+    // (x, y, w, h) -> [screenX, screenY, screenW, screenH]
+    const r = (x, y, rw, rh) => [
+        dx + (x * scale), 
+        dy + (y * scale), 
+        rw * scale, 
+        rh * scale
+    ];
 
-    // 1. 背景 (黒) 0,0 -> 230,170
+    // キャンバス全体をクリア (余白ができる可能性があるため)
+    ctx.clearRect(0, 0, w, h);
+
+    // 背景 (黒) 基準サイズ分だけ塗る
     ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(...r(0, 0, baseW, baseH));
 
-    // 2. マーカー描画
-    // 左上 (赤) 20,20 -> 75,75 (W55, H55)
+    // マーカー描画
+    // 左上 (赤)
     ctx.fillStyle = "#FF0000";
     ctx.fillRect(...r(20, 20, 55, 55));
-
-    // 右上 (赤) 155,20 -> 210,75
+    // 右上 (赤)
     ctx.fillRect(...r(155, 20, 55, 55));
-
-    // 中央下部の赤い帯 75,130 -> 155,140 (W80, H10)
+    // 中央下部の赤い帯
     ctx.fillRect(...r(75, 130, 80, 10));
 
-    // 左下 (青) 20,75 -> 75,150 (W55, H75)
+    // 左下 (青)
     ctx.fillStyle = "#0000FF";
     ctx.fillRect(...r(20, 75, 55, 75));
-
-    // 右下 (青) 155,75 -> 210,150
+    // 右下 (青)
     ctx.fillRect(...r(155, 75, 55, 75));
 
-    // 3. データエリア背景 (白) 40,40 -> 190,130 (W150, H90)
+    // ★追加: 黒いストローク (枠線)
+    // 30,30 -> 200,140 (W170, H110)
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2 * scale;
+    ctx.strokeRect(...r(30, 30, 170, 110));
+
+    // データエリア背景 (白)
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(...r(40, 40, 150, 90));
 
-    // 4. カラーコード描画
+    // カラーコード描画
     const colorMap = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#00FF00' };
 
-    // 左 (Left Bar) 40,40 -> 70,130 (W30, H90)
+    // 左
     ctx.fillStyle = colorMap[codes[0]] || '#808080';
     ctx.fillRect(...r(40, 40, 30, 90));
 
-    // 中上 (Top Center) 80,40 -> 150,70 (W70, H30)
+    // 中上
     ctx.fillStyle = colorMap[codes[1]] || '#808080';
     ctx.fillRect(...r(80, 40, 70, 30));
 
-    // 中下 (Bottom Center) 80,80 -> 150,130 (W70, H50)
+    // 中下
     ctx.fillStyle = colorMap[codes[2]] || '#808080';
     ctx.fillRect(...r(80, 80, 70, 50));
 
-    // 右 (Right Bar) 160,40 -> 190,130 (W30, H90)
+    // 右
     ctx.fillStyle = colorMap[codes[3]] || '#808080';
     ctx.fillRect(...r(160, 40, 30, 90));
 }

@@ -633,7 +633,7 @@ class SettingsScreen extends StatelessWidget {
 //   ヘルパー & ロジック
 // ==========================================
 
-// lib/main.dart の ColorCodePainter クラスをこれに差し替えてください
+// lib/main.dart の ColorCodePainter クラス (比率維持 & 枠線追加版)
 
 class ColorCodePainter extends CustomPainter {
   final List<String> codes;
@@ -645,54 +645,72 @@ class ColorCodePainter extends CustomPainter {
     const double baseW = 230.0;
     const double baseH = 170.0;
 
-    // 画面サイズに合わせたスケール倍率を計算
-    final double sx = size.width / baseW;
-    final double sy = size.height / baseH;
+    // 1. 比率を維持するためのスケール計算 (BoxFit.contain 相当)
+    // 縦と横、どちらの倍率が小さいかを確認し、小さい方に合わせる
+    final double scaleX = size.width / baseW;
+    final double scaleY = size.height / baseH;
+    final double scale = (scaleX < scaleY) ? scaleX : scaleY;
+
+    // 2. 中央寄せのためのオフセット計算
+    final double dx = (size.width - (baseW * scale)) / 2;
+    final double dy = (size.height - (baseH * scale)) / 2;
 
     // 座標変換用ヘルパー関数
-    Rect scaledRect(double x, double y, double w, double h) {
-      return Rect.fromLTWH(x * sx, y * sy, w * sx, h * sy);
+    // 基準座標(x,y,w,h)を受け取り、画面上の実際のRectを返す
+    Rect r(double x, double y, double w, double h) {
+      return Rect.fromLTWH(
+        dx + (x * scale), 
+        dy + (y * scale), 
+        w * scale, 
+        h * scale
+      );
     }
 
-    // 1. 背景 (黒)
-    final bgPaint = Paint()..color = Colors.black..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
+    // --- 描画開始 ---
 
-    // 2. マーカー (赤・青)
+    // 背景 (黒) 全体
+    // キャンバス全体を塗りつぶすのではなく、基準サイズのエリアを黒くする
+    final bgPaint = Paint()..color = Colors.black..style = PaintingStyle.fill;
+    canvas.drawRect(r(0, 0, baseW, baseH), bgPaint);
+
+    // マーカー (赤・青)
     final redPaint = Paint()..color = const Color(0xFFFF0000)..style = PaintingStyle.fill;
     final bluePaint = Paint()..color = const Color(0xFF0000FF)..style = PaintingStyle.fill;
 
-    // 左上 (赤) 20,20 -> 75,75 (W55, H55)
-    canvas.drawRect(scaledRect(20, 20, 55, 55), redPaint);
+    // 左上(赤) 20,20 -> 75,75 (W55, H55)
+    canvas.drawRect(r(20, 20, 55, 55), redPaint);
+    // 右上(赤) 155,20 -> 210,75 (W55, H55)
+    canvas.drawRect(r(155, 20, 55, 55), redPaint);
+    // 左下(青) 20,75 -> 75,150 (W55, H75)
+    canvas.drawRect(r(20, 75, 55, 75), bluePaint);
+    // 右下(青) 155,75 -> 210,150 (W55, H75)
+    canvas.drawRect(r(155, 75, 55, 75), bluePaint);
 
-    // 右上 (赤) 155,20 -> 210,75 (W55, H55)
-    canvas.drawRect(scaledRect(155, 20, 55, 55), redPaint);
+    // 中央下部の赤い帯 75,130 -> 155,140 (W80, H10)
+    canvas.drawRect(r(75, 130, 80, 10), redPaint);
 
-    // 左下 (青) 20,75 -> 75,150 (W55, H75)
-    canvas.drawRect(scaledRect(20, 75, 55, 75), bluePaint);
+    // ★追加: 黒いストローク (枠線)
+    // Flet: MoveTo(30,30), LineTo(30,140), LineTo(200,140), LineTo(200,30), LineTo(30,30)
+    // 矩形範囲: x=30, y=30, w=170(200-30), h=110(140-30)
+    final strokePaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0 * scale; // 線の太さもスケールに合わせる
+    canvas.drawRect(r(30, 30, 170, 110), strokePaint);
 
-    // 右下 (青) 155,75 -> 210,150 (W55, H75)
-    canvas.drawRect(scaledRect(155, 75, 55, 75), bluePaint);
-
-    // 中央下部の赤い帯 (Fletコードに基づく) 75,130 -> 155,140
-    canvas.drawRect(scaledRect(75, 130, 80, 10), redPaint);
-
-    // 3. データエリア背景 (白) 40,40 -> 190,130
+    // データエリア背景 (白) 40,40 -> 190,130 (W150, H90)
     final whitePaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
-    canvas.drawRect(scaledRect(40, 40, 150, 90), whitePaint);
+    canvas.drawRect(r(40, 40, 150, 90), whitePaint);
 
-    // 4. カラーコード描画 (4箇所)
-    // codes[0]: 左 (Left Bar)
-    _drawColorBlock(canvas, codes[0], scaledRect(40, 40, 30, 90));
-
-    // codes[1]: 中上 (Top Center)
-    _drawColorBlock(canvas, codes[1], scaledRect(80, 40, 70, 30));
-
-    // codes[2]: 中下 (Bottom Center)
-    _drawColorBlock(canvas, codes[2], scaledRect(80, 80, 70, 50));
-
-    // codes[3]: 右 (Right Bar)
-    _drawColorBlock(canvas, codes[3], scaledRect(160, 40, 30, 90));
+    // カラーコード描画 (4箇所)
+    // 左 (40,40, 30,90)
+    _drawColorBlock(canvas, codes[0], r(40, 40, 30, 90));
+    // 中上 (80,40, 70,30)
+    _drawColorBlock(canvas, codes[1], r(80, 40, 70, 30));
+    // 中下 (80,80, 70,50)
+    _drawColorBlock(canvas, codes[2], r(80, 80, 70, 50));
+    // 右 (160,40, 30,90)
+    _drawColorBlock(canvas, codes[3], r(160, 40, 30, 90));
   }
 
   void _drawColorBlock(Canvas canvas, String code, Rect rect) {
@@ -700,7 +718,7 @@ class ColorCodePainter extends CustomPainter {
     if (code == "C") c = const Color(0xFF00FFFF); // Cyan
     if (code == "Y") c = const Color(0xFFFFFF00); // Yellow
     if (code == "M") c = const Color(0xFFFF00FF); // Magenta
-    if (code == "G") c = const Color(0xFF00FF00); // Green (Lime)
+    if (code == "G") c = const Color(0xFF00FF00); // Green
     
     final paint = Paint()..color = c..style = PaintingStyle.fill;
     canvas.drawRect(rect, paint);
