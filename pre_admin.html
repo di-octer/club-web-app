@@ -14,10 +14,19 @@
         .sub-tab { flex: 1; padding: 10px; border: none; background: #eee; color: #333; cursor: pointer; transition: 0.3s; }
         .sub-tab.active { background: #007bff !important; color: white !important; }
 
-        .delete-btn { background-color: #dc3545; color: white; padding: 5px 10px; font-size: 0.8em; border: none; border-radius: 4px; cursor: pointer; }
-        .delete-all-btn { background-color: #c82333; color: white; padding: 8px 15px; margin-bottom: 10px; width: 100%; border: none; border-radius: 4px; cursor: pointer; }
+        /* 削除ボタン系 */
+        .btn-danger { background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; padding: 5px 10px; font-size: 0.8em; }
+        .btn-danger:hover { background-color: #c82333; }
+        .btn-warning { background-color: #ffc107; color: #212529; border: none; border-radius: 4px; cursor: pointer; padding: 5px 10px; font-size: 0.8em; }
         
-        .nested-area { margin-left: 20px; border-left: 3px solid #007bff; padding-left: 10px; margin-top: 5px; margin-bottom: 5px; }
+        .action-bar { display: flex; gap: 10px; margin-bottom: 10px; justify-content: flex-end; }
+        
+        /* チェックボックス付きリストアイテム */
+        .list-item-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #eee; }
+        .list-item-row:last-child { border-bottom: none; }
+        .checkbox-wrapper { display: flex; align-items: center; gap: 10px; }
+        
+        .nested-area { margin-left: 20px; border-left: 3px solid #007bff; padding-left: 10px; margin-top: 5px; margin-bottom: 5px; background-color: #fdfdfd; }
         .info-header { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -95,19 +104,28 @@
 
         <div class="info-header">
             <h3>キャンパス・活動場所</h3>
-            <button class="delete-btn" onclick="deleteAll('campuses')">全キャンパス削除</button>
+            <button class="btn-danger" onclick="deleteSelectedItems('campuses')">選択キャンパスを削除</button>
         </div>
         <div id="hierarchyList" class="list-container" style="max-height: none;"></div>
 
         <div class="info-header" style="margin-top: 40px;">
             <h3>登録済み顔データ</h3>
-            <button class="delete-btn" onclick="deleteAll('faces')">全顔データ削除</button>
+            <div>
+                <button class="btn-danger" onclick="deleteSelectedItems('faces')">選択削除</button>
+                <button class="btn-danger" onclick="deleteAll('faces')">全削除</button>
+            </div>
         </div>
-        <div id="faceList" class="list-container"></div>
+        
+        <details>
+            <summary>顔データ一覧を表示</summary>
+            <div class="details-content">
+                <div id="faceList" class="list-container" style="max-height: 400px; overflow-y: auto;"></div>
+            </div>
+        </details>
     </div>
 
     <div id="tab-face" class="tab-content">
-        <h3>新規顔登録 (5段階)</h3>
+        <h3>新規顔登録 (5段階・手動)</h3>
         <p>正面 -> 左 -> 右 -> 上 -> 下 の順に撮影します</p>
         
         <div class="camera-wrapper">
@@ -115,10 +133,17 @@
             <canvas id="regCanvas" class="overlay"></canvas>
         </div>
         
-        <div class="input-group">
+        <div class="input-group" style="margin-top: 10px;">
             <input type="text" id="regName" placeholder="登録名を入力">
-            <button id="regBtn" onclick="startFaceRegistration()">スキャン開始</button>
+            <button id="regStartBtn" onclick="startFaceRegistration()">開始</button>
         </div>
+        
+        <div style="margin-top: 10px;">
+            <button id="regNextBtn" onclick="proceedToNextStep()" disabled style="width:100%; padding:15px; font-size:1.2em; background-color:#ccc;">
+                撮影・次へ
+            </button>
+        </div>
+        
         <div id="regStatus" style="font-weight: bold; color: #007bff; margin-top: 10px;">待機中...</div>
     </div>
 </div>

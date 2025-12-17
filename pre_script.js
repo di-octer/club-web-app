@@ -714,9 +714,11 @@ async function approveRequest() {
     } catch(e) { alert('エラー: ' + e.message); }
 }
 
-let regStep = 0; // 0:待機, 1:正面, 2:左, 3:右, 4:上, 5:下
+let regStep = 0; 
 let regDescriptors = [];
-let regThumbnail = ""; // 正面画像(Base64)
+let regThumbnail = ""; 
+let currentDetection = null; // 検出中の一時データ
+
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
 async function startFaceRegistration() {
@@ -724,12 +726,19 @@ async function startFaceRegistration() {
     if(!name) return alert("登録名を入力してください");
 
     const statusEl = document.getElementById('regStatus');
-    const btn = document.getElementById('regBtn');
-    btn.disabled = true;
+    const startBtn = document.getElementById('regStartBtn');
+    const nextBtn = document.getElementById('regNextBtn');
     
+    startBtn.disabled = true;
+    nextBtn.disabled = true;
+    nextBtn.style.backgroundColor = "#ccc";
+    nextBtn.textContent = "検出中...";
+    
+    // リセット
     regStep = 1;
     regDescriptors = [];
     regThumbnail = "";
+    currentDetection = null;
     
     const video = document.getElementById('regVideo');
     const canvas = document.getElementById('regCanvas');
@@ -743,12 +752,97 @@ async function startFaceRegistration() {
         video.onloadedmetadata = () => {
             video.play();
             statusEl.textContent = `Step 1/5: ${REG_INSTRUCTIONS[1]}`;
-            // 再帰ループ開始
-            detectFaceStepRecursive(video, canvas, name);
+            // ★修正: 手動ループ開始
+            detectFaceLoopManual(video, canvas);
         };
     } catch(e) {
         alert("カメラエラー: " + e.message);
-        btn.disabled = false;
+        startBtn.disabled = false;
+    }
+}
+
+async function detectFaceLoopManual(video, canvas) {
+    // 終了条件
+    if (regStep > 5 || !regStream || !regStream.active) return;
+
+    const displaySize = { width: video.videoWidth, height: video.videoHeight };
+    faceapi.matchDimensions(canvas, displaySize);
+
+    const statusEl = document.getElementById('regStatus');
+    const nextBtn = document.getElementById('regNextBtn');
+
+    // 顔検出
+    const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (detection && detection.detection.score > 0.85) {
+        const resized = faceapi.resizeResults(detection, displaySize);
+        faceapi.draw.drawDetections(canvas, resized);
+
+        // 良い顔が見つかったら一時保存してボタン有効化
+        currentDetection = detection;
+        nextBtn.disabled = false;
+        nextBtn.style.backgroundColor = "#28a745"; // 緑
+        nextBtn.textContent = "撮影・次へ";
+        
+        statusEl.style.color = "green";
+        statusEl.textContent = `OK! ボタンを押して進んでください (${REG_INSTRUCTIONS[regStep]})`;
+    } else {
+        // 顔が見つからない/精度が低い
+        currentDetection = null;
+        nextBtn.disabled = true;
+        nextBtn.style.backgroundColor = "#ccc";
+        nextBtn.textContent = "検出中...";
+        
+        statusEl.style.color = "#007bff";
+        statusEl.textContent = `Step ${regStep}/5: ${REG_INSTRUCTIONS[regStep]} (顔を探しています)`;
+    }
+
+    // 次のフレームへ
+    setTimeout(() => detectFaceLoopManual(video, canvas), 200);
+}
+
+// ★追加: ボタンクリック時の処理
+function proceedToNextStep() {
+    if (!currentDetection) return;
+    
+    const video = document.getElementById('regVideo');
+    
+    // データ保存
+    const descBase64 = float32ToBase64(currentDetection.descriptor);
+    regDescriptors.push(descBase64);
+
+    // Step 1ならサムネイル取得
+    if (regStep === 1) {
+        const capCanvas = document.createElement('canvas');
+        capCanvas.width = video.videoWidth;
+        capCanvas.height = video.videoHeight;
+        capCanvas.getContext('2d').drawImage(video, 0, 0);
+        regThumbnail = capCanvas.toDataURL('image/jpeg', 0.7);
+    }
+
+    // 次のステップへ
+    regStep++;
+    
+    if (regStep <= 5) {
+        // UIリセットして次へ
+        const statusEl = document.getElementById('regStatus');
+        const nextBtn = document.getElementById('regNextBtn');
+        
+        currentDetection = null;
+        nextBtn.disabled = true;
+        nextBtn.style.backgroundColor = "#ccc";
+        nextBtn.textContent = "検出中...";
+        statusEl.style.color = "#007bff";
+        statusEl.textContent = `Step ${regStep}/5: ${REG_INSTRUCTIONS[regStep]}`;
+        
+    } else {
+        // 全ステップ完了
+        saveFaceDataManual();
     }
 }
 
@@ -835,9 +929,18 @@ function float32ToBase64(float32) {
     return btoa(binary);
 }
 
-async function saveFaceData5Steps(name) {
+async function saveFaceDataManual() {
+    const name = document.getElementById('regName').value.trim();
+    const statusEl = document.getElementById('regStatus');
+    const startBtn = document.getElementById('regStartBtn');
+    const nextBtn = document.getElementById('regNextBtn');
+    
+    statusEl.textContent = "全ステップ完了！ 保存中...";
+    nextBtn.disabled = true;
+    nextBtn.textContent = "完了";
+
     try {
-        // ★修正: 同名でも add() で新規追加 (IDは自動生成)
+        // 新規追加 (add) で保存 (同名でも別IDになる)
         await db.collection("faces").add({
             label: name,
             thumbnail: regThumbnail,
@@ -845,17 +948,15 @@ async function saveFaceData5Steps(name) {
         });
         
         alert(`登録完了: ${name}`);
-        document.getElementById('regStatus').textContent = "登録完了";
+        statusEl.textContent = "登録完了";
         document.getElementById('regName').value = "";
-        document.getElementById('regBtn').disabled = false;
         
-        // リスト更新
+        // 再読み込み
         await loadRegisteredFaces();
         populateInfoLists();
 
     } catch(e) {
         alert("保存エラー: " + e.message);
-        document.getElementById('regBtn').disabled = false;
     }
     
     // カメラ停止
@@ -865,6 +966,7 @@ async function saveFaceData5Steps(name) {
     }
     const ctx = document.getElementById('regCanvas').getContext('2d');
     ctx.clearRect(0, 0, 1000, 1000);
+    startBtn.disabled = false;
 }
 
 // ==========================================
@@ -1004,7 +1106,7 @@ async function registerArea() {
 }
 
 function populateInfoLists() {
-    // 1. プルダウン更新
+    // プルダウン更新 (変更なし)
     const select = document.getElementById('campusSelect');
     if(select) {
         select.innerHTML = '<option value="">キャンパスを選択</option>';
@@ -1015,7 +1117,7 @@ function populateInfoLists() {
         });
     }
 
-    // 2. キャンパス・エリア階層リスト更新
+    // キャンパス・エリア階層リスト更新
     const hierList = document.getElementById('hierarchyList');
     if(hierList) {
         hierList.innerHTML = '';
@@ -1023,40 +1125,59 @@ function populateInfoLists() {
             hierList.innerHTML = '<p>登録なし</p>';
         } else {
             registeredCampuses.forEach(campus => {
-                // キャンパスに紐付くエリアを抽出
                 const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
                 
-                // キャンパス親要素
+                // ★修正: デフォルトで閉じる (open属性なし)
                 const details = document.createElement('details');
-                details.open = true; // デフォルト展開
                 
                 const summary = document.createElement('summary');
+                // ★修正: キャンパス選択用チェックボックス追加
                 summary.innerHTML = `
-                    <span>🏢 ${campus.name} <small>(${areas.length})</small></span>
-                    <button class="delete-btn" onclick="deleteItem('campuses', '${campus.id}')">削除</button>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <input type="checkbox" class="chk-campus" value="${campus.id}">
+                        <span>🏢 ${campus.name} <small>(${areas.length})</small></span>
+                    </div>
                 `;
                 
                 const content = document.createElement('div');
                 content.className = 'details-content';
                 
+                // ★追加: エリア一括操作バー
                 if (areas.length > 0) {
+                    const actionDiv = document.createElement('div');
+                    actionDiv.style.display = 'flex';
+                    actionDiv.style.justifyContent = 'flex-end';
+                    actionDiv.style.gap = '10px';
+                    actionDiv.style.marginBottom = '10px';
+                    actionDiv.innerHTML = `
+                        <small>エリア操作:</small>
+                        <button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')">選択削除</button>
+                        <button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')">全削除</button>
+                    `;
+                    content.appendChild(actionDiv);
+
                     areas.forEach(area => {
-                        // エリア子要素
                         const row = document.createElement('div');
-                        row.className = 'item-card nested-area';
+                        row.className = 'item-card';
                         row.style.display = 'flex';
                         row.style.justifyContent = 'space-between';
                         row.style.alignItems = 'center';
+                        row.style.marginLeft = '20px';
+                        row.style.borderLeft = '3px solid #007bff';
                         if(area.isActive) row.style.backgroundColor = '#e6ffec';
                         
+                        // ★修正: エリア選択用チェックボックス追加
                         row.innerHTML = `
-                            <div>
-                                <strong>📍 ${area.name}</strong> <small>(${area.lat}, ${area.lon})</small><br>
-                                状態: ${area.isActive ? '<b style="color:green">ON</b>' : '<b style="color:gray">OFF</b>'}
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}">
+                                <div>
+                                    <strong>📍 ${area.name}</strong> <small>(${area.lat}, ${area.lon})</small><br>
+                                    状態: ${area.isActive ? '<b style="color:green">ON</b>' : '<b style="color:gray">OFF</b>'}
+                                </div>
                             </div>
                             <div>
                                 <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="font-size:0.8em; margin-right:5px;">切替</button>
-                                <button class="delete-btn" onclick="deleteItem('gps_areas', '${area.name}')">削除</button>
+                                <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')">削除</button>
                             </div>
                         `;
                         content.appendChild(row);
@@ -1070,27 +1191,8 @@ function populateInfoLists() {
                 hierList.appendChild(details);
             });
         }
-        
-        // 紐付きのない「迷子」エリアの表示 (もしあれば)
-        const orphanedAreas = registeredGpsAreas.filter(a => !registeredCampuses.some(c => c.id === a.campusId));
-        if(orphanedAreas.length > 0) {
-            const orphanDiv = document.createElement('div');
-            orphanDiv.innerHTML = '<h4>⚠️ 所属不明の場所</h4>';
-            orphanedAreas.forEach(area => {
-                const row = document.createElement('div');
-                row.className = 'item-card nested-area';
-                row.style.borderColor = 'orange';
-                row.innerHTML = `
-                    <strong>${area.name}</strong>
-                    <button class="delete-btn" style="float:right;" onclick="deleteItem('gps_areas', '${area.name}')">削除</button>
-                `;
-                orphanDiv.appendChild(row);
-            });
-            hierList.appendChild(orphanDiv);
-        }
     }
-
-    // 3. 顔データリスト更新 (ここに移動)
+    // 顔リストも更新
     populateFaceList();
 }
 
@@ -1111,21 +1213,78 @@ function populateFaceList() {
         div.style.justifyContent = 'space-between';
         div.style.alignItems = 'center';
         
-        // サムネイル表示 (もしあれば)
-        // registeredFacesはメモリ上のデータなので、IDを持っていない場合がある
-        // loadRegisteredFacesでIDも取得するように修正が必要 (後述)
-        
+        // ★修正: 顔データ選択用チェックボックス追加
         div.innerHTML = `
-            <div style="display:flex; align-items:center;">
-                <div style="width:40px; height:40px; background:#ddd; border-radius:50%; margin-right:10px; overflow:hidden;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <input type="checkbox" class="chk-face" value="${f.docId}">
+                <div style="width:40px; height:40px; background:#ddd; border-radius:50%; overflow:hidden;">
                     ${f.thumbnail ? `<img src="${f.thumbnail}" style="width:100%; height:100%; object-fit:cover;">` : '👤'}
                 </div>
                 <strong>${f.label}</strong>
             </div>
-            <button class="delete-btn" onclick="deleteItem('faces', '${f.docId}')">削除</button>
+            <button class="btn-danger" onclick="deleteItem('faces', '${f.docId}')">削除</button>
         `;
         el.appendChild(div);
     });
+}
+
+async function deleteSelectedItems(type) {
+    let inputs, collection;
+    if (type === 'campuses') {
+        inputs = document.querySelectorAll('.chk-campus:checked');
+        collection = 'campuses';
+    } else if (type === 'faces') {
+        inputs = document.querySelectorAll('.chk-face:checked');
+        collection = 'faces';
+    }
+
+    if (inputs.length === 0) return alert("選択されていません");
+    if (!confirm(`${inputs.length}件のデータを削除しますか？`)) return;
+
+    try {
+        const batch = db.batch();
+        inputs.forEach(input => {
+            const ref = db.collection(collection).doc(input.value);
+            batch.delete(ref);
+        });
+        await batch.commit();
+        alert("削除しました");
+        // データ再読み込み
+        if(collection==='campuses') await loadCampuses();
+        if(collection==='faces') await loadRegisteredFaces();
+        populateInfoLists();
+    } catch(e) { alert("削除エラー: " + e.message); }
+}
+
+async function deleteSelectedAreas(campusId) {
+    const inputs = document.querySelectorAll(`.chk-area-${campusId}:checked`);
+    if (inputs.length === 0) return alert("選択されていません");
+    if (!confirm(`${inputs.length}件の活動場所を削除しますか？`)) return;
+
+    try {
+        const batch = db.batch();
+        inputs.forEach(input => {
+            const ref = db.collection('gps_areas').doc(input.value);
+            batch.delete(ref);
+        });
+        await batch.commit();
+        alert("削除しました");
+        await loadGpsAreas();
+        populateInfoLists();
+    } catch(e) { alert("削除エラー: " + e.message); }
+}
+
+async function deleteAllAreasInCampus(campusId) {
+    if (!confirm("このキャンパスに紐付く全ての活動場所を削除しますか？")) return;
+    try {
+        const snap = await db.collection('gps_areas').where('campusId', '==', campusId).get();
+        const batch = db.batch();
+        snap.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        alert("削除しました");
+        await loadGpsAreas();
+        populateInfoLists();
+    } catch(e) { alert("削除エラー: " + e.message); }
 }
 
 // ==========================================
