@@ -578,29 +578,53 @@ function populateFaceList() {
 }
 
 // ==========================================
-//   出席確認 (Check)
+//   出席確認 (Check) - ロジック実装版
 // ==========================================
+
+// カレンダー表示用の状態変数
+let checkDisplayDate = new Date(); // 表示中の年月
+let checkHistoryDates = [];        // 取得した出席データ(Date型)のリスト
+let checkCurrentName = "";         // 現在表示中のユーザー名
+
 async function checkAttendance() {
     const name = document.getElementById('checkNameInput').value.trim();
     if (!name) { alert("名前を入力してください"); return; }
     
-    // UIリセット
+    checkCurrentName = name;
+    
+    // UI表示切り替え
     document.getElementById('resultArea').style.display = 'block';
     
-    // 履歴取得
-    const snapshot = await db.collection('attendance_logs')
-        .where('userName', '==', name)
-        .orderBy('timestamp', 'desc')
-        .get();
+    // 履歴取得 (承認済みのログ 'attendance_logs' を検索)
+    try {
+        const snapshot = await db.collection('attendance_logs')
+            .where('userName', '==', name)
+            .orderBy('timestamp', 'desc')
+            .get();
+            
+        checkHistoryDates = [];
+        snapshot.forEach(doc => {
+            // FirestoreのTimestampをJavaScriptのDateに変換して保存
+            checkHistoryDates.push(doc.data().timestamp.toDate());
+        });
         
-    const historyDates = [];
-    snapshot.forEach(doc => {
-        historyDates.push(doc.data().timestamp.toDate());
-    });
-    
-    // 今日のステータス
+        // 今日のステータス更新
+        updateTodayStatus();
+        
+        // カレンダー描画 (現在の月から開始)
+        checkDisplayDate = new Date();
+        renderCalendar();
+        
+    } catch(e) {
+        console.error("履歴取得エラー:", e);
+        alert("データの取得に失敗しました。");
+    }
+}
+
+// 今日の出席状況表示
+function updateTodayStatus() {
     const today = new Date();
-    const isAttended = historyDates.some(d => 
+    const isAttended = checkHistoryDates.some(d => 
         d.getFullYear() === today.getFullYear() && 
         d.getMonth() === today.getMonth() && 
         d.getDate() === today.getDate()
@@ -609,35 +633,82 @@ async function checkAttendance() {
     const statusEl = document.getElementById('todayStatus');
     if (isAttended) {
         statusEl.textContent = "今日の出席：完了 ✅";
-        statusEl.className = "status-card status-ok";
+        statusEl.className = "status-card status-ok"; // 緑背景
     } else {
         statusEl.textContent = "今日の出席：未 ☁️";
-        statusEl.className = "status-card status-no";
+        statusEl.className = "status-card status-no"; // グレー背景
     }
-    
-    // カレンダー描画 (簡易実装)
+}
+
+// 月変更ボタン処理
+function changeMonth(offset) {
+    // 月をずらす
+    checkDisplayDate.setMonth(checkDisplayDate.getMonth() + offset);
+    renderCalendar();
+}
+
+// カレンダー描画処理
+function renderCalendar() {
     const grid = document.getElementById('calendarGrid');
     grid.innerHTML = "";
-    document.getElementById('calendarTitle').textContent = `${today.getFullYear()}/${today.getMonth()+1}`;
     
-    // 日付セル生成 (1~31)
-    const lastDay = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
-    for(let i=1; i<=lastDay; i++) {
+    const year = checkDisplayDate.getFullYear();
+    const month = checkDisplayDate.getMonth(); // 0-11
+    
+    document.getElementById('calendarTitle').textContent = `${year}年 ${month + 1}月`;
+    
+    // 曜日ヘッダー
+    const weeks = ['日', '月', '火', '水', '木', '金', '土'];
+    weeks.forEach(w => {
         const el = document.createElement('div');
         el.className = 'day-cell';
-        el.textContent = i;
-        if(i === today.getDate()) el.classList.add('today-circle');
+        el.style.border = 'none';
+        el.style.fontWeight = 'bold';
+        el.style.backgroundColor = '#f0f0f0';
+        el.textContent = w;
+        grid.appendChild(el);
+    });
+    
+    // 月初めの空白セル
+    const firstDay = new Date(year, month, 1);
+    const startDayOfWeek = firstDay.getDay();
+    for(let i=0; i<startDayOfWeek; i++) {
+        const el = document.createElement('div');
+        el.className = 'day-cell'; // 枠線だけ表示
+        grid.appendChild(el);
+    }
+    
+    // 日付セル生成
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+    
+    for(let d=1; d<=lastDay; d++) {
+        const el = document.createElement('div');
+        el.className = 'day-cell';
+        el.textContent = d;
         
-        // 出席マーク
-        const hasLog = historyDates.some(d => d.getDate() === i && d.getMonth() === today.getMonth());
-        if(hasLog) {
+        // 今日の枠線
+        if(year === today.getFullYear() && month === today.getMonth() && d === today.getDate()) {
+            el.classList.add('today-circle');
+        }
+        
+        // 出席マーク判定 (履歴にあるかチェック)
+        const isAttended = checkHistoryDates.some(historyDate => 
+            historyDate.getFullYear() === year && 
+            historyDate.getMonth() === month && 
+            historyDate.getDate() === d
+        );
+        
+        if(isAttended) {
+            // 緑の丸アイコンを追加 (CSS .attended-mark を利用)
             const mark = document.createElement('div');
             mark.className = 'attended-mark';
             el.appendChild(mark);
+            
+            // 背景も薄い緑にする
+            el.classList.add('active-area'); // pre_style.cssにある緑背景クラスを流用
         }
+        
         grid.appendChild(el);
     }
-}
-function changeMonth(offset) {
-    // 月変更ロジック (省略)
 }

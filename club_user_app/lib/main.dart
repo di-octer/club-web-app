@@ -645,7 +645,7 @@ class ColorCodePainter extends CustomPainter {
     const double baseW = 230.0;
     const double baseH = 170.0;
 
-    // 1. 比率を維持するためのスケール計算 (BoxFit.contain 相当)
+    // 1. 比率を維持するためのスケール計算 (BoxFit.contain 相当)π
     // 縦と横、どちらの倍率が小さいかを確認し、小さい方に合わせる
     final double scaleX = size.width / baseW;
     final double scaleY = size.height / baseH;

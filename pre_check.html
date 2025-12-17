@@ -3,31 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>出席履歴</title>
+    <title>出席履歴 | 統合アプリ</title>
     <link rel="stylesheet" href="pre_style.css">
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 </head>
 <body id="page-check">
 
-<div class="container">
-    <h2>出席状況確認</h2>
-    <div class="input-group">
-        <input type="text" id="checkNameInput" placeholder="名前を入力">
-        <button onclick="checkAttendance()">確認</button>
-    </div>
-    <hr>
-    <div id="resultArea" style="display: none;">
-        <div id="todayStatus" class="status-card status-no">今日の出席：未</div>
-        <div class="calendar-header">
-            <button onclick="changeMonth(-1)">＜</button>
-            <span id="calendarTitle"></span>
-            <button onclick="changeMonth(1)">＞</button>
-        </div>
-        <div class="calendar-grid" id="calendarGrid"></div>
-    </div>
-</div>
+  <header class="appbar">
+    <div class="logo">統合アプリ</div>
+    <nav>
+      <a href="pre_home.html">ホーム</a>
+      <a href="pre_curriculum.html">カリキュラム</a>
+      <a href="pre_attendance.html">出席認証</a>
+      <a href="pre_settings.html">設定</a>
+    </nav>
+  </header>
 
-<script src="pre_script.js"></script>
+  <main class="content">
+    <div class="container">
+        <h2>出席状況の確認</h2>
+        <p>名前を入力して、承認済みの出席記録を確認します。</p>
+
+        <div class="input-group">
+            <input type="text" id="checkNameInput" placeholder="名前を入力 (例: 山田太郎)">
+            <button onclick="checkAttendance()">確認</button>
+        </div>
+        
+        <hr>
+        
+        <div id="resultArea" style="display: none;">
+            <div id="todayStatus" class="status-card status-no">今日の出席：未</div>
+            
+            <div class="calendar-header">
+                <button onclick="changeMonth(-1)">＜ 前月</button>
+                <span id="calendarTitle" style="font-weight: bold; font-size: 1.2em; margin: 0 15px;"></span>
+                <button onclick="changeMonth(1)">次月 ＞</button>
+            </div>
+            
+            <div class="calendar-grid" id="calendarGrid"></div>
+        </div>
+    </div>
+  </main>
+
+  <script src="pre_script.js"></script>
 </body>
 </html>
