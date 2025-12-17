@@ -6,29 +6,45 @@
     <title>管理者アプリ (Web版)</title>
     <link rel="stylesheet" href="pre_style.css">
     <style>
+        /* 管理者画面固有のスタイル */
+        
         /* アコーディオン & リストスタイル */
         details { border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px; background: #fff; overflow: hidden; text-align: left; }
-        summary { padding: 10px 15px; background-color: #f8f9fa; cursor: pointer; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        summary { padding: 10px 15px; background-color: #f8f9fa; cursor: pointer; font-weight: bold; display: flex; justify-content: space-between; align-items: center; list-style: none; }
+        summary::-webkit-details-marker { display: none; } /* デフォルトの三角を消す */
         .details-content { padding: 10px; border-top: 1px solid #ddd; background: #fff; }
         
+        /* サブタブ (ステータス画面用) */
         .sub-tab { flex: 1; padding: 10px; border: none; background: #eee; color: #333; cursor: pointer; transition: 0.3s; }
         .sub-tab.active { background: #007bff !important; color: white !important; }
 
-        /* 削除ボタン系 */
+        /* ボタン系 */
         .btn-danger { background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; padding: 5px 10px; font-size: 0.8em; }
         .btn-danger:hover { background-color: #c82333; }
-        .btn-warning { background-color: #ffc107; color: #212529; border: none; border-radius: 4px; cursor: pointer; padding: 5px 10px; font-size: 0.8em; }
-        
-        .action-bar { display: flex; gap: 10px; margin-bottom: 10px; justify-content: flex-end; }
-        
-        /* チェックボックス付きリストアイテム */
-        .list-item-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #eee; }
+        .refresh-btn { margin-top: 10px; padding: 8px 16px; background-color: #17a2b8; color: white; border: none; border-radius: 4px; cursor: pointer; }
+
+        /* リストアイテム */
+        .list-item-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
         .list-item-row:last-child { border-bottom: none; }
         .checkbox-wrapper { display: flex; align-items: center; gap: 10px; }
         
+        /* 階層表示用 */
         .nested-area { margin-left: 20px; border-left: 3px solid #007bff; padding-left: 10px; margin-top: 5px; margin-bottom: 5px; background-color: #fdfdfd; }
+        
+        /* セクションヘッダー */
         .info-header { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
+
+        /* カメラエリア */
+        .camera-wrapper { position: relative; width: 100%; max-width: 400px; margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden; }
+        video { width: 100%; display: block; }
+        canvas.overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        
+        /* モーダル */
+        .modal { position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; }
+        .modal-content { background-color: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; text-align: center; position: relative; }
+        .close { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; }
     </style>
+    
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
@@ -70,8 +86,8 @@
                     <video id="adminVideo" autoplay muted playsinline></video>
                     <canvas id="adminCanvas" class="overlay"></canvas>
                 </div>
-                <div id="adminAuthStatus">コードを枠に合わせてください</div>
-                <button id="approveBtn" disabled onclick="approveRequest()">承認する</button>
+                <div id="adminAuthStatus" style="margin: 10px 0; font-weight: bold;">コードを枠に合わせてください</div>
+                <button id="approveBtn" disabled onclick="approveRequest()" style="background-color: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 5px; font-size: 1.1em;">承認する</button>
             </div>
         </div>
     </div>
@@ -110,7 +126,7 @@
 
         <div class="info-header" style="margin-top: 40px;">
             <h3>登録済み顔データ</h3>
-            <div>
+            <div style="display: flex; gap: 10px;">
                 <button class="btn-danger" onclick="deleteSelectedItems('faces')">選択削除</button>
                 <button class="btn-danger" onclick="deleteAll('faces')">全削除</button>
             </div>
@@ -139,7 +155,7 @@
         </div>
         
         <div style="margin-top: 10px;">
-            <button id="regNextBtn" onclick="proceedToNextStep()" disabled style="width:100%; padding:15px; font-size:1.2em; background-color:#ccc;">
+            <button id="regNextBtn" onclick="proceedToNextStep()" disabled style="width:100%; padding:15px; font-size:1.2em; background-color:#ccc; border:none; border-radius:5px; color:white; font-weight:bold;">
                 撮影・次へ
             </button>
         </div>
