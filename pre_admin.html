@@ -26,13 +26,25 @@
 
     <!-- 1. ステータスタブ (リクエスト一覧) -->
     <div id="tab-status" class="tab-content active">
-        <h3>認証リクエスト一覧</h3>
-        <div id="requestList" class="list-container">
-            <p>読み込み中...</p>
+        <div class="sub-tab-bar">
+            <button id="btn-sub-auth" class="sub-tab active" onclick="switchAdminSubTab('auth')">出席認証待ち</button>
+            <button id="btn-sub-report" class="sub-tab" onclick="switchAdminSubTab('report')">届出・連絡</button>
         </div>
-        <button onclick="refreshRequests()" class="refresh-btn">リクエスト更新</button>
+
+        <div id="view-auth">
+            <div id="requestList" class="list-container">
+                <p>読み込み中...</p>
+            </div>
+            <button onclick="refreshRequests()" class="refresh-btn">更新</button>
+        </div>
+
+        <div id="view-report" style="display: none;">
+            <div id="reportList" class="list-container">
+                <p>読み込み中...</p>
+            </div>
+            <button onclick="refreshReports()" class="refresh-btn">更新</button>
+        </div>
         
-        <!-- 承認モーダル (カメラ起動用) -->
         <div id="authModal" class="modal" style="display:none;">
             <div class="modal-content">
                 <span class="close" onclick="closeAuthModal()">&times;</span>

@@ -42,3 +42,17 @@ button:disabled { background-color: #ccc; }
 .modal { position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }
 .modal-content { background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 10px; text-align: center; }
 .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+
+/* pre_style.css に追記 */
+.sub-tab-bar { display: flex; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; overflow: hidden; }
+.sub-tab { flex: 1; padding: 8px; border: none; background: #eee; cursor: pointer; }
+.sub-tab.active { background: #007bff; color: white; }
+.form-box { text-align: left; }
+.report-card { border: 1px solid #ddd; padding: 10px; margin-bottom: 8px; border-radius: 5px; background: #fff; text-align: left; }
+.report-card img { max-width: 100px; max-height: 100px; display: block; margin: 5px 0; border: 1px solid #ccc; }
+.report-actions button { margin-right: 5px; font-size: 0.8em; padding: 5px 10px; }
+.status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; color: white; margin-left: 5px; }
+.badge-pending { background: #6c757d; }
+.badge-approved { background: #28a745; }
+.badge-confirm { background: #ffc107; color: #333; }
+.badge-rejected { background: #dc3545; }

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>欠席・遅刻連絡 | 統合アプリ</title>
+    <link rel="stylesheet" href="pre_style.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+</head>
+<body id="page-form">
+
+  <header class="appbar">
+    <div class="logo">統合アプリ</div>
+    <nav>
+      <a href="pre_home.html">ホーム</a>
+      <a href="pre_index.html">出席認証</a>
+      <a href="pre_check.html">履歴</a>
+    </nav>
+  </header>
+
+  <main class="content">
+    <div class="container">
+        <h2>欠席・遅刻連絡フォーム</h2>
+        <p>連絡事項を入力して送信してください。</p>
+
+        <div class="form-box">
+            <div class="input-group">
+                <label>名前 (登録名)</label>
+                <input type="text" id="reportName" placeholder="例: 山田太郎">
+            </div>
+
+            <div class="input-group">
+                <label>種別</label>
+                <select id="reportType">
+                    <option value="absence">欠席 (休みます)</option>
+                    <option value="late">遅刻 (遅れます)</option>
+                    <option value="early">早退 (早く帰ります)</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label>理由</label>
+                <textarea id="reportReason" rows="4" placeholder="例: 体調不良のため、電車遅延のため"></textarea>
+            </div>
+
+            <div class="input-group">
+                <label>証明写真・添付画像 (任意)</label>
+                <input type="file" id="reportImage" accept="image/*">
+                <div id="previewArea" style="margin-top:10px;"></div>
+            </div>
+
+            <button onclick="submitReport()" style="width: 100%; margin-top: 20px;">送信する</button>
+        </div>
+    </div>
+  </main>
+
+  <script src="pre_script.js"></script>
+</body>
+</html>
