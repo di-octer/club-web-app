@@ -6,17 +6,19 @@
     <title>管理者アプリ (Web版)</title>
     <link rel="stylesheet" href="pre_style.css">
     <style>
-        /* アコーディオン (FlutterのExpansionTile風) */
-        details { border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px; background: #fff; overflow: hidden; }
-        summary { padding: 15px; background-color: #f8f9fa; cursor: pointer; font-weight: bold; list-style: none; display: flex; justify-content: space-between; align-items: center; }
-        summary::-webkit-details-marker { display: none; }
-        summary::after { content: '+'; font-size: 1.2em; color: #666; }
-        details[open] summary::after { content: '-'; }
-        .details-content { padding: 0; border-top: 1px solid #ddd; }
+        /* アコーディオン & リストスタイル */
+        details { border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px; background: #fff; overflow: hidden; text-align: left; }
+        summary { padding: 10px 15px; background-color: #f8f9fa; cursor: pointer; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        .details-content { padding: 10px; border-top: 1px solid #ddd; background: #fff; }
         
-        /* サブタブのアクティブ状態 (青色) */
         .sub-tab { flex: 1; padding: 10px; border: none; background: #eee; color: #333; cursor: pointer; transition: 0.3s; }
         .sub-tab.active { background: #007bff !important; color: white !important; }
+
+        .delete-btn { background-color: #dc3545; color: white; padding: 5px 10px; font-size: 0.8em; border: none; border-radius: 4px; cursor: pointer; }
+        .delete-all-btn { background-color: #c82333; color: white; padding: 8px 15px; margin-bottom: 10px; width: 100%; border: none; border-radius: 4px; cursor: pointer; }
+        
+        .nested-area { margin-left: 20px; border-left: 3px solid #007bff; padding-left: 10px; margin-top: 5px; margin-bottom: 5px; }
+        .info-header { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -42,13 +44,11 @@
         </div>
 
         <div id="view-auth">
-            <h3>認証リクエスト一覧</h3>
             <div id="requestList" class="list-container"><p>読み込み中...</p></div>
             <button onclick="refreshRequests()" class="refresh-btn">リクエスト更新</button>
         </div>
 
         <div id="view-report" style="display: none;">
-            <h3>届出・連絡一覧</h3>
             <div id="reportList" class="list-container"><p>読み込み中...</p></div>
             <button onclick="refreshReports()" class="refresh-btn">リスト更新</button>
         </div>
@@ -68,11 +68,9 @@
     </div>
 
     <div id="tab-info" class="tab-content">
-        <h3>登録情報管理</h3>
-        
         <details>
             <summary>新規キャンパス登録</summary>
-            <div class="details-content" style="padding: 15px;">
+            <div class="details-content">
                 <div class="input-group">
                     <input type="text" id="campusName" placeholder="キャンパス名">
                     <input type="number" id="campusLat" placeholder="緯度" step="0.000001">
@@ -84,7 +82,7 @@
 
         <details>
             <summary>新規活動場所登録</summary>
-            <div class="details-content" style="padding: 15px;">
+            <div class="details-content">
                 <div class="input-group">
                     <select id="campusSelect"><option>キャンパスを選択</option></select>
                     <input type="text" id="areaName" placeholder="場所名">
@@ -95,9 +93,17 @@
             </div>
         </details>
 
-        <hr>
-        <h4>登録データ一覧</h4>
-        <div id="campusList" style="text-align: left;"></div>
+        <div class="info-header">
+            <h3>キャンパス・活動場所</h3>
+            <button class="delete-btn" onclick="deleteAll('campuses')">全キャンパス削除</button>
+        </div>
+        <div id="hierarchyList" class="list-container" style="max-height: none;"></div>
+
+        <div class="info-header" style="margin-top: 40px;">
+            <h3>登録済み顔データ</h3>
+            <button class="delete-btn" onclick="deleteAll('faces')">全顔データ削除</button>
+        </div>
+        <div id="faceList" class="list-container"></div>
     </div>
 
     <div id="tab-face" class="tab-content">
@@ -114,10 +120,6 @@
             <button id="regBtn" onclick="startFaceRegistration()">スキャン開始</button>
         </div>
         <div id="regStatus" style="font-weight: bold; color: #007bff; margin-top: 10px;">待機中...</div>
-        
-        <hr>
-        <h3>登録済みリスト</h3>
-        <div id="faceList" class="list-container"></div>
     </div>
 </div>
 
