@@ -460,27 +460,159 @@ async function refreshRequests() {
     });
 }
 
-// 承認モーダル
+// ==========================================
+//   管理者機能 (Admin) - 承認モーダルとガイド描画
+// ==========================================
+
 let currentRequestId = null;
+let adminGuideLoopId = null; // ガイド描画ループのID
+
 function openAuthModal(reqId, userName, authType) {
     currentRequestId = reqId;
-    document.getElementById('authModal').style.display = 'block';
+    const modal = document.getElementById('authModal');
+    modal.style.display = 'block';
     document.getElementById('modalTitle').textContent = `${userName} さんの認証`;
     document.getElementById('approveBtn').disabled = false; 
     
-    // カメラ起動（プレビュー用）
+    // カメラ起動
     const video = document.getElementById('adminVideo');
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-            .then(stream => { video.srcObject = stream; })
-            .catch(e => console.log("カメラ起動不可(PC等):", e));
+            .then(stream => { 
+                video.srcObject = stream;
+                // ビデオ再生開始に合わせてガイド描画ループを開始
+                video.onloadedmetadata = () => {
+                    video.play();
+                    drawAdminGuide(); 
+                };
+            })
+            .catch(e => {
+                console.error("カメラ起動不可:", e);
+                alert("カメラを起動できませんでした。");
+            });
     }
 }
 
 function closeAuthModal() {
     document.getElementById('authModal').style.display = 'none';
     const video = document.getElementById('adminVideo');
-    if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+    
+    // カメラ停止
+    if (video.srcObject) {
+        video.srcObject.getTracks().forEach(t => t.stop());
+        video.srcObject = null;
+    }
+    
+    // 描画ループ停止
+    if (adminGuideLoopId) {
+        cancelAnimationFrame(adminGuideLoopId);
+        adminGuideLoopId = null;
+    }
+}
+
+// ★追加: Dartコードを移植したガイド描画関数
+function drawAdminGuide() {
+    const canvas = document.getElementById('adminCanvas');
+    const video = document.getElementById('adminVideo');
+    const modal = document.getElementById('authModal');
+
+    // モーダルが閉じている、または要素がない場合は終了
+    if (modal.style.display === 'none' || !canvas || !video) return;
+
+    // キャンバスサイズをビデオに合わせる
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
+    }
+
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // 画面クリア
+    ctx.clearRect(0, 0, w, h);
+
+    // --- Dartコードのロジック移植 ---
+    
+    // Python/Dartコードの基準サイズ
+    const refW = 230.0;
+    const refH = 170.0;
+    
+    // 画面サイズに合わせてスケール計算 (画面幅の80%くらいに収まるように)
+    // Dart: final double scale = (size.width * 0.8) / refW;
+    const scale = (w * 0.8) / refW;
+    
+    // 中央配置のためのオフセット
+    const offsetX = (w - refW * scale) / 2;
+    const offsetY = (h - refH * scale) / 2;
+
+    // 座標変換ヘルパー (Offset t(double x, double y))
+    const t = (x, y) => ({
+        x: x * scale + offsetX,
+        y: y * scale + offsetY
+    });
+
+    // ペン設定 (共通)
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // 1. 四隅のL字 (赤: 上, 青: 下)
+    
+    // 左上 (赤)
+    ctx.strokeStyle = "red";
+    ctx.beginPath();
+    let p = t(30, 50); ctx.moveTo(p.x, p.y);
+    p = t(30, 30); ctx.lineTo(p.x, p.y);
+    p = t(50, 30); ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // 右上 (赤)
+    ctx.beginPath();
+    p = t(200, 50); ctx.moveTo(p.x, p.y);
+    p = t(200, 30); ctx.lineTo(p.x, p.y);
+    p = t(180, 30); ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // 左下 (青)
+    ctx.strokeStyle = "blue";
+    ctx.beginPath();
+    p = t(30, 120); ctx.moveTo(p.x, p.y);
+    p = t(30, 140); ctx.lineTo(p.x, p.y);
+    p = t(50, 140); ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // 右下 (青)
+    ctx.beginPath();
+    p = t(200, 120); ctx.moveTo(p.x, p.y);
+    p = t(200, 140); ctx.lineTo(p.x, p.y);
+    p = t(180, 140); ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // 2. 中央のH型 (白・半透明)
+    // Dart: Colors.white.withOpacity(0.8)
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+
+    // 矩形描画ヘルパー (Rect.fromPoints 相当)
+    const fillRectFromPoints = (p1x, p1y, p2x, p2y) => {
+        const start = t(p1x, p1y);
+        const end = t(p2x, p2y);
+        ctx.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
+    };
+
+    // 左縦棒: x=70~80, y=40~130
+    fillRectFromPoints(70, 40, 80, 130);
+    
+    // 横棒: x=80~150, y=70~80
+    fillRectFromPoints(80, 70, 150, 80);
+
+    // 右縦棒: x=150~160, y=40~130
+    fillRectFromPoints(150, 40, 160, 130);
+
+    // 次のフレームをリクエスト
+    adminGuideLoopId = requestAnimationFrame(drawAdminGuide);
 }
 
 async function approveRequest() {
