@@ -78,33 +78,49 @@ async function loadGpsAreas() {
 }
 
 async function loadRegisteredFaces() {
+    console.log("顔データを読み込み中...");
     try {
         const snapshot = await db.collection("faces").get();
         registeredFaces = [];
+        let skippedCount = 0;
+
         snapshot.forEach(doc => {
             const data = doc.data();
-            // face-api.js用のDescriptor復元 (Base64 -> Float32Array)
+            
+            // 記述子(descriptors)が存在する場合のみ処理
             if (data.descriptors && data.descriptors.length > 0) {
                  try {
+                     // Base64文字列をバイナリ(Float32Array)に変換
                      const binary = atob(data.descriptors[0]);
                      const len = binary.length;
                      const bytes = new Uint8Array(len);
-                     for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+                     for (let i = 0; i < len; i++) {
+                         bytes[i] = binary.charCodeAt(i);
+                     }
                      const float32 = new Float32Array(bytes.buffer);
                      
-                     // 次元数が合致する場合のみ採用 (face-api.js default is 128)
-                     // スマホ版(192)のデータはWeb版では使えないため弾かれるが、
-                     // Web版で登録したデータ(128)はここで読み込める。
+                     // ★重要: データ形式の確認 (Web版 face-api.js は 128次元)
+                     // スマホ版 (MobileFaceNet) の 192次元データはここで除外する
                      if (float32.length === 128) {
                          registeredFaces.push({
                              label: data.label,
                              descriptor: float32
                          });
+                     } else {
+                         // 形式違い（スマホ版データなど）はスキップ
+                         skippedCount++;
                      }
-                 } catch(e) { /* 変換エラーは無視 */ }
+                 } catch(e) {
+                     console.error("データ変換エラー:", data.label, e);
+                 }
             }
         });
-    } catch (e) { console.error("Face Load Error:", e); }
+        console.log(`読込完了: Web用 ${registeredFaces.length}件 (スキップ: ${skippedCount}件)`);
+
+    } catch (e) { 
+        console.error("Face Load Error:", e); 
+        alert("顔データの読み込みに失敗しました");
+    }
 }
 
 async function loadModels() {
@@ -681,31 +697,49 @@ async function approveRequest() {
     } catch(e) { alert('エラー: ' + e.message); }
 }
 
-// ==========================================
-//   顔登録機能 (Admin) - 完全実装
-// ==========================================
 async function startFaceRegistration() {
-    const name = document.getElementById('regName').value.trim();
-    if(!name) return alert("登録名を入力してください");
+    const nameInput = document.getElementById('regName');
+    const name = nameInput.value.trim();
+    if (!name) return alert("登録名を入力してください");
 
+    const btn = document.getElementById('regBtn');
     const statusEl = document.getElementById('regStatus');
-    statusEl.textContent = "カメラ起動中...";
+    
+    // UI反応: ボタンを一時無効化し、メッセージを表示
+    btn.disabled = true;
+    statusEl.textContent = "システム準備中...";
     
     const video = document.getElementById('regVideo');
     const canvas = document.getElementById('regCanvas');
 
     try {
-        await loadModels(); // 念のため
+        // face-apiがロードされているか確認
+        if (typeof faceapi === 'undefined') {
+            throw new Error("AIモデルがまだ読み込まれていません。ページを更新してください。");
+        }
+
+        await loadModels(); // 未ロードならロード
+        
+        statusEl.textContent = "カメラを起動しています...";
+        
         const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
         regStream = stream;
         video.srcObject = stream;
 
+        // 映像再生開始時の処理
         video.onloadedmetadata = () => {
             video.play();
             statusEl.textContent = "顔を検出中... (正面を向いてください)";
+            btn.disabled = false; // 起動したらボタンを戻す（または「停止」に変えるなど）
             detectFaceLoop(video, canvas, name);
         };
-    } catch(e) { alert("カメラエラー: " + e.message); }
+
+    } catch (e) {
+        console.error(e);
+        alert("エラー: " + e.message);
+        statusEl.textContent = "起動エラー";
+        btn.disabled = false;
+    }
 }
 
 async function detectFaceLoop(video, canvas, name) {
