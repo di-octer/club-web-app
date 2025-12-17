@@ -16,9 +16,21 @@ const db = firebase.firestore();
 let registeredCampuses = [];
 let registeredGpsAreas = [];
 let registeredFaces = [];
-let faceMatcher = null;
 let currentStream = null;
-let detectionInterval = null; // 検出ループ用
+
+// ユーザー認証用制御フラグ
+let isAuthCompleted = false; 
+let isDetectingLoop = false;
+let myRequestId = null;
+
+// 管理者認証用制御変数
+let adminGuideLoopId = null;
+let adminAuthStep = 0; 
+let currentAuthUser = null;
+let colorMatchCounter = 0; // カラーコード連続一致カウンタ
+
+// 顔登録用変数
+let regStream = null;
 
 // H型カラーコード用定数
 const COLORS = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#008000' };
@@ -27,100 +39,89 @@ const COLORS = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#008000' 
 window.onload = async () => {
     const bodyId = document.body.id;
     
-    // 共通データ読み込み
+    // 共通データの読み込み
     await loadCampuses();
     await loadGpsAreas();
     
     if (bodyId === 'page-admin') {
-        await loadRegisteredFaces(); // 管理者用
-        refreshRequests();
-        populateInfoLists();
-        populateFaceList();
+        // 管理者ページの場合
+        await loadModels(); // AIモデルロード
+        await loadRegisteredFaces(); // 顔データロード
+        refreshRequests(); // リクエスト一覧更新
+        populateInfoLists(); // 設定タブのリスト更新
+        populateFaceList(); // 顔一覧更新
     } else if (bodyId === 'page-user') {
-        // ユーザー用は認証開始時に読み込む
+        // ユーザーページ（認証開始時にロード）
     } else if (bodyId === 'page-check') {
-        // 出席確認用
+        // 出席確認ページ
     }
 };
 
 // ==========================================
-//   共通ヘルパー & 読み込み
+//   共通ヘルパー & データ読み込み
 // ==========================================
 
 async function loadCampuses() {
     try {
         const snap = await db.collection('campuses').get();
         registeredCampuses = [];
-        snap.forEach(doc => {
-            registeredCampuses.push({ id: doc.id, ...doc.data() });
-        });
-    } catch(e) { console.error("キャンパス読込エラー", e); }
+        snap.forEach(doc => registeredCampuses.push({ id: doc.id, ...doc.data() }));
+    } catch(e) { console.error("Campus Load Error:", e); }
 }
 
 async function loadGpsAreas() {
     try {
         const snap = await db.collection('gps_areas').get();
         registeredGpsAreas = [];
-        snap.forEach(doc => {
-            registeredGpsAreas.push(doc.data());
-        });
-    } catch(e) { console.error("エリア読込エラー", e); }
+        snap.forEach(doc => registeredGpsAreas.push(doc.data()));
+    } catch(e) { console.error("Area Load Error:", e); }
 }
 
-// 顔データ読み込み (Web版face-api.js用)
-// ※Flutter版のデータ(192次元)はWeb版(128次元)と互換性がないため、
-// Web版で登録されたデータのみを読み込むか、簡易的に名前照合のみにする等の対応が必要。
-// 今回は「Web版で登録されたデータがあれば読み込む」形にします。
 async function loadRegisteredFaces() {
-    console.log("顔データを読み込み中...");
     try {
         const snapshot = await db.collection("faces").get();
-        if (snapshot.empty) {
-            console.log("登録済みの顔はありません。");
-            registeredFaces = [];
-            return;
-        }
-
-        const loadedFaces = [];
+        registeredFaces = [];
         snapshot.forEach(doc => {
             const data = doc.data();
-            // データ形式チェック (Web版かFlutter版か)
-            // Web版は descriptorArray を JSON.stringify して保存している想定
-            // または Float32Array を Base64化しているが、次元数が違う
-            
-            // 簡易実装: ここでは詳細な互換性チェックを省略し、データがあれば読み込む
-            // 実運用では `platform: 'web'` フィールドなどで区別することを推奨
-            
-            loadedFaces.push({
-                label: data.label,
-                thumbnail: data.thumbnail,
-                // descriptors: ... (Webでの照合には128次元のFloat32Arrayが必要)
-            });
+            // face-api.js用のDescriptor復元 (Base64 -> Float32Array)
+            if (data.descriptors && data.descriptors.length > 0) {
+                 try {
+                     const binary = atob(data.descriptors[0]);
+                     const len = binary.length;
+                     const bytes = new Uint8Array(len);
+                     for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+                     const float32 = new Float32Array(bytes.buffer);
+                     
+                     // 次元数が合致する場合のみ採用 (face-api.js default is 128)
+                     // スマホ版(192)のデータはWeb版では使えないため弾かれるが、
+                     // Web版で登録したデータ(128)はここで読み込める。
+                     if (float32.length === 128) {
+                         registeredFaces.push({
+                             label: data.label,
+                             descriptor: float32
+                         });
+                     }
+                 } catch(e) { /* 変換エラーは無視 */ }
+            }
         });
-        
-        registeredFaces = loadedFaces;
-        console.log(`${registeredFaces.length} 件の顔データを読み込みました。`);
-        
-        // FaceMatcher構築 (データが正しい形式なら)
-        // rebuildFaceMatcher(); 
+    } catch (e) { console.error("Face Load Error:", e); }
+}
 
-    } catch (e) {
-        console.error("顔データ読み込み失敗:", e);
-        registeredFaces = [];
+async function loadModels() {
+    // CDNからモデルを読み込む
+    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'; 
+    try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        console.log("AI Models Loaded");
+    } catch(e) {
+        console.error("Model Load Error:", e);
+        alert("AIモデルの読み込みに失敗しました。ネットワークを確認してください。");
     }
 }
 
-// モデル読み込み
-async function loadModels() {
-    // モデルファイルのパスは環境に合わせて調整してください
-    // (例: ./models フォルダにある場合)
-    const MODEL_URL = './models'; 
-    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-    console.log("AIモデル読み込み完了");
-}
-
+// 2点間の距離計算 (Haversine formula)
 function getDistance(lat1, lon1, lat2, lon2) {
   const R = 6371e3; 
   const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
@@ -128,7 +129,6 @@ function getDistance(lat1, lon1, lat2, lon2) {
   const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2) * Math.sin(Δλ/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
-
 
 // ==========================================
 //   ユーザー機能 (User)
@@ -142,12 +142,17 @@ async function startUserAuthFlow() {
     document.getElementById('step-1').classList.add('active');
     
     // 1. GPSチェック
+    if (!navigator.geolocation) {
+        alert("位置情報が利用できません");
+        return;
+    }
+
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const uLat = pos.coords.latitude;
         const uLon = pos.coords.longitude;
         
         let inArea = false;
-        // 活動中のエリアかつ100m以内
+        // 活動中のエリアかつ100m以内かチェック
         const activeAreas = registeredGpsAreas.filter(a => a.isActive);
         for(const area of activeAreas) {
             const dist = getDistance(uLat, uLon, area.lat, area.lon);
@@ -155,21 +160,19 @@ async function startUserAuthFlow() {
         }
         
         if(!inArea) {
-            // エリア外でもデバッグ用に進める場合はコメントアウト
-            // alert("エリア外です。活動場所の近くで認証してください。"); return; 
-            console.log("エリア外(デバッグ通過)");
+            // 本番運用時はここを return にしてブロックする
+            console.log("エリア外ですが、デバッグのため通過します");
         }
         
         // 2. 顔認証開始
         startFaceAuth(name);
 
-    }, (err) => alert("位置情報エラー: " + err.message));
+    }, (err) => {
+        alert("位置情報の取得に失敗しました: " + err.message);
+    });
 }
 
-let isAuthCompleted = false; // 二重送信防止用フラグ
-let isDetectingLoop = false;
-
-// 顔認証処理
+// 顔認証処理 (ウォームアップ機能付き)
 async function startFaceAuth(userName) {
     const statusEl = document.getElementById('userStatus');
     statusEl.textContent = "モデルを読み込み中...";
@@ -178,7 +181,7 @@ async function startFaceAuth(userName) {
     isAuthCompleted = false;
     isDetectingLoop = false;
     
-    // 既存のストリームがあれば停止
+    // 既存ストリーム停止
     stopFaceAuth();
 
     try {
@@ -186,33 +189,29 @@ async function startFaceAuth(userName) {
         statusEl.textContent = "カメラを起動中...";
         
         const video = document.getElementById('userVideo');
-        
-        // カメラ権限取得
         const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
         currentStream = stream;
         video.srcObject = stream;
         
-        // ★修正: async関数にして待機処理を入れる
+        // カメラ再生開始イベント
         video.addEventListener('play', async () => {
             const canvas = document.getElementById('userCanvas');
             const displaySize = { width: video.videoWidth, height: video.videoHeight };
             faceapi.matchDimensions(canvas, displaySize);
             
-            // --- ウォームアップ待機 (ここが修正ポイント) ---
+            // --- ウォームアップ待機 (2秒) ---
             statusEl.textContent = "カメラ準備中... (安定まで待機)";
-            
-            // 2秒間待つ (この間はリクエストを送らない)
             await new Promise(resolve => setTimeout(resolve, 2000));
             
-            if (isAuthCompleted) return; // 待機中に何かあれば終了
+            if (isAuthCompleted) return; // 待機中にキャンセルされた場合
             statusEl.textContent = "顔を映してください...";
 
-            // --- 検出ループ関数 ---
+            // --- 検出ループ ---
             const detectLoop = async () => {
-                // 完了済み、ビデオ停止時は終了
+                // 終了条件
                 if (isAuthCompleted || video.paused || video.ended) return;
                 
-                // 前の処理が終わっていない場合は少し待って再試行
+                // 前処理が終わっていない場合は再試行予約
                 if (isDetectingLoop) {
                     setTimeout(detectLoop, 100);
                     return;
@@ -225,11 +224,9 @@ async function startFaceAuth(userName) {
                         .withFaceLandmarks()
                         .withFaceDescriptors();
                     
-                    // 処理中に完了していたら中断
-                    if (isAuthCompleted) return;
+                    if (isAuthCompleted) return; // 処理中に完了していたら中断
 
                     const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                    
                     const ctx = canvas.getContext('2d');
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     faceapi.draw.drawDetections(canvas, resizedDetections);
@@ -237,52 +234,44 @@ async function startFaceAuth(userName) {
                     if (resizedDetections.length > 0) {
                         // ★発見！即座にロック
                         isAuthCompleted = true; 
-                        
                         statusEl.textContent = "顔を認識しました！";
                         
-                        // カメラと描画を停止
+                        // 停止＆リクエスト送信
                         stopFaceAuth();
-                        
-                        // リクエスト送信 (1回のみ)
-                        setTimeout(() => {
-                            requestAuth(userName); 
-                        }, 500);
-                        
+                        setTimeout(() => { requestAuth(userName); }, 500);
                         return; // ループ終了
                     }
                 } catch (err) {
-                    console.error("検出エラー:", err);
+                    console.error("Detect Error:", err);
                 } finally {
                     isDetectingLoop = false; // ロック解除
                 }
 
-                // 次のフレームを予約 (200ms後)
+                // 次のフレーム予約
                 if (!isAuthCompleted) {
                     setTimeout(detectLoop, 200);
                 }
             };
 
-            // 待機後にループ始動
+            // ループ始動
             detectLoop();
 
-        }, { once: true }); // 1回だけ実行
+        }, { once: true });
         
     } catch(e) {
         console.error(e);
         statusEl.textContent = "エラー: " + e.message;
-        alert("カメラまたはAIの起動に失敗しました");
+        alert("カメラの起動に失敗しました");
     }
 }
 
 function stopFaceAuth() {
-    // 既存のストリームを停止
     if (currentStream) {
         currentStream.getTracks().forEach(t => t.stop());
         currentStream = null;
     }
     const video = document.getElementById('userVideo');
-    if (video) video.pause(); // ビデオも止める
-
+    if (video) video.pause();
     const canvas = document.getElementById('userCanvas');
     if (canvas) {
         const ctx = canvas.getContext('2d');
@@ -290,14 +279,12 @@ function stopFaceAuth() {
     }
 }
 
-
-let myRequestId = null;
-// リクエスト送信関数
+// リクエスト送信 & カラーコード表示
 async function requestAuth(userName) {
     document.getElementById('step-1').classList.remove('active');
     document.getElementById('step-2').classList.add('active');
     
-    // カラーコード生成
+    // カラーコード生成 (ランダム)
     const colors = ['C', 'Y', 'M', 'G'];
     const myCode = [
         colors[Math.floor(Math.random()*4)],
@@ -306,34 +293,38 @@ async function requestAuth(userName) {
         colors[Math.floor(Math.random()*4)]
     ];
     
+    // H型コード描画
     drawHCode(myCode);
     
-    // ★修正: ここでフィールドを確実に指定する
-    // platform, gps_valid, face_valid は書かない限り送信されません
-    const docRef = await db.collection('auth_requests').add({
-        userName: userName,
-        authType: `code,${myCode.join(',')}`,
-        status: 'pending',
-        requestTimestamp: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    
-    myRequestId = docRef.id;
-    document.getElementById('requestStatus').textContent = "承認待ち...";
+    // Firestore送信
+    try {
+        const docRef = await db.collection('auth_requests').add({
+            userName: userName,
+            authType: `code,${myCode.join(',')}`,
+            status: 'pending',
+            requestTimestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        myRequestId = docRef.id;
+        document.getElementById('requestStatus').textContent = "リクエスト送信完了。承認待ち...";
+    } catch(e) {
+        alert("リクエスト送信エラー: " + e.message);
+    }
 }
 
 async function checkRequestStatus() {
     if(!myRequestId) return;
-    const doc = await db.collection('auth_requests').doc(myRequestId).get();
-    if(doc.data().status === 'approved') {
-        document.getElementById('step-2').classList.remove('active');
-        document.getElementById('step-3').classList.add('active');
-    } else {
-        alert('まだ承認されていません');
-    }
+    try {
+        const doc = await db.collection('auth_requests').doc(myRequestId).get();
+        if(doc.data().status === 'approved') {
+            document.getElementById('step-2').classList.remove('active');
+            document.getElementById('step-3').classList.add('active');
+        } else {
+            alert('まだ承認されていません');
+        }
+    } catch(e) { console.error(e); }
 }
 
-// pre_script.js の drawHCode 関数をこれに差し替えてください
-
+// H型カラーコード描画 (比率維持 & 枠線あり)
 function drawHCode(codes) {
     const canvas = document.getElementById('codeCanvas');
     if (!canvas || !canvas.getContext) return;
@@ -341,81 +332,52 @@ function drawHCode(codes) {
     const w = canvas.width;
     const h = canvas.height;
 
-    // Fletコードの基準サイズ
     const baseW = 230;
     const baseH = 170;
 
-    // 1. 比率維持のためのスケール計算
     const scale = Math.min(w / baseW, h / baseH);
-
-    // 2. 中央寄せオフセット
     const dx = (w - (baseW * scale)) / 2;
     const dy = (h - (baseH * scale)) / 2;
 
-    // 座標変換ヘルパー
-    // (x, y, w, h) -> [screenX, screenY, screenW, screenH]
-    const r = (x, y, rw, rh) => [
-        dx + (x * scale), 
-        dy + (y * scale), 
-        rw * scale, 
-        rh * scale
-    ];
+    const r = (x, y, rw, rh) => [dx + (x * scale), dy + (y * scale), rw * scale, rh * scale];
 
-    // キャンバス全体をクリア (余白ができる可能性があるため)
     ctx.clearRect(0, 0, w, h);
-
-    // 背景 (黒) 基準サイズ分だけ塗る
+    
+    // 背景(黒)
     ctx.fillStyle = "#000000";
     ctx.fillRect(...r(0, 0, baseW, baseH));
 
-    // マーカー描画
-    // 左上 (赤)
-    ctx.fillStyle = "#FF0000";
-    ctx.fillRect(...r(20, 20, 55, 55));
-    // 右上 (赤)
-    ctx.fillRect(...r(155, 20, 55, 55));
-    // 中央下部の赤い帯
-    ctx.fillRect(...r(75, 130, 80, 10));
+    // マーカー
+    ctx.fillStyle = "#FF0000"; // 赤
+    ctx.fillRect(...r(20, 20, 55, 55)); // 左上
+    ctx.fillRect(...r(155, 20, 55, 55)); // 右上
+    ctx.fillRect(...r(75, 130, 80, 10)); // 下部帯
 
-    // 左下 (青)
-    ctx.fillStyle = "#0000FF";
-    ctx.fillRect(...r(20, 75, 55, 75));
-    // 右下 (青)
-    ctx.fillRect(...r(155, 75, 55, 75));
+    ctx.fillStyle = "#0000FF"; // 青
+    ctx.fillRect(...r(20, 75, 55, 75)); // 左下
+    ctx.fillRect(...r(155, 75, 55, 75)); // 右下
 
-    // ★追加: 黒いストローク (枠線)
-    // 30,30 -> 200,140 (W170, H110)
+    // 黒枠線
     ctx.strokeStyle = "#000000";
     ctx.lineWidth = 2 * scale;
     ctx.strokeRect(...r(30, 30, 170, 110));
 
-    // データエリア背景 (白)
+    // データエリア背景(白)
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(...r(40, 40, 150, 90));
 
-    // カラーコード描画
+    // カラーコード
     const colorMap = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#00FF00' };
-
-    // 左
-    ctx.fillStyle = colorMap[codes[0]] || '#808080';
-    ctx.fillRect(...r(40, 40, 30, 90));
-
-    // 中上
-    ctx.fillStyle = colorMap[codes[1]] || '#808080';
-    ctx.fillRect(...r(80, 40, 70, 30));
-
-    // 中下
-    ctx.fillStyle = colorMap[codes[2]] || '#808080';
-    ctx.fillRect(...r(80, 80, 70, 50));
-
-    // 右
-    ctx.fillStyle = colorMap[codes[3]] || '#808080';
-    ctx.fillRect(...r(160, 40, 30, 90));
+    
+    ctx.fillStyle = colorMap[codes[0]]; ctx.fillRect(...r(40, 40, 30, 90)); // 左
+    ctx.fillStyle = colorMap[codes[1]]; ctx.fillRect(...r(80, 40, 70, 30)); // 中上
+    ctx.fillStyle = colorMap[codes[2]]; ctx.fillRect(...r(80, 80, 70, 50)); // 中下
+    ctx.fillStyle = colorMap[codes[3]]; ctx.fillRect(...r(160, 40, 30, 90)); // 右
 }
 
 
 // ==========================================
-//   管理者機能 (Admin)
+//   管理者機能 (Admin) - 認証 & 登録
 // ==========================================
 
 // タブ切り替え
@@ -423,64 +385,62 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     
-    event.target.classList.add('active');
+    // event.target が無い場合(コードから呼び出し時)のガード
+    if (event && event.target) event.target.classList.add('active');
+    
     document.getElementById(`tab-${tabName}`).classList.add('active');
 }
 
-// リクエスト一覧取得
+// リクエスト一覧更新
 async function refreshRequests() {
     const listEl = document.getElementById('requestList');
     listEl.innerHTML = '<p>読み込み中...</p>';
     
-    const snapshot = await db.collection('auth_requests')
-        .where('status', '==', 'pending')
-        .orderBy('requestTimestamp', 'desc')
-        .get();
+    try {
+        const snapshot = await db.collection('auth_requests')
+            .where('status', '==', 'pending')
+            .orderBy('requestTimestamp', 'desc')
+            .get();
+            
+        listEl.innerHTML = '';
+        if (snapshot.empty) {
+            listEl.innerHTML = '<p>リクエストはありません</p>';
+            return;
+        }
         
-    listEl.innerHTML = '';
-    if (snapshot.empty) {
-        listEl.innerHTML = '<p>リクエストはありません</p>';
-        return;
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const date = data.requestTimestamp ? data.requestTimestamp.toDate().toLocaleString() : '';
+            const item = document.createElement('div');
+            item.className = 'item-card';
+            item.innerHTML = `
+                <div>
+                    <strong>${data.userName}</strong><br>
+                    <small>${date}</small><br>
+                    <span style="font-size:0.8em; color:#666;">Type: ${data.authType}</span>
+                </div>
+                <button onclick="openAuthModal('${doc.id}', '${data.userName}', '${data.authType}')">認証へ</button>
+            `;
+            listEl.appendChild(item);
+        });
+    } catch(e) {
+        listEl.innerHTML = '<p>エラーが発生しました</p>';
+        console.error(e);
     }
-    
-    snapshot.forEach(doc => {
-        const data = doc.data();
-        const date = data.requestTimestamp ? data.requestTimestamp.toDate().toLocaleString() : '';
-        const item = document.createElement('div');
-        item.className = 'item-card';
-        item.innerHTML = `
-            <div>
-                <strong>${data.userName}</strong><br>
-                <small>${date}</small><br>
-                <span style="font-size:0.8em; color:#666;">Type: ${data.authType}</span>
-            </div>
-            <button onclick="openAuthModal('${doc.id}', '${data.userName}', '${data.authType}')">認証へ</button>
-        `;
-        listEl.appendChild(item);
-    });
 }
 
-// ==========================================
-//   管理者機能 (Admin) - 認証ロジック実装版
-// ==========================================
-
-let currentRequestId = null;
-let currentAuthUser = null; // { name, authType(code array), faceDescriptor }
-let adminGuideLoopId = null;
-let adminAuthStep = 0; // 0:コードスキャン, 1:顔認証, 2:承認可
-
-// 承認モーダルを開く
+// --- 認証モーダル ---
 async function openAuthModal(reqId, userName, authTypeString) {
     currentRequestId = reqId;
-    adminAuthStep = 0; // 最初はコードスキャンから
+    adminAuthStep = 0;
+    colorMatchCounter = 0; // カウンタクリア
     
-    // ユーザー情報の特定
-    // authTypeString: "code,C,Y,M,G" 形式
+    // コード解析
     const parts = authTypeString.split(',');
-    const targetCode = parts[0] === 'code' ? parts.slice(1) : [];
+    // "code,C,Y,M,G" の形式
+    const targetCode = parts[0].includes('code') && parts.length >= 5 ? parts.slice(1, 5) : [];
     
-    // 登録済み顔データの検索
-    // (注: Web版face-api.jsの形式に変換済みの registeredFaces から探す)
+    // 顔データ検索
     const registered = registeredFaces.find(f => f.label === userName);
     
     currentAuthUser = {
@@ -491,23 +451,19 @@ async function openAuthModal(reqId, userName, authTypeString) {
 
     const modal = document.getElementById('authModal');
     modal.style.display = 'block';
-    updateAdminStatus("コードを枠に合わせてください");
+    updateAdminStatus("コードを枠に合わせてください (安定するまで待機)");
     document.getElementById('approveBtn').disabled = true;
     
-    // カメラ起動
     const video = document.getElementById('adminVideo');
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment" } // 外カメラ推奨
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         video.srcObject = stream;
         video.onloadedmetadata = () => {
             video.play();
-            processAdminFrame(); // 処理ループ開始
+            processAdminFrame(); // 管理者用ループ開始
         };
     } catch(e) {
-        console.error("カメラエラー:", e);
-        alert("カメラを起動できませんでした。");
+        alert("カメラ起動エラー: " + e.message);
     }
 }
 
@@ -525,20 +481,20 @@ function closeAuthModal() {
 }
 
 function updateAdminStatus(msg) {
-    document.getElementById('modalTitle').textContent = 
-        `${currentAuthUser ? currentAuthUser.name : ''} さんの認証 (Step ${adminAuthStep+1}/2)`;
+    document.getElementById('modalTitle').textContent = `${currentAuthUser ? currentAuthUser.name : ''} 認証 (Step ${adminAuthStep+1}/2)`;
     document.getElementById('adminAuthStatus').textContent = msg;
 }
 
-// --- メイン処理ループ (描画 & 判定) ---
+// --- 管理者ループ (コード判定 -> 顔判定) ---
 async function processAdminFrame() {
     const canvas = document.getElementById('adminCanvas');
     const video = document.getElementById('adminVideo');
     const modal = document.getElementById('authModal');
 
+    // モーダルが閉じているか、ビデオが無効なら終了
     if (modal.style.display === 'none' || !canvas || !video || video.paused || video.ended) return;
 
-    // キャンバスサイズ同期
+    // サイズ同期
     if (video.videoWidth > 0 && canvas.width !== video.videoWidth) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -548,194 +504,160 @@ async function processAdminFrame() {
     const w = canvas.width;
     const h = canvas.height;
 
-    // 1. ガイド描画 (現在のステップに応じて色などを変える)
-    ctx.clearRect(0, 0, w, h);
-    drawAdminGuide(ctx, w, h, adminAuthStep);
+    // 1. ビデオ映像を描画 (ピクセル取得用)
+    ctx.drawImage(video, 0, 0, w, h);
 
-    // 2. 判定ロジック (少し負荷を下げるため毎フレーム実行しない制御を入れても良い)
+    // 2. 判定ロジック
     if (adminAuthStep === 0) {
-        // --- Step 1: カラーコード判定 ---
-        const detectedCode = scanColors(ctx, w, h); // 画像データから色を取得
-        
-        // ターゲットと一致するか
-        if (isCodeMatch(detectedCode, currentAuthUser.targetCode)) {
-            adminAuthStep = 1;
-            updateAdminStatus("コード一致！ 次は「顔」を映してください");
-            // 成功演出のあと少し待つなどの処理も可
-        }
-        
-    } else if (adminAuthStep === 1) {
-        // --- Step 2: 顔認証 ---
-        // face-api.js を使用
-        if (currentAuthUser.descriptor) {
-            // 処理が重いので非同期実行(awaitしないとカクつくが、ループ内なので注意)
-            // 簡易的に detectSingleFace を使用
-            const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
-                .withFaceLandmarks()
-                .withFaceDescriptor();
+        // --- Step 1: カラーコード ---
+        if (currentAuthUser.targetCode.length === 4) {
+            const detectedCode = scanColors(ctx, w, h);
             
-            if (detection) {
-                // 距離計算 (ユークリッド距離)
-                const dist = faceapi.euclideanDistance(detection.descriptor, currentAuthUser.descriptor);
-                
-                // ガイド枠(顔)の描画
-                const box = detection.detection.box;
-                const drawBox = new faceapi.draw.DrawBox(box, { label: dist.toFixed(2) });
-                drawBox.draw(canvas);
+            // デバッグ: 検出色を表示
+            ctx.font = "20px Arial";
+            ctx.fillStyle = "white";
+            ctx.fillText(`Detected: ${detectedCode.join(' ')}`, 10, 30);
+            ctx.fillText(`Match Count: ${colorMatchCounter}`, 10, 55);
 
-                // 閾値判定 (0.6以下なら本人)
-                if (dist < 0.6) {
-                    adminAuthStep = 2;
-                    updateAdminStatus("本人確認完了！ 承認ボタンを押してください");
-                    document.getElementById('approveBtn').disabled = false;
-                    document.getElementById('approveBtn').style.backgroundColor = "#28a745";
+            if (isCodeMatch(detectedCode, currentAuthUser.targetCode)) {
+                colorMatchCounter++;
+                // ★連続10フレーム一致で通過
+                if (colorMatchCounter > 10) {
+                    adminAuthStep = 1;
+                    updateAdminStatus("コード一致！ 次は「顔」を映してください");
                 }
+            } else {
+                // 不一致ならカウンターを減らす(0未満にはしない)
+                colorMatchCounter = Math.max(0, colorMatchCounter - 1);
             }
         } else {
-            // 顔データがない場合はスキップするかエラーにする
-            updateAdminStatus("登録顔データがありません (スキップ可)");
+             // コード情報がない場合はスキップ
+             adminAuthStep = 1; 
+        }
+
+    } else if (adminAuthStep === 1) {
+        // --- Step 2: 顔認証 ---
+        if (currentAuthUser.descriptor) {
+            try {
+                // 簡易顔検出
+                const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+                    .withFaceLandmarks()
+                    .withFaceDescriptor();
+                
+                if (detection) {
+                    const dist = faceapi.euclideanDistance(detection.descriptor, currentAuthUser.descriptor);
+                    const box = detection.detection.box;
+                    const drawBox = new faceapi.draw.DrawBox(box, { label: `Diff: ${dist.toFixed(2)}` });
+                    drawBox.draw(canvas);
+
+                    // 閾値 0.6 以下で本人
+                    if (dist < 0.6) {
+                        adminAuthStep = 2;
+                        updateAdminStatus("本人確認完了！ 承認可能です");
+                        document.getElementById('approveBtn').disabled = false;
+                        document.getElementById('approveBtn').style.backgroundColor = "#28a745";
+                    }
+                }
+            } catch(e) { /* 顔が見つからない等は無視 */ }
+        } else {
+            updateAdminStatus("顔データなし (スキップ可)");
             document.getElementById('approveBtn').disabled = false;
         }
     }
 
-    // 次のフレーム
+    // 3. ガイド描画 (上書き)
+    drawAdminGuide(ctx, w, h, adminAuthStep);
+
+    // 次フレーム
     adminGuideLoopId = requestAnimationFrame(processAdminFrame);
 }
 
-// --- 色判定ロジック ---
+// --- 色判定ロジック (強化版) ---
 function scanColors(ctx, w, h) {
-    // 基準サイズとスケール計算 (GuidePainterと同じロジック)
     const refW = 230;
     const refH = 170;
-    const scale = (w * 0.8) / refW;
+    const scale = Math.min(w / refW, h / refH) * 0.8; 
     const offsetX = (w - refW * scale) / 2;
     const offsetY = (h - refH * scale) / 2;
-    const t = (x, y) => ({ x: offsetX + x * scale, y: offsetY + y * scale });
+    const t = (x, y) => ({ x: Math.floor(offsetX + x * scale), y: Math.floor(offsetY + y * scale) });
 
-    // H型配置のサンプリング座標 (左, 中上, 中下, 右)
-    // 描画座標の中心点を狙う
-    // 左: x=40~70 (中心55), y=40~130 (中心85) -> (55, 85)
-    // 中上: x=80~150(中心115), y=40~70(中心55) -> (115, 55)
-    // 中下: x=80~150(中心115), y=80~130(中心105) -> (115, 105)
-    // 右: x=160~190(中心175), y=40~130(中心85) -> (175, 85)
-    
+    // H型の中心点サンプリング (左, 中上, 中下, 右)
     const points = [
-        t(55, 85),  // Code 1
-        t(115, 55), // Code 2
-        t(115, 105),// Code 3
-        t(175, 85)  // Code 4
+        t(55, 85),  
+        t(115, 55), 
+        t(115, 105),
+        t(175, 85)  
     ];
 
-    // ピクセルデータ取得
-    // ctx.getImageData は重いので、points周辺だけ取得するか、全体1回取得するか
-    // ここでは簡易的に全体を取得 (最適化余地あり)
     const imageData = ctx.getImageData(0, 0, w, h).data;
-
-    const detected = points.map(p => {
-        const x = Math.floor(p.x);
-        const y = Math.floor(p.y);
-        const i = (y * w + x) * 4;
-        const r = imageData[i];
-        const g = imageData[i+1];
-        const b = imageData[i+2];
-        return classifyColor(r, g, b);
+    return points.map(p => {
+        const i = (p.y * w + p.x) * 4;
+        return classifyColor(imageData[i], imageData[i+1], imageData[i+2]);
     });
-
-    return detected;
 }
 
 function classifyColor(r, g, b) {
-    // 簡易的な色判定閾値 (C, Y, M, G)
-    // Cyan: G高, B高, R低
-    if (g > 150 && b > 150 && r < 100) return 'C';
-    // Yellow: R高, G高, B低
-    if (r > 150 && g > 150 && b < 100) return 'Y';
-    // Magenta: R高, B高, G低
-    if (r > 150 && b > 150 && g < 100) return 'M';
-    // Green: G高, R低, B低
+    // 彩度チェック (白・黒・グレーを除外)
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max - min;
+    
+    // 彩度が低い場合は無彩色として除外
+    if (saturation < 40) return '?'; 
+
+    if (g > 150 && b > 150 && r < 120) return 'C';
+    if (r > 150 && g > 150 && b < 120) return 'Y';
+    if (r > 150 && b > 150 && g < 120) return 'M';
     if (g > 100 && r < 100 && b < 100) return 'G';
     
     return '?';
 }
 
 function isCodeMatch(detected, target) {
-    if (!target || target.length !== 4) return false;
-    for (let i = 0; i < 4; i++) {
-        if (detected[i] !== target[i]) return false;
-    }
+    for (let i = 0; i < 4; i++) if (detected[i] !== target[i]) return false;
     return true;
 }
 
-// --- ガイド描画 (ステップ対応) ---
 function drawAdminGuide(ctx, w, h, step) {
-    const refW = 230;
-    const refH = 170;
-    const scale = (w * 0.8) / refW;
+    const refW = 230; const refH = 170;
+    const scale = Math.min(w / refW, h / refH) * 0.8;
     const offsetX = (w - refW * scale) / 2;
     const offsetY = (h - refH * scale) / 2;
     const t = (x, y) => ({ x: x * scale + offsetX, y: y * scale + offsetY });
 
     ctx.lineWidth = 4;
     ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    // 1. L字マーカー (ステップ0:コード認証時のみ強調、ステップ1以降は薄く)
-    const markerAlpha = step === 0 ? 1.0 : 0.2;
     
-    // 左上(赤)
-    ctx.strokeStyle = `rgba(255, 0, 0, ${markerAlpha})`;
+    // マーカー (ステップ0以外は薄く)
+    const alpha = step === 0 ? 1.0 : 0.2;
+    
+    ctx.strokeStyle = `rgba(255, 0, 0, ${alpha})`; // 赤
     ctx.beginPath();
-    let p = t(30, 50); ctx.moveTo(p.x, p.y);
-    p = t(30, 30); ctx.lineTo(p.x, p.y);
-    p = t(50, 30); ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-    // (右上、左下、右下も同様に...)
-    // 右上(赤)
+    let p = t(30, 50); ctx.moveTo(p.x, p.y); p = t(30, 30); ctx.lineTo(p.x, p.y); p = t(50, 30); ctx.lineTo(p.x, p.y); ctx.stroke();
     ctx.beginPath();
-    p = t(200, 50); ctx.moveTo(p.x, p.y);
-    p = t(200, 30); ctx.lineTo(p.x, p.y);
-    p = t(180, 30); ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-    // 左下(青)
-    ctx.strokeStyle = `rgba(0, 0, 255, ${markerAlpha})`;
+    p = t(200, 50); ctx.moveTo(p.x, p.y); p = t(200, 30); ctx.lineTo(p.x, p.y); p = t(180, 30); ctx.lineTo(p.x, p.y); ctx.stroke();
+    
+    ctx.strokeStyle = `rgba(0, 0, 255, ${alpha})`; // 青
     ctx.beginPath();
-    p = t(30, 120); ctx.moveTo(p.x, p.y);
-    p = t(30, 140); ctx.lineTo(p.x, p.y);
-    p = t(50, 140); ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-    // 右下(青)
+    p = t(30, 120); ctx.moveTo(p.x, p.y); p = t(30, 140); ctx.lineTo(p.x, p.y); p = t(50, 140); ctx.lineTo(p.x, p.y); ctx.stroke();
     ctx.beginPath();
-    p = t(200, 120); ctx.moveTo(p.x, p.y);
-    p = t(200, 140); ctx.lineTo(p.x, p.y);
-    p = t(180, 140); ctx.lineTo(p.x, p.y);
-    ctx.stroke();
+    p = t(200, 120); ctx.moveTo(p.x, p.y); p = t(200, 140); ctx.lineTo(p.x, p.y); p = t(180, 140); ctx.lineTo(p.x, p.y); ctx.stroke();
 
-    // 2. 中央のH型 (コード認証時のみ表示)
+    // 中央H型 (ステップ0のみ)
     if (step === 0) {
-        ctx.fillStyle = "rgba(255, 255, 255, 0.5)"; // 半透明白
-        const fillRectFromPoints = (p1x, p1y, p2x, p2y) => {
-            const start = t(p1x, p1y);
-            const end = t(p2x, p2y);
-            ctx.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+        const fillRect = (x1,y1,x2,y2) => {
+            const s = t(x1,y1); const e = t(x2,y2);
+            ctx.fillRect(s.x, s.y, e.x - s.x, e.y - s.y);
         };
-        fillRectFromPoints(70, 40, 80, 130);  // 左
-        fillRectFromPoints(80, 70, 150, 80);  // 横
-        fillRectFromPoints(150, 40, 160, 130); // 右
+        fillRect(70, 40, 80, 130);
+        fillRect(80, 70, 150, 80);
+        fillRect(150, 40, 160, 130);
         
-        // ターゲット色をヒントとして表示 (オプション)
-        if (currentAuthUser && currentAuthUser.targetCode.length === 4) {
-            const colors = { 'C':'#00FFFF', 'Y':'#FFFF00', 'M':'#FF00FF', 'G':'#00FF00' };
-            const c = currentAuthUser.targetCode;
-            // 小さい丸で色を表示
-            const drawDot = (cx, cy, code) => {
-                const pt = t(cx, cy);
-                ctx.fillStyle = colors[code] || 'gray';
-                ctx.beginPath(); ctx.arc(pt.x, pt.y, 5, 0, Math.PI*2); ctx.fill();
-            };
-            drawDot(55, 85, c[0]);
-            drawDot(115, 55, c[1]);
-            drawDot(115, 105, c[2]);
-            drawDot(175, 85, c[3]);
+        // 進捗バー (連続一致度合いを表示)
+        if (colorMatchCounter > 0) {
+            ctx.fillStyle = "#00ff00";
+            ctx.fillRect(10, h - 20, (w - 20) * (colorMatchCounter / 10), 10);
         }
     }
 }
@@ -747,24 +669,216 @@ async function approveRequest() {
             status: 'approved',
             approvalTimestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
-        
-        const reqDoc = await db.collection('auth_requests').doc(currentRequestId).get();
-        const reqData = reqDoc.data();
+        // ログ記録
         await db.collection('attendance_logs').add({
-            userName: reqData.userName,
+            userName: currentAuthUser.name,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             adminId: 'web_admin'
         });
-
         alert('承認しました');
         closeAuthModal();
         refreshRequests();
+    } catch(e) { alert('エラー: ' + e.message); }
+}
+
+// ==========================================
+//   顔登録機能 (Admin) - 完全実装
+// ==========================================
+async function startFaceRegistration() {
+    const name = document.getElementById('regName').value.trim();
+    if(!name) return alert("登録名を入力してください");
+
+    const statusEl = document.getElementById('regStatus');
+    statusEl.textContent = "カメラ起動中...";
+    
+    const video = document.getElementById('regVideo');
+    const canvas = document.getElementById('regCanvas');
+
+    try {
+        await loadModels(); // 念のため
+        const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+        regStream = stream;
+        video.srcObject = stream;
+
+        video.onloadedmetadata = () => {
+            video.play();
+            statusEl.textContent = "顔を検出中... (正面を向いてください)";
+            detectFaceLoop(video, canvas, name);
+        };
+    } catch(e) { alert("カメラエラー: " + e.message); }
+}
+
+async function detectFaceLoop(video, canvas, name) {
+    const displaySize = { width: video.videoWidth, height: video.videoHeight };
+    faceapi.matchDimensions(canvas, displaySize);
+
+    let captured = false;
+    
+    const interval = setInterval(async () => {
+        if (captured) return; // 既にキャプチャ済み
+
+        const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (detection) {
+            const resized = faceapi.resizeResults(detection, displaySize);
+            faceapi.draw.drawDetections(canvas, resized);
+
+            // スコアが0.8以上なら登録実行
+            if (detection.detection.score > 0.8) {
+                captured = true;
+                clearInterval(interval);
+                saveFaceData(name, detection.descriptor);
+            }
+        }
+    }, 200);
+}
+
+async function saveFaceData(name, descriptor) {
+    document.getElementById('regStatus').textContent = "保存中...";
+    
+    // Float32Array -> Base64変換 (Flutter互換のため、バイナリとして保存)
+    // ※注意: FlutterのMobileFaceNet(192)とは互換性がないが、データ構造は合わせる
+    const buffer = descriptor.buffer;
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const base64Str = btoa(binary);
+
+    try {
+        await db.collection("faces").doc(name).set({
+            label: name,
+            thumbnail: "", // サムネは省略(必要ならvideoからcanvas captureして保存)
+            descriptors: [base64Str]
+        });
+        alert(`登録完了: ${name}`);
+        document.getElementById('regStatus').textContent = "登録完了";
+        document.getElementById('regName').value = "";
     } catch(e) {
-        alert('エラー: ' + e.message);
+        alert("保存エラー: " + e.message);
+    }
+    
+    // カメラ停止
+    if (regStream) {
+        regStream.getTracks().forEach(t => t.stop());
+        regStream = null;
+    }
+    const ctx = document.getElementById('regCanvas').getContext('2d');
+    ctx.clearRect(0, 0, 1000, 1000);
+}
+
+// ==========================================
+//   出席確認機能 (Check)
+// ==========================================
+let checkDisplayDate = new Date();
+let checkHistoryDates = [];
+
+async function checkAttendance() {
+    const name = document.getElementById('checkNameInput').value.trim();
+    if (!name) return alert("名前を入力してください");
+    
+    document.getElementById('resultArea').style.display = 'block';
+    
+    try {
+        const snapshot = await db.collection('attendance_logs')
+            .where('userName', '==', name)
+            .orderBy('timestamp', 'desc')
+            .get();
+            
+        checkHistoryDates = [];
+        snapshot.forEach(doc => {
+            checkHistoryDates.push(doc.data().timestamp.toDate());
+        });
+        
+        updateTodayStatus();
+        checkDisplayDate = new Date();
+        renderCalendar();
+        
+    } catch(e) {
+        console.error(e);
+        // インデックス未作成エラーの場合の案内
+        if(e.code === 'failed-precondition') {
+            alert("エラー: 管理者にインデックス作成を依頼してください");
+        }
     }
 }
 
-// 情報管理 (キャンパス/エリア登録)
+function updateTodayStatus() {
+    const today = new Date();
+    const isAttended = checkHistoryDates.some(d => 
+        d.getFullYear() === today.getFullYear() && 
+        d.getMonth() === today.getMonth() && 
+        d.getDate() === today.getDate()
+    );
+    
+    const statusEl = document.getElementById('todayStatus');
+    if (isAttended) {
+        statusEl.textContent = "今日の出席：完了 ✅";
+        statusEl.className = "status-card status-ok";
+    } else {
+        statusEl.textContent = "今日の出席：未 ☁️";
+        statusEl.className = "status-card status-no";
+    }
+}
+
+function changeMonth(offset) {
+    checkDisplayDate.setMonth(checkDisplayDate.getMonth() + offset);
+    renderCalendar();
+}
+
+function renderCalendar() {
+    const grid = document.getElementById('calendarGrid');
+    grid.innerHTML = "";
+    
+    const year = checkDisplayDate.getFullYear();
+    const month = checkDisplayDate.getMonth();
+    document.getElementById('calendarTitle').textContent = `${year}年 ${month + 1}月`;
+    
+    // 曜日
+    ['日','月','火','水','木','金','土'].forEach(w => {
+        const el = document.createElement('div');
+        el.className = 'day-cell';
+        el.style.border='none'; el.style.fontWeight='bold'; el.style.backgroundColor='#f0f0f0';
+        el.textContent = w;
+        grid.appendChild(el);
+    });
+    
+    const firstDay = new Date(year, month, 1).getDay();
+    for(let i=0; i<firstDay; i++) grid.appendChild(document.createElement('div'));
+    
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+    
+    for(let d=1; d<=lastDay; d++) {
+        const el = document.createElement('div');
+        el.className = 'day-cell';
+        el.textContent = d;
+        
+        if(year===today.getFullYear() && month===today.getMonth() && d===today.getDate()) {
+            el.classList.add('today-circle');
+        }
+        
+        const isAttended = checkHistoryDates.some(hd => 
+            hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
+        );
+        
+        if(isAttended) {
+            const mark = document.createElement('div');
+            mark.className = 'attended-mark';
+            el.appendChild(mark);
+            el.classList.add('active-area'); // 緑背景
+        }
+        grid.appendChild(el);
+    }
+}
+
+// ==========================================
+//   設定・管理用 (Info)
+// ==========================================
 async function registerCampus() {
     const name = document.getElementById('campusName').value;
     const lat = parseFloat(document.getElementById('campusLat').value);
@@ -781,18 +895,9 @@ async function registerArea() {
     const name = document.getElementById('areaName').value;
     const lat = parseFloat(document.getElementById('areaLat').value);
     const lon = parseFloat(document.getElementById('areaLon').value);
-    
     if(!name || isNaN(lat)) return;
     
-    await db.collection('gps_areas').doc(name).set({
-        name, campusId, lat, lon, isActive: false
-    });
-    await loadGpsAreas();
-    populateInfoLists();
-}
-
-async function toggleAreaActive(name, currentStatus) {
-    await db.collection('gps_areas').doc(name).update({ isActive: !currentStatus });
+    await db.collection('gps_areas').doc(name).set({ name, campusId, lat, lon, isActive: false });
     await loadGpsAreas();
     populateInfoLists();
 }
@@ -806,10 +911,8 @@ function populateInfoLists() {
     
     registeredCampuses.forEach(c => {
         const opt = document.createElement('option');
-        opt.value = c.id;
-        opt.innerText = c.name;
+        opt.value = c.id; opt.innerText = c.name;
         select.appendChild(opt);
-        
         const item = document.createElement('div');
         item.className = 'item-card';
         item.innerHTML = `<span>${c.name}</span> <small>${c.lat}, ${c.lon}</small>`;
@@ -821,151 +924,18 @@ function populateInfoLists() {
     registeredGpsAreas.forEach(a => {
         const item = document.createElement('div');
         item.className = `item-card ${a.isActive ? 'active-area' : ''}`;
-        item.innerHTML = `
-            <span>${a.name}</span>
-            <button onclick="toggleAreaActive('${a.name}', ${a.isActive})">
-                ${a.isActive ? '停止' : '開始'}
-            </button>
-        `;
+        item.innerHTML = `<span>${a.name}</span> <small>${a.isActive?'活動中':'停止'}</small>`;
         aList.appendChild(item);
     });
 }
+
 function populateFaceList() {
-    // 省略 (顔一覧)
-}
-
-// ==========================================
-//   出席確認 (Check) - ロジック実装版
-// ==========================================
-
-// カレンダー表示用の状態変数
-let checkDisplayDate = new Date(); // 表示中の年月
-let checkHistoryDates = [];        // 取得した出席データ(Date型)のリスト
-let checkCurrentName = "";         // 現在表示中のユーザー名
-
-async function checkAttendance() {
-    const name = document.getElementById('checkNameInput').value.trim();
-    if (!name) { alert("名前を入力してください"); return; }
-    
-    checkCurrentName = name;
-    
-    // UI表示切り替え
-    document.getElementById('resultArea').style.display = 'block';
-    
-    // 履歴取得 (承認済みのログ 'attendance_logs' を検索)
-    try {
-        const snapshot = await db.collection('attendance_logs')
-            .where('userName', '==', name)
-            .orderBy('timestamp', 'desc')
-            .get();
-            
-        checkHistoryDates = [];
-        snapshot.forEach(doc => {
-            // FirestoreのTimestampをJavaScriptのDateに変換して保存
-            checkHistoryDates.push(doc.data().timestamp.toDate());
-        });
-        
-        // 今日のステータス更新
-        updateTodayStatus();
-        
-        // カレンダー描画 (現在の月から開始)
-        checkDisplayDate = new Date();
-        renderCalendar();
-        
-    } catch(e) {
-        console.error("履歴取得エラー:", e);
-        alert("データの取得に失敗しました。");
-    }
-}
-
-// 今日の出席状況表示
-function updateTodayStatus() {
-    const today = new Date();
-    const isAttended = checkHistoryDates.some(d => 
-        d.getFullYear() === today.getFullYear() && 
-        d.getMonth() === today.getMonth() && 
-        d.getDate() === today.getDate()
-    );
-    
-    const statusEl = document.getElementById('todayStatus');
-    if (isAttended) {
-        statusEl.textContent = "今日の出席：完了 ✅";
-        statusEl.className = "status-card status-ok"; // 緑背景
-    } else {
-        statusEl.textContent = "今日の出席：未 ☁️";
-        statusEl.className = "status-card status-no"; // グレー背景
-    }
-}
-
-// 月変更ボタン処理
-function changeMonth(offset) {
-    // 月をずらす
-    checkDisplayDate.setMonth(checkDisplayDate.getMonth() + offset);
-    renderCalendar();
-}
-
-// カレンダー描画処理
-function renderCalendar() {
-    const grid = document.getElementById('calendarGrid');
-    grid.innerHTML = "";
-    
-    const year = checkDisplayDate.getFullYear();
-    const month = checkDisplayDate.getMonth(); // 0-11
-    
-    document.getElementById('calendarTitle').textContent = `${year}年 ${month + 1}月`;
-    
-    // 曜日ヘッダー
-    const weeks = ['日', '月', '火', '水', '木', '金', '土'];
-    weeks.forEach(w => {
-        const el = document.createElement('div');
-        el.className = 'day-cell';
-        el.style.border = 'none';
-        el.style.fontWeight = 'bold';
-        el.style.backgroundColor = '#f0f0f0';
-        el.textContent = w;
-        grid.appendChild(el);
+    const el = document.getElementById('faceList');
+    el.innerHTML = '';
+    registeredFaces.forEach(f => {
+        const div = document.createElement('div');
+        div.className = 'item-card';
+        div.innerHTML = `<span>${f.label}</span>`;
+        el.appendChild(div);
     });
-    
-    // 月初めの空白セル
-    const firstDay = new Date(year, month, 1);
-    const startDayOfWeek = firstDay.getDay();
-    for(let i=0; i<startDayOfWeek; i++) {
-        const el = document.createElement('div');
-        el.className = 'day-cell'; // 枠線だけ表示
-        grid.appendChild(el);
-    }
-    
-    // 日付セル生成
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    const today = new Date();
-    
-    for(let d=1; d<=lastDay; d++) {
-        const el = document.createElement('div');
-        el.className = 'day-cell';
-        el.textContent = d;
-        
-        // 今日の枠線
-        if(year === today.getFullYear() && month === today.getMonth() && d === today.getDate()) {
-            el.classList.add('today-circle');
-        }
-        
-        // 出席マーク判定 (履歴にあるかチェック)
-        const isAttended = checkHistoryDates.some(historyDate => 
-            historyDate.getFullYear() === year && 
-            historyDate.getMonth() === month && 
-            historyDate.getDate() === d
-        );
-        
-        if(isAttended) {
-            // 緑の丸アイコンを追加 (CSS .attended-mark を利用)
-            const mark = document.createElement('div');
-            mark.className = 'attended-mark';
-            el.appendChild(mark);
-            
-            // 背景も薄い緑にする
-            el.classList.add('active-area'); // pre_style.cssにある緑背景クラスを流用
-        }
-        
-        grid.appendChild(el);
-    }
 }
