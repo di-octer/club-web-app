@@ -5,7 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理者アプリ (Web版)</title>
     <link rel="stylesheet" href="pre_style.css">
-    <!-- Firebase & FaceAPI -->
+    <style>
+        /* アコーディオン (FlutterのExpansionTile風) */
+        details { border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px; background: #fff; overflow: hidden; }
+        summary { padding: 15px; background-color: #f8f9fa; cursor: pointer; font-weight: bold; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+        summary::-webkit-details-marker { display: none; }
+        summary::after { content: '+'; font-size: 1.2em; color: #666; }
+        details[open] summary::after { content: '-'; }
+        .details-content { padding: 0; border-top: 1px solid #ddd; }
+        
+        /* サブタブのアクティブ状態 (青色) */
+        .sub-tab { flex: 1; padding: 10px; border: none; background: #eee; color: #333; cursor: pointer; transition: 0.3s; }
+        .sub-tab.active { background: #007bff !important; color: white !important; }
+    </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
@@ -17,34 +29,27 @@
         <h2>管理者コンソール</h2>
     </header>
 
-    <!-- タブナビゲーション -->
     <div class="tab-bar">
         <button class="tab-btn active" onclick="switchTab('status')">ステータス</button>
         <button class="tab-btn" onclick="switchTab('info')">登録情報</button>
         <button class="tab-btn" onclick="switchTab('face')">顔登録</button>
     </div>
 
-    <!-- 1. ステータスタブ (リクエスト一覧) -->
     <div id="tab-status" class="tab-content active">
-        
         <div style="display: flex; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; overflow: hidden;">
-            <button id="btn-sub-auth" onclick="switchAdminSubTab('auth')" style="flex: 1; padding: 10px; border: none; background: #007bff; color: white; cursor: pointer;">出席認証待ち</button>
-            <button id="btn-sub-report" onclick="switchAdminSubTab('report')" style="flex: 1; padding: 10px; border: none; background: #eee; color: #333; cursor: pointer;">届出・連絡</button>
+            <button id="btn-sub-auth" class="sub-tab active" onclick="switchAdminSubTab('auth')">出席認証待ち</button>
+            <button id="btn-sub-report" class="sub-tab" onclick="switchAdminSubTab('report')">届出・連絡</button>
         </div>
 
         <div id="view-auth">
             <h3>認証リクエスト一覧</h3>
-            <div id="requestList" class="list-container">
-                <p>読み込み中...</p>
-            </div>
+            <div id="requestList" class="list-container"><p>読み込み中...</p></div>
             <button onclick="refreshRequests()" class="refresh-btn">リクエスト更新</button>
         </div>
 
         <div id="view-report" style="display: none;">
             <h3>届出・連絡一覧</h3>
-            <div id="reportList" class="list-container">
-                <p>読み込み中...</p>
-            </div>
+            <div id="reportList" class="list-container"><p>読み込み中...</p></div>
             <button onclick="refreshReports()" class="refresh-btn">リスト更新</button>
         </div>
         
@@ -62,47 +67,57 @@
         </div>
     </div>
 
-    <!-- 2. 登録情報タブ (キャンパス・GPS・顔一覧) -->
     <div id="tab-info" class="tab-content">
-        <h3>1. キャンパス管理</h3>
-        <div class="input-group">
-            <input type="text" id="campusName" placeholder="キャンパス名">
-            <input type="number" id="campusLat" placeholder="緯度" step="0.000001">
-            <input type="number" id="campusLon" placeholder="経度" step="0.000001">
-            <button onclick="registerCampus()">登録</button>
-        </div>
-        <div id="campusList" class="list-container"></div>
+        <h3>登録情報管理</h3>
+        
+        <details>
+            <summary>新規キャンパス登録</summary>
+            <div class="details-content" style="padding: 15px;">
+                <div class="input-group">
+                    <input type="text" id="campusName" placeholder="キャンパス名">
+                    <input type="number" id="campusLat" placeholder="緯度" step="0.000001">
+                    <input type="number" id="campusLon" placeholder="経度" step="0.000001">
+                    <button onclick="registerCampus()">登録</button>
+                </div>
+            </div>
+        </details>
+
+        <details>
+            <summary>新規活動場所登録</summary>
+            <div class="details-content" style="padding: 15px;">
+                <div class="input-group">
+                    <select id="campusSelect"><option>キャンパスを選択</option></select>
+                    <input type="text" id="areaName" placeholder="場所名">
+                    <input type="number" id="areaLat" placeholder="緯度" step="0.000001">
+                    <input type="number" id="areaLon" placeholder="経度" step="0.000001">
+                    <button onclick="registerArea()">登録</button>
+                </div>
+            </div>
+        </details>
 
         <hr>
-
-        <h3>2. 活動場所登録</h3>
-        <div class="input-group">
-            <select id="campusSelect"><option>キャンパスを選択</option></select>
-            <input type="text" id="areaName" placeholder="場所名 (例: 体育館)">
-            <input type="number" id="areaLat" placeholder="緯度" step="0.000001">
-            <input type="number" id="areaLon" placeholder="経度" step="0.000001">
-            <button onclick="registerArea()">登録</button>
-        </div>
-        <div id="areaList" class="list-container"></div>
-
-        <hr>
-
-        <h3>3. 登録済み顔データ</h3>
-        <div id="faceList" class="list-container"></div>
+        <h4>登録データ一覧</h4>
+        <div id="campusList" style="text-align: left;"></div>
     </div>
 
-    <!-- 3. 顔登録タブ -->
     <div id="tab-face" class="tab-content">
-        <h3>新規顔登録</h3>
+        <h3>新規顔登録 (5段階)</h3>
+        <p>正面 -> 左 -> 右 -> 上 -> 下 の順に撮影します</p>
+        
         <div class="camera-wrapper">
             <video id="regVideo" autoplay muted playsinline></video>
             <canvas id="regCanvas" class="overlay"></canvas>
         </div>
+        
         <div class="input-group">
             <input type="text" id="regName" placeholder="登録名を入力">
             <button id="regBtn" onclick="startFaceRegistration()">スキャン開始</button>
         </div>
-        <div id="regStatus">待機中...</div>
+        <div id="regStatus" style="font-weight: bold; color: #007bff; margin-top: 10px;">待機中...</div>
+        
+        <hr>
+        <h3>登録済みリスト</h3>
+        <div id="faceList" class="list-container"></div>
     </div>
 </div>
 

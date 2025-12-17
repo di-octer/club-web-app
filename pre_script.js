@@ -697,59 +697,60 @@ async function approveRequest() {
     } catch(e) { alert('エラー: ' + e.message); }
 }
 
-async function startFaceRegistration() {
-    const nameInput = document.getElementById('regName');
-    const name = nameInput.value.trim();
-    if (!name) return alert("登録名を入力してください");
+let regStep = 0; // 0:待機, 1:正面, 2:左, 3:右, 4:上, 5:下
+let regDescriptors = [];
+let regThumbnail = ""; // 正面画像(Base64)
+const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
-    const btn = document.getElementById('regBtn');
+async function startFaceRegistration() {
+    const name = document.getElementById('regName').value.trim();
+    if(!name) return alert("登録名を入力してください");
+
     const statusEl = document.getElementById('regStatus');
-    
-    // UI反応: ボタンを一時無効化し、メッセージを表示
+    const btn = document.getElementById('regBtn');
     btn.disabled = true;
-    statusEl.textContent = "システム準備中...";
+    
+    // リセット
+    regStep = 1;
+    regDescriptors = [];
+    regThumbnail = "";
     
     const video = document.getElementById('regVideo');
     const canvas = document.getElementById('regCanvas');
 
     try {
-        // face-apiがロードされているか確認
-        if (typeof faceapi === 'undefined') {
-            throw new Error("AIモデルがまだ読み込まれていません。ページを更新してください。");
-        }
-
-        await loadModels(); // 未ロードならロード
-        
-        statusEl.textContent = "カメラを起動しています...";
-        
+        await loadModels();
         const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
         regStream = stream;
         video.srcObject = stream;
 
-        // 映像再生開始時の処理
         video.onloadedmetadata = () => {
             video.play();
-            statusEl.textContent = "顔を検出中... (正面を向いてください)";
-            btn.disabled = false; // 起動したらボタンを戻す（または「停止」に変えるなど）
-            detectFaceLoop(video, canvas, name);
+            statusEl.textContent = `Step 1/5: ${REG_INSTRUCTIONS[1]}`;
+            // 少し待ってから検出ループ開始
+            setTimeout(() => detectFaceLoop5Steps(video, canvas, name), 1000);
         };
-
-    } catch (e) {
-        console.error(e);
-        alert("エラー: " + e.message);
-        statusEl.textContent = "起動エラー";
+    } catch(e) {
+        alert("カメラエラー: " + e.message);
         btn.disabled = false;
     }
 }
 
-async function detectFaceLoop(video, canvas, name) {
+async function detectFaceLoop5Steps(video, canvas, name) {
     const displaySize = { width: video.videoWidth, height: video.videoHeight };
     faceapi.matchDimensions(canvas, displaySize);
+    const statusEl = document.getElementById('regStatus');
 
-    let captured = false;
-    
+    let captureCooldown = false;
+
     const interval = setInterval(async () => {
-        if (captured) return; // 既にキャプチャ済み
+        if (regStep > 5) {
+            // 完了 -> 保存へ
+            clearInterval(interval);
+            saveFaceData5Steps(name);
+            return;
+        }
+        if (captureCooldown) return;
 
         const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
             .withFaceLandmarks()
@@ -762,38 +763,70 @@ async function detectFaceLoop(video, canvas, name) {
             const resized = faceapi.resizeResults(detection, displaySize);
             faceapi.draw.drawDetections(canvas, resized);
 
-            // スコアが0.8以上なら登録実行
-            if (detection.detection.score > 0.8) {
-                captured = true;
-                clearInterval(interval);
-                saveFaceData(name, detection.descriptor);
+            // スコアが高ければキャプチャ (0.8以上)
+            if (detection.detection.score > 0.85) {
+                // 正面(Step 1)の場合はサムネイルとして画像を保存
+                if (regStep === 1) {
+                    // 現在のCanvas映像を取得する（videoをcanvasに描画してtoDataURL）
+                    const capCanvas = document.createElement('canvas');
+                    capCanvas.width = video.videoWidth;
+                    capCanvas.height = video.videoHeight;
+                    capCanvas.getContext('2d').drawImage(video, 0, 0);
+                    regThumbnail = capCanvas.toDataURL('image/jpeg', 0.8);
+                }
+
+                // 特徴量をBase64化して保存
+                const descBase64 = float32ToBase64(detection.descriptor);
+                regDescriptors.push(descBase64);
+
+                // 次のステップへ
+                captureCooldown = true;
+                regStep++;
+                
+                if (regStep <= 5) {
+                    statusEl.textContent = `OK! 次: Step ${regStep}/5: ${REG_INSTRUCTIONS[regStep]}`;
+                    statusEl.style.color = "green";
+                    
+                    // 1.5秒待機してから次の検出を開始
+                    setTimeout(() => {
+                        captureCooldown = false;
+                        statusEl.style.color = "#007bff"; // 青に戻す
+                    }, 1500);
+                } else {
+                    statusEl.textContent = "全ステップ完了！ 保存中...";
+                }
             }
         }
     }, 200);
 }
 
-async function saveFaceData(name, descriptor) {
-    document.getElementById('regStatus').textContent = "保存中...";
-    
-    // Float32Array -> Base64変換 (Flutter互換のため、バイナリとして保存)
-    // ※注意: FlutterのMobileFaceNet(192)とは互換性がないが、データ構造は合わせる
-    const buffer = descriptor.buffer;
+function float32ToBase64(float32) {
+    const buffer = float32.buffer;
     const bytes = new Uint8Array(buffer);
     let binary = '';
     for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    const base64Str = btoa(binary);
+    return btoa(binary);
+}
 
+async function saveFaceData5Steps(name) {
     try {
         await db.collection("faces").doc(name).set({
             label: name,
-            thumbnail: "", // サムネは省略(必要ならvideoからcanvas captureして保存)
-            descriptors: [base64Str]
+            thumbnail: regThumbnail, // 正面画像
+            descriptors: regDescriptors // 5つの特徴量リスト
         });
         alert(`登録完了: ${name}`);
         document.getElementById('regStatus').textContent = "登録完了";
         document.getElementById('regName').value = "";
+        document.getElementById('regBtn').disabled = false;
+        
+        // 再読み込みしてリスト更新
+        await loadRegisteredFaces();
+        populateFaceList();
+
     } catch(e) {
         alert("保存エラー: " + e.message);
+        document.getElementById('regBtn').disabled = false;
     }
     
     // カメラ停止
@@ -937,29 +970,67 @@ async function registerArea() {
 }
 
 function populateInfoLists() {
-    const cList = document.getElementById('campusList');
-    if(!cList) return;
-    cList.innerHTML = '';
+    const listContainer = document.getElementById('campusList');
+    if(!listContainer) return;
+    listContainer.innerHTML = '';
+    
+    // プルダウン更新
     const select = document.getElementById('campusSelect');
     select.innerHTML = '<option>キャンパスを選択</option>';
-    
     registeredCampuses.forEach(c => {
         const opt = document.createElement('option');
         opt.value = c.id; opt.innerText = c.name;
         select.appendChild(opt);
-        const item = document.createElement('div');
-        item.className = 'item-card';
-        item.innerHTML = `<span>${c.name}</span> <small>${c.lat}, ${c.lon}</small>`;
-        cList.appendChild(item);
     });
 
-    const aList = document.getElementById('areaList');
-    aList.innerHTML = '';
-    registeredGpsAreas.forEach(a => {
-        const item = document.createElement('div');
-        item.className = `item-card ${a.isActive ? 'active-area' : ''}`;
-        item.innerHTML = `<span>${a.name}</span> <small>${a.isActive?'活動中':'停止'}</small>`;
-        aList.appendChild(item);
+    // アコーディオンリスト生成
+    if (registeredCampuses.length === 0) {
+        listContainer.innerHTML = '<p>キャンパスが登録されていません</p>';
+        return;
+    }
+
+    registeredCampuses.forEach(campus => {
+        const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
+        
+        const details = document.createElement('details');
+        // デフォルトで開いておく
+        details.open = true; 
+        
+        const summary = document.createElement('summary');
+        summary.innerHTML = `${campus.name} <span style="font-size:0.8em; font-weight:normal;">(${areas.length}箇所)</span>`;
+        
+        const content = document.createElement('div');
+        content.className = 'details-content';
+        
+        if (areas.length > 0) {
+            areas.forEach(area => {
+                const row = document.createElement('div');
+                row.className = 'item-card';
+                // 枠線を消してリストっぽく
+                row.style.border = 'none'; 
+                row.style.borderBottom = '1px solid #eee';
+                row.style.borderRadius = '0';
+                row.style.margin = '0';
+                if(area.isActive) row.style.backgroundColor = '#e6ffec';
+                
+                row.innerHTML = `
+                    <div>
+                        <strong>${area.name}</strong> <small>(${area.lat}, ${area.lon})</small><br>
+                        状態: ${area.isActive ? '<span style="color:green">活動中</span>' : '<span style="color:gray">停止</span>'}
+                    </div>
+                    <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="padding:5px 10px; font-size:0.8em;">
+                        ${area.isActive ? '停止' : '開始'}
+                    </button>
+                `;
+                content.appendChild(row);
+            });
+        } else {
+            content.innerHTML = '<div style="padding:10px; color:#999;">エリア登録なし</div>';
+        }
+        
+        details.appendChild(summary);
+        details.appendChild(content);
+        listContainer.appendChild(details);
     });
 }
 
@@ -980,42 +1051,32 @@ function populateFaceList() {
 
 // --- ユーザー側: 送信処理 ---
 async function submitReport() {
-    const nameInput = document.getElementById('reportName');
-    const typeInput = document.getElementById('reportType');
-    const reasonInput = document.getElementById('reportReason');
+    const name = document.getElementById('reportName').value.trim();
+    const type = document.getElementById('reportType').value;
+    const reason = document.getElementById('reportReason').value.trim();
+    const startVal = document.getElementById('reportStart').value;
+    const endVal = document.getElementById('reportEnd').value;
     const fileInput = document.getElementById('reportImage');
     
-    // 要素取得チェック
-    if (!nameInput || !typeInput || !reasonInput) {
-        console.error("フォーム要素が見つかりません");
-        return;
-    }
-
-    const name = nameInput.value.trim();
-    const type = typeInput.value;
-    const reason = reasonInput.value.trim();
-    
     if (!name || !reason) return alert("名前と理由を入力してください");
-    
-    // 画像処理 (Base64変換)
+    if (!startVal) return alert("開始日時を入力してください");
+
+    // 日時変換
+    const startDate = new Date(startVal);
+    const endDate = endVal ? new Date(endVal) : null;
+
+    // 画像処理 (Base64)
     let imageBase64 = null;
-    if (fileInput && fileInput.files && fileInput.files[0]) {
+    if (fileInput && fileInput.files[0]) {
         const file = fileInput.files[0];
-        // サイズ制限 (1MB)
-        if (file.size > 1024 * 1024) {
-            return alert("画像サイズが大きすぎます (1MB以下にしてください)");
-        }
-        
+        if (file.size > 1024 * 1024) return alert("画像は1MB以下にしてください");
         try {
-            imageBase64 = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = e => resolve(e.target.result);
-                reader.onerror = e => reject(e);
-                reader.readAsDataURL(file);
+            imageBase64 = await new Promise((resolve) => {
+                const r = new FileReader();
+                r.onload = e => resolve(e.target.result);
+                r.readAsDataURL(file);
             });
-        } catch(e) {
-            return alert("画像の読み込みに失敗しました: " + e.message);
-        }
+        } catch(e) { return alert("画像読込エラー"); }
     }
 
     try {
@@ -1023,21 +1084,18 @@ async function submitReport() {
             userName: name,
             type: type,
             reason: reason,
-            attachment: imageBase64, // 画像データ (Base64)
-            status: 'pending', // 初期状態
+            startDate: firebase.firestore.Timestamp.fromDate(startDate),
+            endDate: endDate ? firebase.firestore.Timestamp.fromDate(endDate) : null,
+            attachment: imageBase64,
+            status: 'pending',
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
-        
         alert("送信しました");
-        
-        // フォームクリア
-        reasonInput.value = "";
-        if (fileInput) fileInput.value = "";
-        const preview = document.getElementById('previewArea');
-        if (preview) preview.innerHTML = "";
-        
+        // リセット
+        document.getElementById('reportReason').value = "";
+        document.getElementById('reportImage').value = "";
+        document.getElementById('previewArea').innerHTML = "";
     } catch(e) {
-        console.error("Submit Error:", e);
         alert("送信エラー: " + e.message);
     }
 }
@@ -1071,28 +1129,24 @@ function switchAdminSubTab(tab) {
     const btnAuth = document.getElementById('btn-sub-auth');
     const btnReport = document.getElementById('btn-sub-report');
 
-    if (!authView || !reportView) return;
-
     if (tab === 'auth') {
         authView.style.display = 'block';
         reportView.style.display = 'none';
-        if(btnAuth) btnAuth.classList.add('active');
-        if(btnReport) btnReport.classList.remove('active');
-        refreshRequests(); // 認証リスト更新
+        btnAuth.classList.add('active');
+        btnReport.classList.remove('active');
+        refreshRequests();
     } else {
         authView.style.display = 'none';
         reportView.style.display = 'block';
-        if(btnAuth) btnAuth.classList.remove('active');
-        if(btnReport) btnReport.classList.add('active');
-        refreshReports(); // 届出リスト更新
+        btnAuth.classList.remove('active');
+        btnReport.classList.add('active');
+        refreshReports();
     }
 }
 
 // 届出リスト取得 (管理者)
 async function refreshReports() {
     const listEl = document.getElementById('reportList');
-    if (!listEl) return;
-    
     listEl.innerHTML = '<p>読み込み中...</p>';
     
     try {
@@ -1102,73 +1156,57 @@ async function refreshReports() {
             .get();
             
         listEl.innerHTML = '';
-        if (snapshot.empty) {
-            listEl.innerHTML = '<p>届出はありません</p>';
-            return;
-        }
+        if (snapshot.empty) { listEl.innerHTML = '<p>届出なし</p>'; return; }
         
         snapshot.forEach(doc => {
-            const data = doc.data();
-            const date = data.timestamp ? data.timestamp.toDate().toLocaleString() : '';
+            const d = doc.data();
+            const sentDate = d.timestamp ? d.timestamp.toDate().toLocaleString() : '';
             
-            // 表示ラベル変換
-            const typeMap = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' };
-            const typeLabel = typeMap[data.type] || data.type;
+            // 期間表示
+            const startStr = d.startDate ? d.startDate.toDate().toLocaleString() : '未定';
+            const endStr = d.endDate ? d.endDate.toDate().toLocaleString() : '';
+            const periodStr = endStr ? `${startStr} 〜 ${endStr}` : `${startStr} 〜`;
+
+            const typeLabel = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' }[d.type] || d.type;
+            const statusLabel = { 'pending':'未承認', 'approved':'承認済', 'confirm':'要確認', 'rejected':'否認' }[d.status] || d.status;
             
-            const statusMap = { 
-                'pending': '未承認', 'approved': '承認済', 
-                'confirm': '要確認', 'rejected': '否認' 
-            };
-            const statusLabel = statusMap[data.status] || data.status;
-            
-            // ステータスに応じた色クラス (CSSで定義推奨)
-            let badgeStyle = "background:#666;";
-            if(data.status === 'approved') badgeStyle = "background:#28a745;";
-            if(data.status === 'confirm') badgeStyle = "background:#ffc107; color:black;";
-            if(data.status === 'rejected') badgeStyle = "background:#dc3545;";
+            // 色分け
+            let badgeColor = "#666";
+            if(d.status==='approved') badgeColor="#28a745";
+            if(d.status==='confirm') badgeColor="#ffc107";
+            if(d.status==='rejected') badgeColor="#dc3545";
 
             const div = document.createElement('div');
-            div.className = 'item-card'; // 既存CSS流用
-            div.style.display = "block"; // 縦並びにするため
-            
+            div.className = 'item-card';
+            div.style.display = 'block'; // 縦積み
             div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                    <strong>${data.userName}</strong>
-                    <span style="padding:3px 8px; border-radius:4px; color:white; font-size:0.8em; ${badgeStyle}">${statusLabel}</span>
+                <div style="display:flex; justify-content:space-between; border-bottom:1px solid #eee; padding-bottom:5px;">
+                    <strong>${d.userName}</strong>
+                    <span style="background:${badgeColor}; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em;">${statusLabel}</span>
                 </div>
-                <div style="font-size:0.9em; color:#333; margin-bottom:5px;">
-                    <span style="font-weight:bold; color:#007bff;">[${typeLabel}]</span> ${date}<br>
-                    理由: ${data.reason}
+                <div style="font-size:0.9em; margin:5px 0;">
+                    <span style="color:#007bff; font-weight:bold;">[${typeLabel}]</span> <br>
+                    期間: <b>${periodStr}</b><br>
+                    理由: ${d.reason}
                 </div>
-                ${data.attachment ? `<div style="margin:5px 0;"><img src="${data.attachment}" style="max-width:100px; max-height:100px; border:1px solid #ccc;"></div>` : ''}
-                
-                <div style="margin-top:8px; text-align:right;">
-                    <button onclick="updateReportStatus('${doc.id}', 'approved')" style="background:#28a745; padding:5px 10px; font-size:0.9em; margin-left:5px;">承認</button>
-                    <button onclick="updateReportStatus('${doc.id}', 'confirm')" style="background:#ffc107; color:black; padding:5px 10px; font-size:0.9em; margin-left:5px;">確認</button>
-                    <button onclick="updateReportStatus('${doc.id}', 'rejected')" style="background:#dc3545; padding:5px 10px; font-size:0.9em; margin-left:5px;">否認</button>
+                ${d.attachment ? `<img src="${d.attachment}" style="max-height:80px; border:1px solid #ccc;">` : ''}
+                <div style="text-align:right; margin-top:5px;">
+                    <button onclick="updateReportStatus('${doc.id}','approved')" style="padding:5px 10px; font-size:0.8em; background:#28a745;">承認</button>
+                    <button onclick="updateReportStatus('${doc.id}','confirm')" style="padding:5px 10px; font-size:0.8em; background:#ffc107; color:black;">確認</button>
+                    <button onclick="updateReportStatus('${doc.id}','rejected')" style="padding:5px 10px; font-size:0.8em; background:#dc3545;">否認</button>
                 </div>
             `;
             listEl.appendChild(div);
         });
     } catch(e) {
-        listEl.innerHTML = '<p>読み込みエラー</p>';
+        listEl.innerHTML = '<p>エラー (インデックス未作成の可能性があります)</p>';
         console.error(e);
-        if(e.code === 'failed-precondition') {
-            alert("インデックスが必要です。コンソールのリンクから作成してください。");
-        }
     }
 }
 
 // ステータス更新処理
-async function updateReportStatus(docId, newStatus) {
-    if (!confirm(`ステータスを変更しますか？`)) return;
-    
-    try {
-        await db.collection('absence_reports').doc(docId).update({
-            status: newStatus
-        });
-        refreshReports(); // リスト再読み込み
-    } catch(e) {
-        alert("更新エラー: " + e.message);
-    }
+async function updateReportStatus(docId, st) {
+    if(!confirm('ステータスを変更しますか？')) return;
+    await db.collection('absence_reports').doc(docId).update({ status: st });
+    refreshReports();
 }

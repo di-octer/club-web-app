@@ -22,9 +22,9 @@
   <main class="content">
     <div class="container">
         <h2>欠席・遅刻連絡フォーム</h2>
-        <p>連絡事項を入力して送信してください。</p>
+        <p>日時と理由を入力して送信してください。</p>
 
-        <div style="text-align: left;">
+        <div class="form-box" style="text-align: left;">
             <div class="input-group">
                 <label style="display:block; font-weight:bold;">名前 (登録名)</label>
                 <input type="text" id="reportName" placeholder="例: 山田太郎" style="width: 100%; box-sizing: border-box;">
@@ -40,6 +40,15 @@
             </div>
 
             <div class="input-group">
+                <label style="display:block; font-weight:bold;">対象期間 (開始)</label>
+                <input type="datetime-local" id="reportStart" style="width: 100%; box-sizing: border-box;">
+            </div>
+            <div class="input-group">
+                <label style="display:block; font-weight:bold;">対象期間 (終了/復帰)</label>
+                <input type="datetime-local" id="reportEnd" style="width: 100%; box-sizing: border-box;">
+            </div>
+
+            <div class="input-group">
                 <label style="display:block; font-weight:bold;">理由</label>
                 <textarea id="reportReason" rows="4" placeholder="例: 体調不良のため、電車遅延のため" style="width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ccc; border-radius: 4px;"></textarea>
             </div>
@@ -47,7 +56,7 @@
             <div class="input-group">
                 <label style="display:block; font-weight:bold;">証明写真・添付画像 (任意)</label>
                 <input type="file" id="reportImage" accept="image/*" style="width: 100%;">
-                <div id="previewArea"></div>
+                <div id="previewArea" style="margin-top:10px;"></div>
             </div>
 
             <button onclick="submitReport()" style="width: 100%; margin-top: 20px; padding: 15px; font-size: 1.1em;">送信する</button>
