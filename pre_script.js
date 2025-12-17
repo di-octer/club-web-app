@@ -973,3 +973,202 @@ function populateFaceList() {
         el.appendChild(div);
     });
 }
+
+// ==========================================
+//   届出・連絡機能 (Report) - Form & Admin
+// ==========================================
+
+// --- ユーザー側: 送信処理 ---
+async function submitReport() {
+    const nameInput = document.getElementById('reportName');
+    const typeInput = document.getElementById('reportType');
+    const reasonInput = document.getElementById('reportReason');
+    const fileInput = document.getElementById('reportImage');
+    
+    // 要素取得チェック
+    if (!nameInput || !typeInput || !reasonInput) {
+        console.error("フォーム要素が見つかりません");
+        return;
+    }
+
+    const name = nameInput.value.trim();
+    const type = typeInput.value;
+    const reason = reasonInput.value.trim();
+    
+    if (!name || !reason) return alert("名前と理由を入力してください");
+    
+    // 画像処理 (Base64変換)
+    let imageBase64 = null;
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+        const file = fileInput.files[0];
+        // サイズ制限 (1MB)
+        if (file.size > 1024 * 1024) {
+            return alert("画像サイズが大きすぎます (1MB以下にしてください)");
+        }
+        
+        try {
+            imageBase64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = e => reject(e);
+                reader.readAsDataURL(file);
+            });
+        } catch(e) {
+            return alert("画像の読み込みに失敗しました: " + e.message);
+        }
+    }
+
+    try {
+        await db.collection('absence_reports').add({
+            userName: name,
+            type: type,
+            reason: reason,
+            attachment: imageBase64, // 画像データ (Base64)
+            status: 'pending', // 初期状態
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        alert("送信しました");
+        
+        // フォームクリア
+        reasonInput.value = "";
+        if (fileInput) fileInput.value = "";
+        const preview = document.getElementById('previewArea');
+        if (preview) preview.innerHTML = "";
+        
+    } catch(e) {
+        console.error("Submit Error:", e);
+        alert("送信エラー: " + e.message);
+    }
+}
+
+// ユーザー側: 画像プレビュー機能
+// ページ読み込み時にイベントリスナーを設定
+window.addEventListener('DOMContentLoaded', () => {
+    const fileInput = document.getElementById('reportImage');
+    if (fileInput) {
+        fileInput.addEventListener('change', function(e) {
+            const area = document.getElementById('previewArea');
+            area.innerHTML = "";
+            if (this.files && this.files[0]) {
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(this.files[0]);
+                img.style.maxWidth = "100px";
+                img.style.border = "1px solid #ccc";
+                img.style.marginTop = "10px";
+                area.appendChild(img);
+            }
+        });
+    }
+});
+
+
+// --- 管理者側: サブタブ切り替え & リスト表示 ---
+
+function switchAdminSubTab(tab) {
+    const authView = document.getElementById('view-auth');
+    const reportView = document.getElementById('view-report');
+    const btnAuth = document.getElementById('btn-sub-auth');
+    const btnReport = document.getElementById('btn-sub-report');
+
+    if (!authView || !reportView) return;
+
+    if (tab === 'auth') {
+        authView.style.display = 'block';
+        reportView.style.display = 'none';
+        if(btnAuth) btnAuth.classList.add('active');
+        if(btnReport) btnReport.classList.remove('active');
+        refreshRequests(); // 認証リスト更新
+    } else {
+        authView.style.display = 'none';
+        reportView.style.display = 'block';
+        if(btnAuth) btnAuth.classList.remove('active');
+        if(btnReport) btnReport.classList.add('active');
+        refreshReports(); // 届出リスト更新
+    }
+}
+
+// 届出リスト取得 (管理者)
+async function refreshReports() {
+    const listEl = document.getElementById('reportList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '<p>読み込み中...</p>';
+    
+    try {
+        const snapshot = await db.collection('absence_reports')
+            .orderBy('timestamp', 'desc')
+            .limit(50)
+            .get();
+            
+        listEl.innerHTML = '';
+        if (snapshot.empty) {
+            listEl.innerHTML = '<p>届出はありません</p>';
+            return;
+        }
+        
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const date = data.timestamp ? data.timestamp.toDate().toLocaleString() : '';
+            
+            // 表示ラベル変換
+            const typeMap = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' };
+            const typeLabel = typeMap[data.type] || data.type;
+            
+            const statusMap = { 
+                'pending': '未承認', 'approved': '承認済', 
+                'confirm': '要確認', 'rejected': '否認' 
+            };
+            const statusLabel = statusMap[data.status] || data.status;
+            
+            // ステータスに応じた色クラス (CSSで定義推奨)
+            let badgeStyle = "background:#666;";
+            if(data.status === 'approved') badgeStyle = "background:#28a745;";
+            if(data.status === 'confirm') badgeStyle = "background:#ffc107; color:black;";
+            if(data.status === 'rejected') badgeStyle = "background:#dc3545;";
+
+            const div = document.createElement('div');
+            div.className = 'item-card'; // 既存CSS流用
+            div.style.display = "block"; // 縦並びにするため
+            
+            div.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                    <strong>${data.userName}</strong>
+                    <span style="padding:3px 8px; border-radius:4px; color:white; font-size:0.8em; ${badgeStyle}">${statusLabel}</span>
+                </div>
+                <div style="font-size:0.9em; color:#333; margin-bottom:5px;">
+                    <span style="font-weight:bold; color:#007bff;">[${typeLabel}]</span> ${date}<br>
+                    理由: ${data.reason}
+                </div>
+                ${data.attachment ? `<div style="margin:5px 0;"><img src="${data.attachment}" style="max-width:100px; max-height:100px; border:1px solid #ccc;"></div>` : ''}
+                
+                <div style="margin-top:8px; text-align:right;">
+                    <button onclick="updateReportStatus('${doc.id}', 'approved')" style="background:#28a745; padding:5px 10px; font-size:0.9em; margin-left:5px;">承認</button>
+                    <button onclick="updateReportStatus('${doc.id}', 'confirm')" style="background:#ffc107; color:black; padding:5px 10px; font-size:0.9em; margin-left:5px;">確認</button>
+                    <button onclick="updateReportStatus('${doc.id}', 'rejected')" style="background:#dc3545; padding:5px 10px; font-size:0.9em; margin-left:5px;">否認</button>
+                </div>
+            `;
+            listEl.appendChild(div);
+        });
+    } catch(e) {
+        listEl.innerHTML = '<p>読み込みエラー</p>';
+        console.error(e);
+        if(e.code === 'failed-precondition') {
+            alert("インデックスが必要です。コンソールのリンクから作成してください。");
+        }
+    }
+}
+
+// ステータス更新処理
+async function updateReportStatus(docId, newStatus) {
+    if (!confirm(`ステータスを変更しますか？`)) return;
+    
+    try {
+        await db.collection('absence_reports').doc(docId).update({
+            status: newStatus
+        });
+        refreshReports(); // リスト再読み込み
+    } catch(e) {
+        alert("更新エラー: " + e.message);
+    }
+}

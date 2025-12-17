@@ -24,15 +24,15 @@
         <h2>欠席・遅刻連絡フォーム</h2>
         <p>連絡事項を入力して送信してください。</p>
 
-        <div class="form-box">
+        <div style="text-align: left;">
             <div class="input-group">
-                <label>名前 (登録名)</label>
-                <input type="text" id="reportName" placeholder="例: 山田太郎">
+                <label style="display:block; font-weight:bold;">名前 (登録名)</label>
+                <input type="text" id="reportName" placeholder="例: 山田太郎" style="width: 100%; box-sizing: border-box;">
             </div>
 
             <div class="input-group">
-                <label>種別</label>
-                <select id="reportType">
+                <label style="display:block; font-weight:bold;">種別</label>
+                <select id="reportType" style="width: 100%; box-sizing: border-box;">
                     <option value="absence">欠席 (休みます)</option>
                     <option value="late">遅刻 (遅れます)</option>
                     <option value="early">早退 (早く帰ります)</option>
@@ -40,17 +40,17 @@
             </div>
 
             <div class="input-group">
-                <label>理由</label>
-                <textarea id="reportReason" rows="4" placeholder="例: 体調不良のため、電車遅延のため"></textarea>
+                <label style="display:block; font-weight:bold;">理由</label>
+                <textarea id="reportReason" rows="4" placeholder="例: 体調不良のため、電車遅延のため" style="width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ccc; border-radius: 4px;"></textarea>
             </div>
 
             <div class="input-group">
-                <label>証明写真・添付画像 (任意)</label>
-                <input type="file" id="reportImage" accept="image/*">
-                <div id="previewArea" style="margin-top:10px;"></div>
+                <label style="display:block; font-weight:bold;">証明写真・添付画像 (任意)</label>
+                <input type="file" id="reportImage" accept="image/*" style="width: 100%;">
+                <div id="previewArea"></div>
             </div>
 
-            <button onclick="submitReport()" style="width: 100%; margin-top: 20px;">送信する</button>
+            <button onclick="submitReport()" style="width: 100%; margin-top: 20px; padding: 15px; font-size: 1.1em;">送信する</button>
         </div>
     </div>
   </main>
