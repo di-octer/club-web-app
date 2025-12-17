@@ -461,158 +461,283 @@ async function refreshRequests() {
 }
 
 // ==========================================
-//   管理者機能 (Admin) - 承認モーダルとガイド描画
+//   管理者機能 (Admin) - 認証ロジック実装版
 // ==========================================
 
 let currentRequestId = null;
-let adminGuideLoopId = null; // ガイド描画ループのID
+let currentAuthUser = null; // { name, authType(code array), faceDescriptor }
+let adminGuideLoopId = null;
+let adminAuthStep = 0; // 0:コードスキャン, 1:顔認証, 2:承認可
 
-function openAuthModal(reqId, userName, authType) {
+// 承認モーダルを開く
+async function openAuthModal(reqId, userName, authTypeString) {
     currentRequestId = reqId;
+    adminAuthStep = 0; // 最初はコードスキャンから
+    
+    // ユーザー情報の特定
+    // authTypeString: "code,C,Y,M,G" 形式
+    const parts = authTypeString.split(',');
+    const targetCode = parts[0] === 'code' ? parts.slice(1) : [];
+    
+    // 登録済み顔データの検索
+    // (注: Web版face-api.jsの形式に変換済みの registeredFaces から探す)
+    const registered = registeredFaces.find(f => f.label === userName);
+    
+    currentAuthUser = {
+        name: userName,
+        targetCode: targetCode,
+        descriptor: registered ? registered.descriptor : null
+    };
+
     const modal = document.getElementById('authModal');
     modal.style.display = 'block';
-    document.getElementById('modalTitle').textContent = `${userName} さんの認証`;
-    document.getElementById('approveBtn').disabled = false; 
+    updateAdminStatus("コードを枠に合わせてください");
+    document.getElementById('approveBtn').disabled = true;
     
     // カメラ起動
     const video = document.getElementById('adminVideo');
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-            .then(stream => { 
-                video.srcObject = stream;
-                // ビデオ再生開始に合わせてガイド描画ループを開始
-                video.onloadedmetadata = () => {
-                    video.play();
-                    drawAdminGuide(); 
-                };
-            })
-            .catch(e => {
-                console.error("カメラ起動不可:", e);
-                alert("カメラを起動できませんでした。");
-            });
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment" } // 外カメラ推奨
+        });
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+            video.play();
+            processAdminFrame(); // 処理ループ開始
+        };
+    } catch(e) {
+        console.error("カメラエラー:", e);
+        alert("カメラを起動できませんでした。");
     }
 }
 
 function closeAuthModal() {
     document.getElementById('authModal').style.display = 'none';
     const video = document.getElementById('adminVideo');
-    
-    // カメラ停止
     if (video.srcObject) {
         video.srcObject.getTracks().forEach(t => t.stop());
         video.srcObject = null;
     }
-    
-    // 描画ループ停止
     if (adminGuideLoopId) {
         cancelAnimationFrame(adminGuideLoopId);
         adminGuideLoopId = null;
     }
 }
 
-// ★追加: Dartコードを移植したガイド描画関数
-function drawAdminGuide() {
+function updateAdminStatus(msg) {
+    document.getElementById('modalTitle').textContent = 
+        `${currentAuthUser ? currentAuthUser.name : ''} さんの認証 (Step ${adminAuthStep+1}/2)`;
+    document.getElementById('adminAuthStatus').textContent = msg;
+}
+
+// --- メイン処理ループ (描画 & 判定) ---
+async function processAdminFrame() {
     const canvas = document.getElementById('adminCanvas');
     const video = document.getElementById('adminVideo');
     const modal = document.getElementById('authModal');
 
-    // モーダルが閉じている、または要素がない場合は終了
-    if (modal.style.display === 'none' || !canvas || !video) return;
+    if (modal.style.display === 'none' || !canvas || !video || video.paused || video.ended) return;
 
-    // キャンバスサイズをビデオに合わせる
-    if (video.videoWidth > 0 && video.videoHeight > 0) {
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-        }
+    // キャンバスサイズ同期
+    if (video.videoWidth > 0 && canvas.width !== video.videoWidth) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
     }
 
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
 
-    // 画面クリア
+    // 1. ガイド描画 (現在のステップに応じて色などを変える)
     ctx.clearRect(0, 0, w, h);
+    drawAdminGuide(ctx, w, h, adminAuthStep);
 
-    // --- Dartコードのロジック移植 ---
-    
-    // Python/Dartコードの基準サイズ
-    const refW = 230.0;
-    const refH = 170.0;
-    
-    // 画面サイズに合わせてスケール計算 (画面幅の80%くらいに収まるように)
-    // Dart: final double scale = (size.width * 0.8) / refW;
+    // 2. 判定ロジック (少し負荷を下げるため毎フレーム実行しない制御を入れても良い)
+    if (adminAuthStep === 0) {
+        // --- Step 1: カラーコード判定 ---
+        const detectedCode = scanColors(ctx, w, h); // 画像データから色を取得
+        
+        // ターゲットと一致するか
+        if (isCodeMatch(detectedCode, currentAuthUser.targetCode)) {
+            adminAuthStep = 1;
+            updateAdminStatus("コード一致！ 次は「顔」を映してください");
+            // 成功演出のあと少し待つなどの処理も可
+        }
+        
+    } else if (adminAuthStep === 1) {
+        // --- Step 2: 顔認証 ---
+        // face-api.js を使用
+        if (currentAuthUser.descriptor) {
+            // 処理が重いので非同期実行(awaitしないとカクつくが、ループ内なので注意)
+            // 簡易的に detectSingleFace を使用
+            const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            
+            if (detection) {
+                // 距離計算 (ユークリッド距離)
+                const dist = faceapi.euclideanDistance(detection.descriptor, currentAuthUser.descriptor);
+                
+                // ガイド枠(顔)の描画
+                const box = detection.detection.box;
+                const drawBox = new faceapi.draw.DrawBox(box, { label: dist.toFixed(2) });
+                drawBox.draw(canvas);
+
+                // 閾値判定 (0.6以下なら本人)
+                if (dist < 0.6) {
+                    adminAuthStep = 2;
+                    updateAdminStatus("本人確認完了！ 承認ボタンを押してください");
+                    document.getElementById('approveBtn').disabled = false;
+                    document.getElementById('approveBtn').style.backgroundColor = "#28a745";
+                }
+            }
+        } else {
+            // 顔データがない場合はスキップするかエラーにする
+            updateAdminStatus("登録顔データがありません (スキップ可)");
+            document.getElementById('approveBtn').disabled = false;
+        }
+    }
+
+    // 次のフレーム
+    adminGuideLoopId = requestAnimationFrame(processAdminFrame);
+}
+
+// --- 色判定ロジック ---
+function scanColors(ctx, w, h) {
+    // 基準サイズとスケール計算 (GuidePainterと同じロジック)
+    const refW = 230;
+    const refH = 170;
     const scale = (w * 0.8) / refW;
-    
-    // 中央配置のためのオフセット
     const offsetX = (w - refW * scale) / 2;
     const offsetY = (h - refH * scale) / 2;
+    const t = (x, y) => ({ x: offsetX + x * scale, y: offsetY + y * scale });
 
-    // 座標変換ヘルパー (Offset t(double x, double y))
-    const t = (x, y) => ({
-        x: x * scale + offsetX,
-        y: y * scale + offsetY
+    // H型配置のサンプリング座標 (左, 中上, 中下, 右)
+    // 描画座標の中心点を狙う
+    // 左: x=40~70 (中心55), y=40~130 (中心85) -> (55, 85)
+    // 中上: x=80~150(中心115), y=40~70(中心55) -> (115, 55)
+    // 中下: x=80~150(中心115), y=80~130(中心105) -> (115, 105)
+    // 右: x=160~190(中心175), y=40~130(中心85) -> (175, 85)
+    
+    const points = [
+        t(55, 85),  // Code 1
+        t(115, 55), // Code 2
+        t(115, 105),// Code 3
+        t(175, 85)  // Code 4
+    ];
+
+    // ピクセルデータ取得
+    // ctx.getImageData は重いので、points周辺だけ取得するか、全体1回取得するか
+    // ここでは簡易的に全体を取得 (最適化余地あり)
+    const imageData = ctx.getImageData(0, 0, w, h).data;
+
+    const detected = points.map(p => {
+        const x = Math.floor(p.x);
+        const y = Math.floor(p.y);
+        const i = (y * w + x) * 4;
+        const r = imageData[i];
+        const g = imageData[i+1];
+        const b = imageData[i+2];
+        return classifyColor(r, g, b);
     });
 
-    // ペン設定 (共通)
+    return detected;
+}
+
+function classifyColor(r, g, b) {
+    // 簡易的な色判定閾値 (C, Y, M, G)
+    // Cyan: G高, B高, R低
+    if (g > 150 && b > 150 && r < 100) return 'C';
+    // Yellow: R高, G高, B低
+    if (r > 150 && g > 150 && b < 100) return 'Y';
+    // Magenta: R高, B高, G低
+    if (r > 150 && b > 150 && g < 100) return 'M';
+    // Green: G高, R低, B低
+    if (g > 100 && r < 100 && b < 100) return 'G';
+    
+    return '?';
+}
+
+function isCodeMatch(detected, target) {
+    if (!target || target.length !== 4) return false;
+    for (let i = 0; i < 4; i++) {
+        if (detected[i] !== target[i]) return false;
+    }
+    return true;
+}
+
+// --- ガイド描画 (ステップ対応) ---
+function drawAdminGuide(ctx, w, h, step) {
+    const refW = 230;
+    const refH = 170;
+    const scale = (w * 0.8) / refW;
+    const offsetX = (w - refW * scale) / 2;
+    const offsetY = (h - refH * scale) / 2;
+    const t = (x, y) => ({ x: x * scale + offsetX, y: y * scale + offsetY });
+
     ctx.lineWidth = 4;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // 1. 四隅のL字 (赤: 上, 青: 下)
+    // 1. L字マーカー (ステップ0:コード認証時のみ強調、ステップ1以降は薄く)
+    const markerAlpha = step === 0 ? 1.0 : 0.2;
     
-    // 左上 (赤)
-    ctx.strokeStyle = "red";
+    // 左上(赤)
+    ctx.strokeStyle = `rgba(255, 0, 0, ${markerAlpha})`;
     ctx.beginPath();
     let p = t(30, 50); ctx.moveTo(p.x, p.y);
     p = t(30, 30); ctx.lineTo(p.x, p.y);
     p = t(50, 30); ctx.lineTo(p.x, p.y);
     ctx.stroke();
-
-    // 右上 (赤)
+    // (右上、左下、右下も同様に...)
+    // 右上(赤)
     ctx.beginPath();
     p = t(200, 50); ctx.moveTo(p.x, p.y);
     p = t(200, 30); ctx.lineTo(p.x, p.y);
     p = t(180, 30); ctx.lineTo(p.x, p.y);
     ctx.stroke();
-
-    // 左下 (青)
-    ctx.strokeStyle = "blue";
+    // 左下(青)
+    ctx.strokeStyle = `rgba(0, 0, 255, ${markerAlpha})`;
     ctx.beginPath();
     p = t(30, 120); ctx.moveTo(p.x, p.y);
     p = t(30, 140); ctx.lineTo(p.x, p.y);
     p = t(50, 140); ctx.lineTo(p.x, p.y);
     ctx.stroke();
-
-    // 右下 (青)
+    // 右下(青)
     ctx.beginPath();
     p = t(200, 120); ctx.moveTo(p.x, p.y);
     p = t(200, 140); ctx.lineTo(p.x, p.y);
     p = t(180, 140); ctx.lineTo(p.x, p.y);
     ctx.stroke();
 
-    // 2. 中央のH型 (白・半透明)
-    // Dart: Colors.white.withOpacity(0.8)
-    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-
-    // 矩形描画ヘルパー (Rect.fromPoints 相当)
-    const fillRectFromPoints = (p1x, p1y, p2x, p2y) => {
-        const start = t(p1x, p1y);
-        const end = t(p2x, p2y);
-        ctx.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
-    };
-
-    // 左縦棒: x=70~80, y=40~130
-    fillRectFromPoints(70, 40, 80, 130);
-    
-    // 横棒: x=80~150, y=70~80
-    fillRectFromPoints(80, 70, 150, 80);
-
-    // 右縦棒: x=150~160, y=40~130
-    fillRectFromPoints(150, 40, 160, 130);
-
-    // 次のフレームをリクエスト
-    adminGuideLoopId = requestAnimationFrame(drawAdminGuide);
+    // 2. 中央のH型 (コード認証時のみ表示)
+    if (step === 0) {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.5)"; // 半透明白
+        const fillRectFromPoints = (p1x, p1y, p2x, p2y) => {
+            const start = t(p1x, p1y);
+            const end = t(p2x, p2y);
+            ctx.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
+        };
+        fillRectFromPoints(70, 40, 80, 130);  // 左
+        fillRectFromPoints(80, 70, 150, 80);  // 横
+        fillRectFromPoints(150, 40, 160, 130); // 右
+        
+        // ターゲット色をヒントとして表示 (オプション)
+        if (currentAuthUser && currentAuthUser.targetCode.length === 4) {
+            const colors = { 'C':'#00FFFF', 'Y':'#FFFF00', 'M':'#FF00FF', 'G':'#00FF00' };
+            const c = currentAuthUser.targetCode;
+            // 小さい丸で色を表示
+            const drawDot = (cx, cy, code) => {
+                const pt = t(cx, cy);
+                ctx.fillStyle = colors[code] || 'gray';
+                ctx.beginPath(); ctx.arc(pt.x, pt.y, 5, 0, Math.PI*2); ctx.fill();
+            };
+            drawDot(55, 85, c[0]);
+            drawDot(115, 55, c[1]);
+            drawDot(115, 105, c[2]);
+            drawDot(175, 85, c[3]);
+        }
+    }
 }
 
 async function approveRequest() {
