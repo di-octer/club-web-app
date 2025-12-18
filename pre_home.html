@@ -13,7 +13,19 @@
       li { margin: 15px 0; }
       li a { display: block; padding: 15px; background: white; border-radius: 8px; text-decoration: none; color: #333; box-shadow: 0 2px 5px rgba(0,0,0,0.1); transition: transform 0.2s; }
       li a:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+      
+      /* ニュース用スタイル */
+      .news-block { margin-bottom: 20px; text-align: left; }
+      .news-block h3 { border-left: 5px solid #007bff; padding-left: 10px; font-size: 1.2em; margin-bottom: 10px; background: #f0f8ff; padding: 8px; border-radius: 0 5px 5px 0; }
+      .news-item { padding: 10px; border-bottom: 1px solid #eee; display: flex; align-items: flex-start; }
+      .news-item:last-child { border-bottom: none; }
+      .news-item a { text-decoration: none; color: #333; font-weight: bold; display: block; }
+      .news-item a:hover { color: #007bff; text-decoration: underline; }
   </style>
+  
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 </head>
 <body>
   <header class="appbar">
@@ -36,7 +48,7 @@
         </div>
 
         <div class="news-block">
-            <h3>📈 Qiita トレンド (LGTM > 30)</h3>
+            <h3>📈 Qiita トレンド (LGTM > 20)</h3>
             <div id="trendNewsList" class="news-list">
                 <p>読み込み中...</p>
             </div>
@@ -57,5 +69,7 @@
       <li><a href="pre_settings.html">⚙️ 設定 / 管理者メニュー</a></li>
     </ul>
   </main>
+
+  <script src="pre_script.js"></script>
 </body>
 </html>
