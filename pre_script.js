@@ -1474,7 +1474,7 @@ async function loadHomeNews() {
             }
         } catch(e) { 
             console.error("Firestore読み込みエラー:", e); 
-            recListEl.innerHTML = '<p>読み込みエラー (コンソールを確認)</p>'; 
+            recListEl.innerHTML = '<p>読み込みエラー</p>'; 
         }
     }
 
@@ -1482,10 +1482,9 @@ async function loadHomeNews() {
     const trendListEl = document.getElementById('trendNewsList');
     if (trendListEl) {
         try {
-            // ★CORS対策: プロキシサーバーを経由させる
-            // Qiita APIを直接叩くとブラウザのセキュリティで弾かれることが多いため
-            const targetUrl = encodeURIComponent('https://qiita.com/api/v2/items?page=1&per_page=5&query=stocks:>20');
-            const proxyUrl = `https://api.allorigins.win/raw?url=${targetUrl}`;
+            // ★修正: プロキシを 'corsproxy.io' に変更 (より安定しています)
+            const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=5&query=stocks:>20';
+            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(targetUrl);
 
             console.log("Qiita APIへリクエスト送信:", proxyUrl);
             
@@ -1499,13 +1498,13 @@ async function loadHomeNews() {
             console.log("Qiitaデータ取得成功:", items);
             
             trendListEl.innerHTML = '';
-            if (items.length === 0) {
+            if (!items || items.length === 0) {
                 trendListEl.innerHTML = '<p>記事が見つかりませんでした</p>';
                 return;
             }
 
             items.forEach(item => {
-                // allorigins経由の場合、構造が変わることがあるため安全にアクセス
+                // 念のためユーザー情報がない場合のガードを入れる
                 const user = item.user || { id: 'unknown' };
                 trendListEl.appendChild(createNewsItem(item.title, item.url, 'Qiita', '#55c500', user.id));
             });
@@ -1548,9 +1547,9 @@ async function registerRecommendedArticle() {
     if (match) itemId = match[1];
 
     try {
-        // ★ここもCORS対策のプロキシ経由に変更
-        const targetUrl = encodeURIComponent(`https://qiita.com/api/v2/items/${itemId}`);
-        const proxyUrl = `https://api.allorigins.win/raw?url=${targetUrl}`;
+        // ★修正: ここも同じプロキシに変更
+        const targetUrl = `https://qiita.com/api/v2/items/${itemId}`;
+        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(targetUrl);
 
         const res = await fetch(proxyUrl);
         if (!res.ok) throw new Error("記事が見つかりません (またはAPI制限)");
@@ -1571,40 +1570,4 @@ async function registerRecommendedArticle() {
         console.error(e);
         alert("エラー: " + e.message);
     }
-}
-
-// 管理画面リスト表示
-async function loadAdminRecommendedArticles() {
-    const listEl = document.getElementById('adminNewsList');
-    if (!listEl) return;
-    
-    listEl.innerHTML = '<p>読み込み中...</p>';
-    const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
-    
-    listEl.innerHTML = '';
-    if (snap.empty) {
-        listEl.innerHTML = '<p>登録済み記事はありません</p>';
-        return;
-    }
-
-    snap.forEach(doc => {
-        const d = doc.data();
-        const div = document.createElement('div');
-        div.className = 'list-item-row';
-        div.style.padding = "5px 0";
-        div.style.borderBottom = "1px solid #eee";
-        div.innerHTML = `
-            <div style="flex:1;">
-                <a href="${d.url}" target="_blank" style="font-weight:bold;">${d.title}</a>
-            </div>
-            <button class="btn-danger" onclick="deleteRecommendedArticle('${doc.id}')" style="margin-left:10px;">削除</button>
-        `;
-        listEl.appendChild(div);
-    });
-}
-
-async function deleteRecommendedArticle(docId) {
-    if (!confirm("この記事を削除しますか？")) return;
-    await db.collection('recommended_news').doc(docId).delete();
-    loadAdminRecommendedArticles();
 }
