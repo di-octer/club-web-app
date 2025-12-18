@@ -1736,17 +1736,12 @@ async function deleteRecommendedArticle(docId) {
 // ==========================================
 
 function setupCommonAppbar() {
-    // 既存の古いヘッダーがあれば削除（重複防止）
     const existing = document.querySelector('header');
     if(existing) existing.remove();
 
-    // 1. スタイル定義 (CSS) を動的に追加
     const style = document.createElement('style');
     style.innerHTML = `
-        /* 本体コンテンツがヘッダーに隠れないように余白を確保 */
         body { padding-top: 70px; margin: 0; }
-        
-        /* 固定ヘッダー本体 */
         .appbar-fixed {
             position: fixed; top: 0; left: 0; width: 100%; height: 60px;
             background-color: #007bff; color: white;
@@ -1754,61 +1749,46 @@ function setupCommonAppbar() {
             z-index: 9999; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
             padding: 0 10px; box-sizing: border-box;
         }
+        .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
+        
+        /* キャンパス名 (固定表示) */
+        .appbar-campus {
+            font-weight: bold; margin-left: 10px; margin-right: 5px; 
+            white-space: nowrap; max-width: 120px; 
+            overflow: hidden; text-overflow: ellipsis;
+            font-size: 0.9em;
+        }
 
-        /* 左・右のアイコンエリア */
-        .appbar-side { display: flex; gap: 15px; flex: 0 0 auto; align-items: center; }
-
-        /* 中央の活動場所表示エリア */
         .appbar-center {
             flex: 1; overflow: hidden; position: relative;
             background: rgba(0,0,0,0.2); border-radius: 20px;
-            height: 36px; margin: 0 15px; cursor: pointer;
+            height: 36px; margin: 0 10px; cursor: pointer;
             display: flex; align-items: center; justify-content: center;
             color: #fff; font-size: 0.9em; font-weight: bold;
         }
         .appbar-center:hover { background: rgba(0,0,0,0.3); }
 
-        /* 単一表示用 (固定) */
-        .status-static {
-            width: 100%; text-align: center; 
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            padding: 0 10px;
-        }
+        .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 10px; }
+        .status-marquee { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee-anim 15s linear infinite; }
+        @keyframes marquee-anim { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
 
-        /* 電光掲示板アニメーション (複数用) */
-        .status-marquee {
-            display: inline-block; white-space: nowrap;
-            padding-left: 100%; /* 右端からスタート */
-            animation: marquee-anim 15s linear infinite;
-        }
-        @keyframes marquee-anim {
-            0% { transform: translate(0, 0); }
-            100% { transform: translate(-100%, 0); } /* 左へ流れる */
-        }
-
-        /* アイコンボタン */
         .icon-btn {
-            font-size: 1.5em; text-decoration: none; color: white;
+            font-size: 1.4em; text-decoration: none; color: white;
             display: flex; align-items: center; justify-content: center;
-            width: 40px; height: 40px; border-radius: 50%; transition: background 0.2s;
+            width: 36px; height: 36px; border-radius: 50%; transition: background 0.2s;
             border: none; background: transparent; cursor: pointer;
         }
         .icon-btn:hover { background: rgba(255,255,255,0.2); }
 
-        /* 一覧表示用モーダル (詳細リスト) */
         #statusDetailModal {
             position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
             background: white; color: #333; padding: 15px;
             box-shadow: 0 5px 20px rgba(0,0,0,0.4); border-radius: 8px;
-            z-index: 10000; display: none; width: 85%; max-width: 400px;
-            text-align: left;
+            z-index: 10000; display: none; width: 85%; max-width: 400px; text-align: left;
         }
         #statusDetailModal h4 { margin: 0 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
         .detail-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 0.9em; }
-        .detail-item:last-child { border-bottom: none; }
         .detail-badge { background: #28a745; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
-        
-        /* オーバーレイ (背景暗転) */
         #modalOverlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.5); z-index: 9998; display: none;
@@ -1816,16 +1796,18 @@ function setupCommonAppbar() {
     `;
     document.head.appendChild(style);
 
-    // 2. ヘッダーHTMLの生成
     const header = document.createElement('header');
     header.className = 'appbar-fixed';
     header.innerHTML = `
         <div class="appbar-side">
+            <a href="pre_home.html" class="icon-btn" title="ホーム">🏠</a>
             <a href="pre_curriculum.html" class="icon-btn" title="カリキュラム">✏️</a>
         </div>
+
+        <div id="appbarCampus" class="appbar-campus"></div>
         
         <div class="appbar-center" id="appbarStatus" onclick="toggleStatusModal()">
-            <div class="status-static">読み込み中...</div>
+            <div class="status-static">位置情報 取得中...</div>
         </div>
 
         <div class="appbar-side">
@@ -1835,10 +1817,9 @@ function setupCommonAppbar() {
     `;
     document.body.prepend(header);
 
-    // 3. モーダル用のHTML生成
     const overlay = document.createElement('div');
     overlay.id = 'modalOverlay';
-    overlay.onclick = toggleStatusModal; // 背景クリックで閉じる
+    overlay.onclick = toggleStatusModal; 
     document.body.appendChild(overlay);
 
     const modal = document.createElement('div');
@@ -1847,50 +1828,81 @@ function setupCommonAppbar() {
     document.body.appendChild(modal);
 }
 
-// データに基づいて表示を更新する関数
-function updateAppbarStatus() {
+async function updateAppbarStatus() {
+    const campusEl = document.getElementById('appbarCampus');
     const statusEl = document.getElementById('appbarStatus');
-    const modalContent = document.getElementById('statusDetailContent');
-    if (!statusEl || !registeredGpsAreas) return;
-
-    // 活動中のエリアを抽出 (isActive: true)
-    const activeAreas = registeredGpsAreas.filter(area => area.isActive);
     
-    // キャンパス名とエリア名を結合したリストを作成
-    const activeInfoList = activeAreas.map(area => {
-        const campus = registeredCampuses.find(c => c.id === area.campusId);
-        const campusName = campus ? campus.name : "不明なキャンパス";
-        return {
-            fullText: `${campusName} ${area.name}`,
-            campus: campusName,
-            area: area.name
-        };
-    });
+    // データ読み込み前なら待機
+    if (!statusEl || !registeredGpsAreas || !registeredCampuses || registeredCampuses.length === 0) return;
 
-    // 1. ヘッダー表示の更新
-    if (activeInfoList.length === 0) {
-        statusEl.innerHTML = '<div class="status-static">現在 活動場所はありません</div>';
-    } else if (activeInfoList.length === 1) {
-        // 単一: 固定表示
-        statusEl.innerHTML = `<div class="status-static">📍 ${activeInfoList[0].fullText}</div>`;
-    } else {
-        // 複数: 電光掲示板 (Marquee)
-        const text = activeInfoList.map(i => `[${i.fullText}]`).join("　　"); // 間隔を空ける
-        // アニメーション用にテキストを2回繰り返して繋げるとスムーズに見える場合もあるが、今回はシンプルに
-        statusEl.innerHTML = `<div class="status-marquee">${text}　　　　${text}</div>`;
+    // ヘルパー: 描画関数
+    const render = (campusName, areas) => {
+        // 1. キャンパス名
+        campusEl.textContent = campusName;
+
+        // 2. 中央エリア (エリア名のみ)
+        if (areas.length === 0) {
+            statusEl.innerHTML = '<div class="status-static">活動なし</div>';
+        } else if (areas.length === 1) {
+            statusEl.innerHTML = `<div class="status-static">📍 ${areas[0].name}</div>`;
+        } else {
+            const text = areas.map(a => `[${a.name}]`).join("　");
+            statusEl.innerHTML = `<div class="status-marquee">${text}　　　${text}</div>`;
+        }
+
+        // 3. モーダル
+        const modalContent = document.getElementById('statusDetailContent');
+        if (areas.length === 0) {
+            modalContent.innerHTML = `<p>${campusName} で活動中の場所はありません。</p>`;
+        } else {
+            modalContent.innerHTML = areas.map(a => `
+                <div class="detail-item">
+                    <span class="detail-badge">活動中</span>
+                    <strong>${campusName}</strong> - ${a.name}
+                </div>
+            `).join('');
+        }
+    };
+
+    // --- 位置情報の取得と判定 ---
+    if (!navigator.geolocation) {
+        render("GPS不可", []);
+        return;
     }
 
-    // 2. モーダル(一覧)の中身更新
-    if (activeInfoList.length === 0) {
-        modalContent.innerHTML = '<p>活動中の場所はありません。</p>';
-    } else {
-        modalContent.innerHTML = activeInfoList.map(info => `
-            <div class="detail-item">
-                <span class="detail-badge">活動中</span>
-                <strong>${info.campus}</strong> - ${info.area}
-            </div>
-        `).join('');
-    }
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const uLat = pos.coords.latitude;
+            const uLon = pos.coords.longitude;
+            
+            // 最寄りのキャンパスを探す
+            let nearest = null;
+            let minDist = Infinity;
+            
+            registeredCampuses.forEach(c => {
+                const dist = getDistance(uLat, uLon, c.lat, c.lon);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = c;
+                }
+            });
+
+            if (nearest) {
+                // 最寄りキャンパスに属する、アクティブなエリアのみ抽出
+                const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === nearest.id);
+                render(nearest.name, targetAreas);
+            } else {
+                render("キャンパス外", []);
+            }
+        },
+        (err) => {
+            console.warn("Location error:", err);
+            // 位置情報が取れない場合は、全キャンパスのアクティブエリアを表示する（フォールバック）
+            const allActive = registeredGpsAreas.filter(a => a.isActive);
+            render("全キャンパス", allActive);
+        },
+        { timeout: 5000 }
+    );
 }
 
 // モーダルの表示切り替え
