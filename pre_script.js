@@ -1748,6 +1748,17 @@ async function deleteRecommendedArticle(docId) {
 //   共通アップバー (固定ヘッダー) 機能
 // ==========================================
 
+// モーダルの表示切り替え
+function toggleStatusModal() {
+    const modal = document.getElementById('statusDetailModal');
+    const overlay = document.getElementById('modalOverlay');
+    if (!modal || !overlay) return;
+
+    const isHidden = modal.style.display === 'none' || modal.style.display === '';
+    modal.style.display = isHidden ? 'block' : 'none';
+    overlay.style.display = isHidden ? 'block' : 'none';
+}
+
 function setupCommonAppbar() {
     // 既存ヘッダーがあれば削除（重複防止）
     const existing = document.querySelector('header');
@@ -1955,15 +1966,4 @@ async function updateAppbarStatus() {
         },
         { timeout: 5000 }
     );
-}
-
-// モーダルの表示切り替え
-function toggleStatusModal() {
-    const modal = document.getElementById('statusDetailModal');
-    const overlay = document.getElementById('modalOverlay');
-    if (!modal || !overlay) return;
-
-    const isHidden = modal.style.display === 'none' || modal.style.display === '';
-    modal.style.display = isHidden ? 'block' : 'none';
-    overlay.style.display = isHidden ? 'block' : 'none';
 }
