@@ -1003,6 +1003,15 @@ window.addEventListener('DOMContentLoaded', () => {
 //   ユーザー: 顔認証 (User)
 // ==========================================
 
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // 地球の半径(m)
+  const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+  const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2) * Math.sin(Δλ/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
 async function startUserAuthFlow() {
     const name = document.getElementById('userNameInput').value.trim();
     if (!name) return alert("名前を入力してください");
@@ -1032,15 +1041,6 @@ async function startUserAuthFlow() {
     }, (err) => {
         alert("位置情報の取得に失敗しました: " + err.message);
     });
-}
-
-function getDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // 地球の半径(m)
-  const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
-  const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
-  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2) * Math.sin(Δλ/2)**2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
 }
 
 async function startFaceAuth(userName) {
