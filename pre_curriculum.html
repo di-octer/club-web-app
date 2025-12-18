@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>カリキュラム | 統合アプリ</title>
+    <link rel="stylesheet" href="pre_style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+    <style>
+        /* ページ全体の設定 */
+        body {
+            /* ヘッダー(70px)の分はJSが自動でpadding-topを入れますが、
+               iframeを画面ピッタリにするためにoverflowを制御します */
+            overflow: hidden; 
+        }
+
+        /* Web領域 (iframe) のスタイル */
+        #curriculum-frame {
+            width: 100%;
+            /* 画面の高さ(100vh) から ヘッダーの高さ分(70px) を引く */
+            height: calc(100vh - 70px);
+            border: none;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <iframe 
+        id="curriculum-frame" 
+        src="https://ryukoku-horizon.github.io/horizon-atlas/posts/" 
+        title="カリキュラム"
+        allow="geolocation; microphone; camera">
+    </iframe>
+
+    <script src="pre_script.js"></script>
+</body>
+</html>
