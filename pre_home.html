@@ -21,6 +21,67 @@
       .news-item:last-child { border-bottom: none; }
       .news-item a { text-decoration: none; color: #333; font-weight: bold; display: block; }
       .news-item a:hover { color: #007bff; text-decoration: underline; }
+      /* --- カルーセル・ニュース用スタイル --- */
+      #news-section {
+          overflow: hidden; /* はみ出した部分を隠す */
+          width: 100%;
+          position: relative;
+      }
+      .news-track {
+          display: flex;
+          transition: transform 0.3s ease-in-out;
+          width: 200%; /* スライド2枚分 */
+      }
+      .news-slide {
+          width: 50%; /* 全体の半分（1画面分） */
+          padding: 0 10px;
+          box-sizing: border-box;
+      }
+      
+      /* ニュースヘッダー（左右ナビ付き） */
+      .news-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: #f0f8ff;
+          padding: 8px;
+          border-radius: 5px;
+          border-left: 5px solid #007bff;
+          margin-bottom: 10px;
+      }
+      .news-header h3 {
+          margin: 0;
+          font-size: 1.1em;
+          border: none;
+          background: none;
+          padding: 0;
+      }
+      .nav-hint {
+          font-size: 0.8em;
+          color: #007bff;
+          cursor: pointer;
+          user-select: none;
+          white-space: nowrap;
+      }
+      .nav-hint:hover { text-decoration: underline; }
+
+      /* 表示数切り替えトグル */
+      .toggle-btn {
+          display: block;
+          width: 100%;
+          padding: 5px;
+          background: #eee;
+          border: none;
+          border-radius: 4px;
+          color: #555;
+          font-size: 0.8em;
+          cursor: pointer;
+          margin: 5px 0;
+      }
+      .toggle-btn:hover { background: #ddd; }
+      
+      /* 初期状態で隠すアイテム */
+      .hidden-item { display: none !important; }
   </style>
   
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -39,25 +100,18 @@
   
   <main class="content">
     <div id="news-section">
-        
-        <div class="news-block">
-            <h3>🏆 ピックアップ (管理者おすすめ)</h3>
-            <div id="recNewsList" class="news-list">
+        <div class="news-track" id="newsTrack">
+            <div class="news-slide" id="slide-rec">
+                <p>読み込み中...</p>
+            </div>
+            <div class="news-slide" id="slide-trend">
                 <p>読み込み中...</p>
             </div>
         </div>
-
-        <div class="news-block">
-            <h3>📈 Qiita トレンド (LGTM > 20)</h3>
-            <div id="trendNewsList" class="news-list">
-                <p>読み込み中...</p>
-            </div>
-        </div>
-
     </div>
 
     <hr style="margin: 30px 0;">
-
+    
     <h2>機能一覧</h2>
     <ul>
       <li><a href="pre_index.html">📷 出席認証 (GPS + 顔認証)</a></li>

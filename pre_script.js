@@ -38,6 +38,7 @@ let currentDetection = null;
 let faceStableCount = 0;      // 安定検出カウンター
 let lastDetectedDesc = null;  // 直前の顔特徴量
 let missedFrameCount = 0;     // 見失ったフレーム数
+let currentNewsSlide = 0; // 0: おすすめ, 1: トレンド
 
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
@@ -1454,77 +1455,148 @@ function renderCalendar() {
 //   ニュース機能 (Qiita連携 & 管理者おすすめ)
 // ==========================================
 
-// --- 1. ホーム画面用: ニュース読み込み ---
+// 汎用: プロキシ経由でデータを取得
+async function fetchWithProxy(targetUrl) {
+    const proxies = [
+        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+    ];
+    let lastError = null;
+    for (const proxyFunc of proxies) {
+        try {
+            const res = await fetch(proxyFunc(targetUrl));
+            if (!res.ok) throw new Error(`Status ${res.status}`);
+            return await res.json();
+        } catch (e) { lastError = e; }
+    }
+    throw lastError;
+}
+
+// --- 1. ホーム画面用: ニュース読み込み (メイン) ---
 async function loadHomeNews() {
     console.log("ニュース読み込み開始...");
 
-    // A. 管理者おすすめ (Firestore)
-    const recListEl = document.getElementById('recNewsList');
-    if (recListEl) {
+    // 1. 管理者おすすめ (Firestore)
+    const slideRec = document.getElementById('slide-rec');
+    if (slideRec) {
         try {
-            const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').limit(5).get();
-            recListEl.innerHTML = '';
-            if (snap.empty) {
-                recListEl.innerHTML = '<p style="font-size:0.9em; color:#666;">お知らせはありません</p>';
-            } else {
-                snap.forEach(doc => {
-                    const d = doc.data();
-                    recListEl.appendChild(createNewsItem(d.title, d.url, 'Pick', '#ff9800'));
-                });
-            }
+            const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get(); // 全件取得してJSで絞る
+            let items = [];
+            snap.forEach(doc => {
+                const d = doc.data();
+                items.push({ title: d.title, url: d.url, badge: 'Pick', color: '#ff9800', author: null });
+            });
+            
+            renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", items, 1); // 1は「次へ」の意味
+
         } catch(e) { 
-            console.error("Firestore読み込みエラー:", e); 
-            recListEl.innerHTML = '<p>読み込みエラー</p>'; 
+            console.error(e); 
+            slideRec.innerHTML = '<p>読み込みエラー</p>'; 
         }
     }
 
-    // B. Qiitaトレンド (API)
-    const trendListEl = document.getElementById('trendNewsList');
-    if (trendListEl) {
+    // 2. Qiitaトレンド (API)
+    const slideTrend = document.getElementById('slide-trend');
+    if (slideTrend) {
         try {
-            // ★修正: プロキシを 'corsproxy.io' に変更 (より安定しています)
-            const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=5&query=stocks:>20';
-            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(targetUrl);
-
-            console.log("Qiita APIへリクエスト送信:", proxyUrl);
+            // 多めに取得してトグルで制御 (per_page=20)
+            const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=20&query=stocks:>20';
+            const data = await fetchWithProxy(targetUrl);
             
-            const res = await fetch(proxyUrl);
-            
-            if (!res.ok) {
-                throw new Error(`API Error: ${res.status} ${res.statusText}`);
+            let items = [];
+            if (data && data.length > 0) {
+                items = data.map(item => ({
+                    title: item.title,
+                    url: item.url,
+                    badge: 'Qiita',
+                    color: '#55c500',
+                    author: (item.user ? item.user.id : 'unknown')
+                }));
             }
-
-            const items = await res.json();
-            console.log("Qiitaデータ取得成功:", items);
             
-            trendListEl.innerHTML = '';
-            if (!items || items.length === 0) {
-                trendListEl.innerHTML = '<p>記事が見つかりませんでした</p>';
-                return;
-            }
-
-            items.forEach(item => {
-                // 念のためユーザー情報がない場合のガードを入れる
-                const user = item.user || { id: 'unknown' };
-                trendListEl.appendChild(createNewsItem(item.title, item.url, 'Qiita', '#55c500', user.id));
-            });
+            renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0); // 0は「戻る」の意味
 
         } catch(e) {
-            console.error("Qiita取得エラー詳細:", e);
-            trendListEl.innerHTML = `<p style="color:red; font-size:0.8em;">取得失敗: ${e.message}</p>`;
+            console.error(e);
+            slideTrend.innerHTML = '<p style="color:red">取得失敗: 通信環境を確認してください</p>';
         }
+    }
+}
+
+// スライドの中身（ヘッダー・トグル・リスト）を生成する関数
+function renderNewsSlide(container, title, navText, items, targetSlideIndex) {
+    container.innerHTML = '';
+
+    // A. ヘッダー (左右ナビ付き)
+    // targetSlideIndex: 0なら左へ(おすすめ), 1なら右へ(トレンド)
+    const header = document.createElement('div');
+    header.className = 'news-header';
+    
+    // ナビの配置 (現在のスライドによって左右を変える)
+    let leftNav = '', rightNav = '';
+    if (targetSlideIndex === 1) { // 今は「おすすめ(0)」、次は「トレンド(1)」
+         rightNav = `<span class="nav-hint" onclick="switchNewsSlide(1)">${navText}</span>`;
+    } else { // 今は「トレンド(1)」、次は「おすすめ(0)」
+         leftNav = `<span class="nav-hint" onclick="switchNewsSlide(0)">${navText}</span>`;
+    }
+
+    header.innerHTML = `
+        <div style="width:30%; text-align:left;">${leftNav}</div>
+        <h3 style="width:40%; text-align:center;">${title}</h3>
+        <div style="width:30%; text-align:right;">${rightNav}</div>
+    `;
+    container.appendChild(header);
+
+    if (items.length === 0) {
+        container.innerHTML += '<p>記事がありません</p>';
+        return;
+    }
+
+    // ID生成 (トグル制御用)
+    const listId = `list-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // B. 上部トグルボタン
+    if (items.length > 5) {
+        const topToggle = document.createElement('button');
+        topToggle.className = 'toggle-btn';
+        topToggle.textContent = "🔽 もっと見る (全表示)";
+        topToggle.onclick = () => toggleNewsItems(listId, topToggle);
+        container.appendChild(topToggle);
+    }
+
+    // C. リスト本体
+    const listDiv = document.createElement('div');
+    listDiv.id = listId;
+    listDiv.className = 'news-list';
+
+    items.forEach((item, index) => {
+        const div = createNewsItem(item.title, item.url, item.badge, item.color, item.author);
+        if (index >= 5) {
+            div.classList.add('hidden-item'); // 6個目以降は隠す
+        }
+        listDiv.appendChild(div);
+    });
+    container.appendChild(listDiv);
+
+    // D. 下部トグルボタン
+    if (items.length > 5) {
+        const bottomToggle = document.createElement('button');
+        bottomToggle.className = 'toggle-btn';
+        bottomToggle.textContent = "🔽 もっと見る (全表示)";
+        bottomToggle.onclick = () => toggleNewsItems(listId, bottomToggle); // 上ボタンと連動させるなら工夫が必要だが、今回はシンプルに
+        container.appendChild(bottomToggle);
     }
 }
 
 function createNewsItem(title, url, badgeText, badgeColor, author = null) {
     const div = document.createElement('div');
-    div.className = 'news-item'; // CSS適用用
+    div.className = 'news-item';
     div.style.borderBottom = "1px solid #eee";
     div.style.padding = "10px 0";
     div.style.display = "flex";
     
     div.innerHTML = `
-        <div style="background:${badgeColor}; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-right:8px; height:fit-content;">${badgeText}</div>
+        <div style="background:${badgeColor}; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-right:8px; height:fit-content; flex-shrink:0;">${badgeText}</div>
         <div>
             <a href="${url}" target="_blank" style="text-decoration:none; color:#333; font-weight:bold; display:block;">${title}</a>
             ${author ? `<div style="font-size:0.8em; color:#888;">by @${author}</div>` : ''}
@@ -1533,6 +1605,52 @@ function createNewsItem(title, url, badgeText, badgeColor, author = null) {
     return div;
 }
 
+// スライド切り替え処理
+function switchNewsSlide(index) {
+    const track = document.getElementById('newsTrack');
+    currentNewsSlide = index;
+    // 0なら 0%, 1なら -50% (2枚あるので1枚の幅は50%)
+    const translateVal = index === 0 ? '0%' : '-50%';
+    track.style.transform = `translateX(${translateVal})`;
+}
+
+// 表示数トグル処理
+function toggleNewsItems(listId, btn) {
+    const list = document.getElementById(listId);
+    const hiddenItems = list.querySelectorAll('.hidden-item');
+    const allItems = list.querySelectorAll('.news-item'); // 全アイテム
+
+    // hidden-itemクラスを持つ要素があるかチェック（隠れているものがあるか）
+    // toggleロジック:
+    // hiddenクラスがある -> 全て削除して表示、ボタンを「閉じる」に
+    // hiddenクラスがない（全表示中） -> 6個目以降にhiddenを付与、ボタンを「もっと見る」に
+    
+    // このリスト内の「隠れている要素」を取得
+    // 注: CSSで .hidden-item {display:none} している
+    
+    // 現在の状態判定: 6個目が隠れているかどうか
+    const isExpanded = !list.children[5].classList.contains('hidden-item');
+
+    if (isExpanded) {
+        // 閉じる処理
+        Array.from(list.children).forEach((child, i) => {
+            if (i >= 5) child.classList.add('hidden-item');
+        });
+        // 関連するボタンのテキストを一括変更（上下同期のため）
+        updateToggleButtons(list.parentElement, "🔽 もっと見る");
+    } else {
+        // 開く処理
+        Array.from(list.children).forEach(child => {
+            child.classList.remove('hidden-item');
+        });
+        updateToggleButtons(list.parentElement, "🔼 閉じる");
+    }
+}
+
+function updateToggleButtons(container, text) {
+    const btns = container.querySelectorAll('.toggle-btn');
+    btns.forEach(b => b.textContent = text);
+}
 
 // --- 2. 管理者用: おすすめ記事登録 ---
 
