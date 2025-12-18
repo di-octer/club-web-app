@@ -1749,12 +1749,16 @@ async function deleteRecommendedArticle(docId) {
 // ==========================================
 
 function setupCommonAppbar() {
+    // 既存ヘッダーがあれば削除（重複防止）
     const existing = document.querySelector('header');
     if(existing) existing.remove();
 
+    // スタイル定義の更新
     const style = document.createElement('style');
     style.innerHTML = `
         body { padding-top: 70px; margin: 0; }
+        
+        /* 固定ヘッダー */
         .appbar-fixed {
             position: fixed; top: 0; left: 0; width: 100%; height: 60px;
             background-color: #007bff; color: white;
@@ -1762,29 +1766,57 @@ function setupCommonAppbar() {
             z-index: 9999; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
             padding: 0 10px; box-sizing: border-box;
         }
+        
+        /* 左右アイコンエリア */
         .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
         
-        /* キャンパス名 (固定表示) */
-        .appbar-campus {
-            font-weight: bold; margin-left: 10px; margin-right: 5px; 
-            white-space: nowrap; max-width: 120px; 
-            overflow: hidden; text-overflow: ellipsis;
-            font-size: 0.9em;
-        }
-
-        .appbar-center {
-            flex: 1; overflow: hidden; position: relative;
-            background: rgba(0,0,0,0.2); border-radius: 20px;
-            height: 36px; margin: 0 10px; cursor: pointer;
+        /* ★修正: 中央の情報グループ (キャンパス名 + エリア名) */
+        .appbar-info-group {
             display: flex; align-items: center; justify-content: center;
-            color: #fff; font-size: 0.9em; font-weight: bold;
+            background: rgba(0, 0, 0, 0.4); /* 背景透明度40% */
+            border-radius: 6px; /* 全体の角を丸く */
+            height: 38px;
+            padding: 0;
+            overflow: hidden;
+            cursor: pointer;
+            flex: 0 1 auto; /* 中身に合わせて伸縮 */
+            max-width: 60%; /* 幅を取りすぎないように制限 */
+            min-width: 120px;
         }
-        .appbar-center:hover { background: rgba(0,0,0,0.3); }
 
-        .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 10px; }
-        .status-marquee { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee-anim 15s linear infinite; }
+        /* ★修正: キャンパス名 */
+        .appbar-campus {
+            font-weight: bold; 
+            padding: 0 10px; 
+            white-space: nowrap; 
+            font-size: 0.9em;
+            color: #fff;
+            background: transparent;
+            border-right: 1px solid rgba(255,255,255,0.3); /* 区切り線 */
+            flex: 0 0 auto;
+        }
+
+        /* ★修正: 活動場所エリア (完全な四角・背景なし) */
+        .appbar-center {
+            flex: 1; 
+            background: transparent; /* 親の背景を使う */
+            border-radius: 0;        /* 角丸なし */
+            height: 100%;
+            display: flex; align-items: center; 
+            color: #fff; font-size: 0.9em; font-weight: bold;
+            overflow: hidden;
+            position: relative;
+            padding: 0 10px;
+            min-width: 80px;
+        }
+        
+        .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
+        /* 電光掲示板アニメーション */
+        .status-marquee { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee-anim 12s linear infinite; }
         @keyframes marquee-anim { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
 
+        /* アイコンボタン */
         .icon-btn {
             font-size: 1.4em; text-decoration: none; color: white;
             display: flex; align-items: center; justify-content: center;
@@ -1793,6 +1825,7 @@ function setupCommonAppbar() {
         }
         .icon-btn:hover { background: rgba(255,255,255,0.2); }
 
+        /* モーダル類 */
         #statusDetailModal {
             position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
             background: white; color: #333; padding: 15px;
@@ -1817,10 +1850,11 @@ function setupCommonAppbar() {
             <a href="pre_curriculum.html" class="icon-btn" title="カリキュラム">✏️</a>
         </div>
 
-        <div id="appbarCampus" class="appbar-campus"></div>
-        
-        <div class="appbar-center" id="appbarStatus" onclick="toggleStatusModal()">
-            <div class="status-static">位置情報 取得中...</div>
+        <div class="appbar-info-group" onclick="toggleStatusModal()">
+            <div id="appbarCampus" class="appbar-campus"></div>
+            <div class="appbar-center" id="appbarStatus">
+                <div class="status-static">位置情報 取得中...</div>
+            </div>
         </div>
 
         <div class="appbar-side">
@@ -1829,6 +1863,10 @@ function setupCommonAppbar() {
         </div>
     `;
     document.body.prepend(header);
+
+    // モーダル初期化（古いものがあれば削除）
+    if(document.getElementById('modalOverlay')) document.getElementById('modalOverlay').remove();
+    if(document.getElementById('statusDetailModal')) document.getElementById('statusDetailModal').remove();
 
     const overlay = document.createElement('div');
     overlay.id = 'modalOverlay';
@@ -1845,25 +1883,26 @@ async function updateAppbarStatus() {
     const campusEl = document.getElementById('appbarCampus');
     const statusEl = document.getElementById('appbarStatus');
     
-    // データ読み込み前なら待機
+    // まだ要素がない、またはデータがない場合はスキップ
     if (!statusEl || !registeredGpsAreas || !registeredCampuses || registeredCampuses.length === 0) return;
 
-    // ヘルパー: 描画関数
+    // 描画用ヘルパー関数
     const render = (campusName, areas) => {
         // 1. キャンパス名
         campusEl.textContent = campusName;
 
-        // 2. 中央エリア (エリア名のみ)
+        // 2. 活動場所エリア
         if (areas.length === 0) {
             statusEl.innerHTML = '<div class="status-static">活動なし</div>';
         } else if (areas.length === 1) {
             statusEl.innerHTML = `<div class="status-static">📍 ${areas[0].name}</div>`;
         } else {
-            const text = areas.map(a => `[${a.name}]`).join("　");
+            // ★修正: []をつけずにエリア名を列挙
+            const text = areas.map(a => a.name).join("　　"); 
             statusEl.innerHTML = `<div class="status-marquee">${text}　　　${text}</div>`;
         }
 
-        // 3. モーダル
+        // 3. モーダル詳細
         const modalContent = document.getElementById('statusDetailContent');
         if (areas.length === 0) {
             modalContent.innerHTML = `<p>${campusName} で活動中の場所はありません。</p>`;
@@ -1877,18 +1916,18 @@ async function updateAppbarStatus() {
         }
     };
 
-    // --- 位置情報の取得と判定 ---
+    // 位置情報が使えない場合
     if (!navigator.geolocation) {
         render("GPS不可", []);
         return;
     }
 
+    // 現在地を取得して最寄りキャンパスを判定
     navigator.geolocation.getCurrentPosition(
         (pos) => {
             const uLat = pos.coords.latitude;
             const uLon = pos.coords.longitude;
             
-            // 最寄りのキャンパスを探す
             let nearest = null;
             let minDist = Infinity;
             
@@ -1901,7 +1940,7 @@ async function updateAppbarStatus() {
             });
 
             if (nearest) {
-                // 最寄りキャンパスに属する、アクティブなエリアのみ抽出
+                // 最寄りキャンパス内のアクティブなエリアのみ抽出
                 const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === nearest.id);
                 render(nearest.name, targetAreas);
             } else {
@@ -1910,21 +1949,10 @@ async function updateAppbarStatus() {
         },
         (err) => {
             console.warn("Location error:", err);
-            // 位置情報が取れない場合は、全キャンパスのアクティブエリアを表示する（フォールバック）
+            // エラー時は全キャンパスのアクティブエリアを表示（フォールバック）
             const allActive = registeredGpsAreas.filter(a => a.isActive);
             render("全キャンパス", allActive);
         },
         { timeout: 5000 }
     );
-}
-
-// モーダルの表示切り替え
-function toggleStatusModal() {
-    const modal = document.getElementById('statusDetailModal');
-    const overlay = document.getElementById('modalOverlay');
-    if (!modal || !overlay) return;
-
-    const isHidden = modal.style.display === 'none' || modal.style.display === '';
-    modal.style.display = isHidden ? 'block' : 'none';
-    overlay.style.display = isHidden ? 'block' : 'none';
 }
