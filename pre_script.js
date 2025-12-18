@@ -498,6 +498,7 @@ async function registerArea() {
     const lon = parseFloat(document.getElementById('areaLon').value);
     if(!name || isNaN(lat) || !campusId) return alert("入力が不足しています");
     
+    // ドキュメントIDを「名前」にする (toggleAreaActiveは名前をIDとして受け取るため)
     await db.collection('gps_areas').doc(name).set({ name, campusId, lat, lon, isActive: false });
     await loadGpsAreas();
     populateInfoLists();
@@ -580,6 +581,17 @@ function populateInfoLists() {
         }
     }
     populateFaceList();
+}
+
+async function toggleAreaActive(docId, currentStatus) {
+    try {
+        await db.collection('gps_areas').doc(docId).update({ isActive: !currentStatus });
+        await loadGpsAreas(); // データを再ロード
+        populateInfoLists();  // リストを更新
+    } catch(e) {
+        console.error(e);
+        alert("更新エラー: " + e.message);
+    }
 }
 
 function populateFaceList() {
@@ -1022,6 +1034,15 @@ async function startUserAuthFlow() {
     });
 }
 
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // 地球の半径(m)
+  const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+  const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2) * Math.sin(Δλ/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
 async function startFaceAuth(userName) {
     const statusEl = document.getElementById('userStatus');
     statusEl.textContent = "モデルを読み込み中...";
@@ -1331,7 +1352,7 @@ function renderCalendar() {
         iconContainer.style.flexWrap = 'wrap';
         iconContainer.style.justifyContent = 'center';
         
-        // 1. 出席アイコン (必須・緑)
+        // --- 1. 出席アイコン (必須・緑) ---
         const isAttended = checkHistoryDates.some(hd => 
             hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
         );
@@ -1345,34 +1366,50 @@ function renderCalendar() {
             el.classList.add('active-area'); 
         }
         
-        // 2. 届出アイコン (追加表示)
-        // 期間内であれば、ステータスに応じた色のアイコンを表示
-        checkReportRanges.forEach(range => {
-            if (currentCellDate.getTime() >= range.start.getTime() && 
-                currentCellDate.getTime() <= range.end.getTime()) {
+        // --- 2. 届出アイコン (優先度順に1つだけ表示) ---
+        // この日の届出を抽出
+        const dayReports = checkReportRanges.filter(range => 
+            currentCellDate.getTime() >= range.start.getTime() && 
+            currentCellDate.getTime() <= range.end.getTime()
+        );
+
+        if (dayReports.length > 0) {
+            // 優先度ソート: 
+            // ステータス: 承認(approved) > 確認(confirm) > 否認(rejected) > 申請中(pending)
+            // タイプ: 欠席(absence) > 遅刻/早退(late/early)
+            dayReports.sort((a, b) => {
+                const statusScore = { 'approved': 4, 'confirm': 3, 'rejected': 2, 'pending': 1 };
+                const typeScore = { 'absence': 2, 'late': 1, 'early': 1 };
                 
-                const icon = document.createElement('div');
-                icon.style.width = '8px'; icon.style.height = '8px';
-                icon.style.borderRadius = '50%';
-                
-                // 色分け: ステータス依存
-                if (range.status === 'approved') {
-                    icon.style.backgroundColor = '#007bff'; // 青 (承認)
-                } else if (range.status === 'confirm') {
-                    icon.style.backgroundColor = '#ffc107'; // 黄 (確認)
-                } else if (range.status === 'rejected') {
-                    icon.style.backgroundColor = '#dc3545'; // 赤 (否認)
-                } else {
-                    icon.style.backgroundColor = 'gray';    // 灰 (申請中)
+                if (statusScore[a.status] !== statusScore[b.status]) {
+                    return statusScore[b.status] - statusScore[a.status]; // ステータスが高い順
                 }
-                
-                // ツールチップでタイプを表示
-                const typeLabel = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' }[range.type] || range.type;
-                icon.title = typeLabel;
-                
-                iconContainer.appendChild(icon);
+                return typeScore[b.type] - typeScore[a.type]; // タイプが強い順
+            });
+
+            const target = dayReports[0]; // 最も優先度の高い1つを採用
+
+            const icon = document.createElement('div');
+            icon.style.width = '8px'; icon.style.height = '8px';
+            icon.style.borderRadius = '50%';
+            
+            // 色分け
+            if (target.status === 'approved') {
+                icon.style.backgroundColor = '#007bff'; // 青 (承認)
+            } else if (target.status === 'confirm') {
+                icon.style.backgroundColor = '#ffc107'; // 黄 (確認)
+            } else if (target.status === 'rejected') {
+                icon.style.backgroundColor = '#dc3545'; // 赤 (否認)
+            } else {
+                icon.style.backgroundColor = 'gray';    // 灰 (申請中)
             }
-        });
+            
+            // ツールチップ
+            const typeMap = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' };
+            icon.title = typeMap[target.type] || target.type;
+            
+            iconContainer.appendChild(icon);
+        }
 
         el.appendChild(iconContainer);
         grid.appendChild(el);
