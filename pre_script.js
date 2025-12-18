@@ -1352,42 +1352,52 @@ function renderCalendar() {
         iconContainer.style.flexWrap = 'wrap';
         iconContainer.style.justifyContent = 'center';
         
-        // --- 1. 出席アイコン (必須・緑) ---
-        const isAttended = checkHistoryDates.some(hd => 
+        // --- 判定ロジック ---
+        
+        // A. 出席ログがあるか
+        const hasLog = checkHistoryDates.some(hd => 
             hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
         );
-        if (isAttended) {
+
+        // B. 承認済みの欠席期間か (★追加)
+        const isApprovedAbsence = checkReportRanges.some(range => 
+            range.status === 'approved' && 
+            range.type === 'absence' &&
+            currentCellDate.getTime() >= range.start.getTime() && 
+            currentCellDate.getTime() <= range.end.getTime()
+        );
+
+        // --- 1. 出席アイコン (必須・緑) ---
+        // ログがある、または承認済み欠席なら「出席扱い」とする
+        if (hasLog || isApprovedAbsence) {
             const icon = document.createElement('div');
             icon.style.width = '8px'; icon.style.height = '8px';
             icon.style.borderRadius = '50%';
             icon.style.backgroundColor = '#28a745'; // 緑
-            icon.title = "出席";
+            icon.title = hasLog ? "出席" : "欠席(承認済)";
             iconContainer.appendChild(icon);
             el.classList.add('active-area'); 
         }
         
         // --- 2. 届出アイコン (優先度順に1つだけ表示) ---
-        // この日の届出を抽出
         const dayReports = checkReportRanges.filter(range => 
             currentCellDate.getTime() >= range.start.getTime() && 
             currentCellDate.getTime() <= range.end.getTime()
         );
 
         if (dayReports.length > 0) {
-            // 優先度ソート: 
-            // ステータス: 承認(approved) > 確認(confirm) > 否認(rejected) > 申請中(pending)
-            // タイプ: 欠席(absence) > 遅刻/早退(late/early)
+            // 優先度ソート: 承認 > 確認 > 否認 > 申請中
             dayReports.sort((a, b) => {
                 const statusScore = { 'approved': 4, 'confirm': 3, 'rejected': 2, 'pending': 1 };
                 const typeScore = { 'absence': 2, 'late': 1, 'early': 1 };
                 
                 if (statusScore[a.status] !== statusScore[b.status]) {
-                    return statusScore[b.status] - statusScore[a.status]; // ステータスが高い順
+                    return statusScore[b.status] - statusScore[a.status];
                 }
-                return typeScore[b.type] - typeScore[a.type]; // タイプが強い順
+                return typeScore[b.type] - typeScore[a.type];
             });
 
-            const target = dayReports[0]; // 最も優先度の高い1つを採用
+            const target = dayReports[0];
 
             const icon = document.createElement('div');
             icon.style.width = '8px'; icon.style.height = '8px';
@@ -1404,7 +1414,6 @@ function renderCalendar() {
                 icon.style.backgroundColor = 'gray';    // 灰 (申請中)
             }
             
-            // ツールチップ
             const typeMap = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' };
             icon.title = typeMap[target.type] || target.type;
             
