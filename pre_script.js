@@ -29,12 +29,16 @@ let adminAuthStep = 0;
 let currentAuthUser = null;
 let colorMatchCounter = 0;
 
-// 顔登録用 (手動進行)
+// 顔登録用 (手動進行・安定化ロジック)
 let regStream = null;
 let regStep = 0; 
 let regDescriptors = [];
 let regThumbnail = ""; 
 let currentDetection = null;
+let faceStableCount = 0;      // 安定検出カウンター
+let lastDetectedDesc = null;  // 直前の顔特徴量
+let missedFrameCount = 0;     // 見失ったフレーム数
+
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
 // --- 初期化 ---
@@ -93,10 +97,9 @@ async function loadRegisteredFaces() {
                      for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
                      const float32 = new Float32Array(bytes.buffer);
                      
-                     // Web版(128次元)のみ読み込む
                      if (float32.length === 128) {
                          registeredFaces.push({
-                             docId: doc.id, // 削除用にID保持
+                             docId: doc.id,
                              label: data.label,
                              thumbnail: data.thumbnail || null,
                              descriptor: float32
@@ -125,7 +128,6 @@ async function loadModels() {
 //   管理者: ステータスタブ (Status)
 // ==========================================
 
-// タブ切り替え（メイン）
 function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -134,7 +136,6 @@ function switchTab(tabName) {
     document.getElementById(`tab-${tabName}`).classList.add('active');
 }
 
-// サブタブ切り替え (Auth / Report)
 function switchAdminSubTab(tab) {
     const authView = document.getElementById('view-auth');
     const reportView = document.getElementById('view-report');
@@ -238,7 +239,7 @@ async function refreshReports() {
                 </div>
                 ${d.attachment ? `<img src="${d.attachment}" style="max-height:80px; border:1px solid #ccc;">` : ''}
                 <div style="text-align:right; margin-top:5px;">
-                    <button onclick="updateReportStatus('${doc.id}','approved')" style="padding:5px 10px; font-size:0.8em; background:#28a745;">承認</button>
+                    <button onclick="updateReportStatus('${doc.id}','approved')" style="padding:5px 10px; font-size:0.8em; background:#007bff;">承認</button>
                     <button onclick="updateReportStatus('${doc.id}','confirm')" style="padding:5px 10px; font-size:0.8em; background:#ffc107; color:black;">確認</button>
                     <button onclick="updateReportStatus('${doc.id}','rejected')" style="padding:5px 10px; font-size:0.8em; background:#dc3545;">否認</button>
                 </div>
@@ -329,7 +330,6 @@ async function processAdminFrame() {
     ctx.drawImage(video, 0, 0, w, h);
 
     if (adminAuthStep === 0) {
-        // Step 1: カラーコード
         if (currentAuthUser.targetCode.length === 4) {
             const detectedCode = scanColors(ctx, w, h);
             ctx.font = "20px Arial"; ctx.fillStyle = "white";
@@ -349,7 +349,6 @@ async function processAdminFrame() {
         }
 
     } else if (adminAuthStep === 1) {
-        // Step 2: 顔認証
         if (currentAuthUser.descriptor) {
             try {
                 const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
@@ -380,7 +379,6 @@ async function processAdminFrame() {
     adminGuideLoopId = requestAnimationFrame(processAdminFrame);
 }
 
-// 色判定ロジック
 function scanColors(ctx, w, h) {
     const refW = 230; const refH = 170;
     const scale = Math.min(w / refW, h / refH) * 0.8; 
@@ -471,7 +469,7 @@ async function approveRequest() {
 }
 
 // ==========================================
-//   管理者: 登録情報 (Info) - 階層 & 削除
+//   管理者: 登録情報 (Info)
 // ==========================================
 
 async function registerCampus() {
@@ -500,7 +498,6 @@ async function registerArea() {
 }
 
 function populateInfoLists() {
-    // 1. プルダウン
     const select = document.getElementById('campusSelect');
     if(select) {
         select.innerHTML = '<option value="">キャンパスを選択</option>';
@@ -511,7 +508,6 @@ function populateInfoLists() {
         });
     }
 
-    // 2. 階層リスト
     const hierList = document.getElementById('hierarchyList');
     if(hierList) {
         hierList.innerHTML = '';
@@ -521,9 +517,7 @@ function populateInfoLists() {
             registeredCampuses.forEach(campus => {
                 const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
                 
-                // デフォルトで閉じる
                 const details = document.createElement('details');
-                
                 const summary = document.createElement('summary');
                 summary.innerHTML = `
                     <div style="display:flex; align-items:center; gap:10px;">
@@ -535,7 +529,6 @@ function populateInfoLists() {
                 const content = document.createElement('div');
                 content.className = 'details-content';
                 
-                // エリア一括操作
                 if (areas.length > 0) {
                     const actionDiv = document.createElement('div');
                     actionDiv.style.display = 'flex';
@@ -579,8 +572,6 @@ function populateInfoLists() {
             });
         }
     }
-
-    // 3. 顔データリスト
     populateFaceList();
 }
 
@@ -697,7 +688,7 @@ async function reloadAllData() {
 
 
 // ==========================================
-//   管理者: 顔登録機能 (手動進行)
+//   管理者: 顔登録機能 (手動進行・精度向上)
 // ==========================================
 
 async function startFaceRegistration() {
@@ -718,6 +709,9 @@ async function startFaceRegistration() {
     regDescriptors = [];
     regThumbnail = "";
     currentDetection = null;
+    faceStableCount = 0;
+    lastDetectedDesc = null;
+    missedFrameCount = 0;
     
     const video = document.getElementById('regVideo');
     const canvas = document.getElementById('regCanvas');
@@ -731,7 +725,7 @@ async function startFaceRegistration() {
         video.onloadedmetadata = () => {
             video.play();
             statusEl.textContent = `Step 1/5: ${REG_INSTRUCTIONS[1]}`;
-            // 検出ループ
+            // 検出ループ開始
             detectFaceLoopManual(video, canvas);
         };
     } catch(e) {
@@ -740,7 +734,7 @@ async function startFaceRegistration() {
     }
 }
 
-// 常時検出ループ
+// 常時検出ループ（安定性チェック付き）
 async function detectFaceLoopManual(video, canvas) {
     if (regStep > 5 || !regStream || !regStream.active) return;
 
@@ -750,50 +744,79 @@ async function detectFaceLoopManual(video, canvas) {
     const statusEl = document.getElementById('regStatus');
     const nextBtn = document.getElementById('regNextBtn');
 
-    const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
+    try {
+        const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptor();
 
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (detection && detection.detection.score > 0.85) {
-        const resized = faceapi.resizeResults(detection, displaySize);
-        faceapi.draw.drawDetections(canvas, resized);
+        if (detection && detection.detection.score > 0.85) {
+            const resized = faceapi.resizeResults(detection, displaySize);
+            faceapi.draw.drawDetections(canvas, resized);
+            
+            // ★安定性チェック: 同一人物らしき顔が連続しているか
+            let isSamePerson = false;
+            if (lastDetectedDesc) {
+                const dist = faceapi.euclideanDistance(detection.descriptor, lastDetectedDesc);
+                if (dist < 0.4) isSamePerson = true; // 閾値
+            } else {
+                isSamePerson = true; // 初回
+            }
 
-        // ボタン有効化
-        currentDetection = detection;
-        nextBtn.disabled = false;
-        nextBtn.style.backgroundColor = "#28a745"; // 緑
-        nextBtn.textContent = "撮影・次へ";
-        
-        statusEl.style.color = "green";
-        statusEl.textContent = `OK! ボタンを押してください (${REG_INSTRUCTIONS[regStep]})`;
-    } else {
-        // 顔なし
-        currentDetection = null;
-        nextBtn.disabled = true;
-        nextBtn.style.backgroundColor = "#ccc";
-        nextBtn.textContent = "検出中...";
-        
-        statusEl.style.color = "#007bff";
-        statusEl.textContent = `Step ${regStep}/5: ${REG_INSTRUCTIONS[regStep]} (顔を探しています)`;
-    }
+            if (isSamePerson) {
+                faceStableCount++;
+                missedFrameCount = 0;
+                lastDetectedDesc = detection.descriptor;
+            } else {
+                faceStableCount = 0; // 違う顔になったらリセット
+                lastDetectedDesc = detection.descriptor;
+            }
 
-    setTimeout(() => detectFaceLoopManual(video, canvas), 200);
+            // 5フレーム以上安定したらボタン有効化
+            if (faceStableCount > 5) {
+                currentDetection = detection;
+                nextBtn.disabled = false;
+                nextBtn.style.backgroundColor = "#28a745"; // 緑
+                nextBtn.textContent = "撮影・次へ";
+                statusEl.style.color = "green";
+                statusEl.textContent = `OK! ボタンを押してください (${REG_INSTRUCTIONS[regStep]})`;
+            } else {
+                // 安定待ち
+                statusEl.style.color = "#007bff";
+                statusEl.textContent = `検出中... 顔を動かさないでください (${faceStableCount}/5)`;
+            }
+
+        } else {
+            // 顔が見つからない場合
+            missedFrameCount++;
+            // 多少のフレーム抜け(10フレーム)は許容、それ以上でリセット
+            if (missedFrameCount > 10) {
+                faceStableCount = 0;
+                lastDetectedDesc = null;
+                currentDetection = null;
+                
+                nextBtn.disabled = true;
+                nextBtn.style.backgroundColor = "#ccc";
+                nextBtn.textContent = "検出中...";
+                
+                statusEl.style.color = "red";
+                statusEl.textContent = `顔が見つかりません (${REG_INSTRUCTIONS[regStep]})`;
+            }
+        }
+    } catch(e) { console.error(e); }
+
+    setTimeout(() => detectFaceLoopManual(video, canvas), 100);
 }
 
-// ボタンクリック
 function proceedToNextStep() {
     if (!currentDetection) return;
     
     const video = document.getElementById('regVideo');
-    
-    // データ保存
     const descBase64 = float32ToBase64(currentDetection.descriptor);
     regDescriptors.push(descBase64);
 
-    // Step 1ならサムネイル
     if (regStep === 1) {
         const capCanvas = document.createElement('canvas');
         capCanvas.width = video.videoWidth;
@@ -803,19 +826,19 @@ function proceedToNextStep() {
     }
 
     regStep++;
+    // カウンタリセット
+    faceStableCount = 0;
+    lastDetectedDesc = null;
+    currentDetection = null;
     
     if (regStep <= 5) {
-        // 次のステップUIへ
         const statusEl = document.getElementById('regStatus');
         const nextBtn = document.getElementById('regNextBtn');
-        
-        currentDetection = null;
         nextBtn.disabled = true;
         nextBtn.style.backgroundColor = "#ccc";
         nextBtn.textContent = "検出中...";
         statusEl.style.color = "#007bff";
         statusEl.textContent = `Step ${regStep}/5: ${REG_INSTRUCTIONS[regStep]}`;
-        
     } else {
         saveFaceDataManual();
     }
@@ -1151,6 +1174,7 @@ function drawHCode(codes) {
 // ==========================================
 let checkDisplayDate = new Date();
 let checkHistoryDates = [];
+let checkReportRanges = []; // ★追加: 届出期間リスト
 
 async function checkAttendance() {
     const name = document.getElementById('checkNameInput').value.trim();
@@ -1159,14 +1183,33 @@ async function checkAttendance() {
     document.getElementById('resultArea').style.display = 'block';
     
     try {
-        const snapshot = await db.collection('attendance_logs')
+        // 出席ログ取得
+        const logSnap = await db.collection('attendance_logs')
             .where('userName', '==', name)
             .orderBy('timestamp', 'desc')
             .get();
             
         checkHistoryDates = [];
-        snapshot.forEach(doc => {
+        logSnap.forEach(doc => {
             checkHistoryDates.push(doc.data().timestamp.toDate());
+        });
+
+        // ★追加: 届出(absence_reports)取得 (承認済みのみ)
+        const reportSnap = await db.collection('absence_reports')
+            .where('userName', '==', name)
+            .where('status', '==', 'approved')
+            .get();
+            
+        checkReportRanges = [];
+        reportSnap.forEach(doc => {
+            const d = doc.data();
+            if(d.startDate) {
+                checkReportRanges.push({
+                    type: d.type,
+                    start: d.startDate.toDate(),
+                    end: d.endDate ? d.endDate.toDate() : d.startDate.toDate() // 終了なければ当日のみ
+                });
+            }
         });
         
         updateTodayStatus();
@@ -1176,7 +1219,7 @@ async function checkAttendance() {
     } catch(e) {
         console.error(e);
         if(e.code === 'failed-precondition') {
-            alert("エラー: 管理者にインデックス作成を依頼してください");
+            alert("エラー: インデックスが必要です");
         }
     }
 }
@@ -1227,6 +1270,7 @@ function renderCalendar() {
     const today = new Date();
     
     for(let d=1; d<=lastDay; d++) {
+        const dateObj = new Date(year, month, d);
         const el = document.createElement('div');
         el.className = 'day-cell';
         el.textContent = d;
@@ -1235,16 +1279,39 @@ function renderCalendar() {
             el.classList.add('today-circle');
         }
         
+        // 出席マーク
         const isAttended = checkHistoryDates.some(hd => 
             hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
         );
-        
         if(isAttended) {
             const mark = document.createElement('div');
-            mark.className = 'attended-mark';
+            mark.className = 'attended-mark'; // 緑丸
             el.appendChild(mark);
             el.classList.add('active-area');
         }
+
+        // ★追加: 届出アイコン (青/黄/赤)
+        checkReportRanges.forEach(range => {
+            // 日付比較 (時間を無視)
+            const checkStart = new Date(range.start.getFullYear(), range.start.getMonth(), range.start.getDate());
+            const checkEnd = new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate());
+            
+            if (dateObj >= checkStart && dateObj <= checkEnd) {
+                const icon = document.createElement('div');
+                icon.style.width = '8px';
+                icon.style.height = '8px';
+                icon.style.borderRadius = '50%';
+                icon.style.display = 'inline-block';
+                icon.style.margin = '2px';
+                
+                if(range.type === 'absence') icon.style.backgroundColor = 'blue';
+                if(range.type === 'late') icon.style.backgroundColor = '#ffc107'; // 黄
+                if(range.type === 'early') icon.style.backgroundColor = 'red';
+                
+                el.appendChild(icon);
+            }
+        });
+
         grid.appendChild(el);
     }
 }
