@@ -1176,6 +1176,10 @@ let checkDisplayDate = new Date();
 let checkHistoryDates = [];
 let checkReportRanges = []; // ★追加: 届出期間リスト
 
+// ==========================================
+//   出席履歴確認 (Check)
+// ==========================================
+
 async function checkAttendance() {
     const name = document.getElementById('checkNameInput').value.trim();
     if (!name) return alert("名前を入力してください");
@@ -1183,7 +1187,7 @@ async function checkAttendance() {
     document.getElementById('resultArea').style.display = 'block';
     
     try {
-        // 出席ログ取得
+        // 1. 出席ログ取得
         const logSnap = await db.collection('attendance_logs')
             .where('userName', '==', name)
             .orderBy('timestamp', 'desc')
@@ -1194,7 +1198,7 @@ async function checkAttendance() {
             checkHistoryDates.push(doc.data().timestamp.toDate());
         });
 
-        // ★追加: 届出(absence_reports)取得 (承認済みのみ)
+        // 2. 届出(absence_reports)取得 (承認済みのみ)
         const reportSnap = await db.collection('absence_reports')
             .where('userName', '==', name)
             .where('status', '==', 'approved')
@@ -1204,10 +1208,15 @@ async function checkAttendance() {
         reportSnap.forEach(doc => {
             const d = doc.data();
             if(d.startDate) {
+                // 時間を00:00:00にリセットして日付のみで比較できるようにする
+                let s = d.startDate.toDate();
+                let e = d.endDate ? d.endDate.toDate() : s;
+                
                 checkReportRanges.push({
                     type: d.type,
-                    start: d.startDate.toDate(),
-                    end: d.endDate ? d.endDate.toDate() : d.startDate.toDate() // 終了なければ当日のみ
+                    // 年月日のみのDateオブジェクトを作成
+                    start: new Date(s.getFullYear(), s.getMonth(), s.getDate()),
+                    end: new Date(e.getFullYear(), e.getMonth(), e.getDate())
                 });
             }
         });
@@ -1219,7 +1228,9 @@ async function checkAttendance() {
     } catch(e) {
         console.error(e);
         if(e.code === 'failed-precondition') {
-            alert("エラー: インデックスが必要です");
+            alert("エラー: 複合インデックスが必要です。管理者に連絡してください。");
+        } else {
+            alert("データ取得エラー: " + e.message);
         }
     }
 }
@@ -1255,6 +1266,7 @@ function renderCalendar() {
     const month = checkDisplayDate.getMonth();
     document.getElementById('calendarTitle').textContent = `${year}年 ${month + 1}月`;
     
+    // 曜日ヘッダー
     ['日','月','火','水','木','金','土'].forEach(w => {
         const el = document.createElement('div');
         el.className = 'day-cell';
@@ -1263,50 +1275,71 @@ function renderCalendar() {
         grid.appendChild(el);
     });
     
+    // 空白セル
     const firstDay = new Date(year, month, 1).getDay();
     for(let i=0; i<firstDay; i++) grid.appendChild(document.createElement('div'));
     
+    // 日付セル
     const lastDay = new Date(year, month + 1, 0).getDate();
     const today = new Date();
     
     for(let d=1; d<=lastDay; d++) {
-        const dateObj = new Date(year, month, d);
+        // このセルの日付 (00:00:00)
+        const currentCellDate = new Date(year, month, d);
+        
         const el = document.createElement('div');
         el.className = 'day-cell';
-        el.textContent = d;
+        el.style.position = 'relative'; // アイコン配置用
+        el.style.display = 'flex';      // Flexboxで配置調整
+        el.style.flexDirection = 'column';
+        el.style.alignItems = 'center';
         
+        // 日付数字
+        const numSpan = document.createElement('span');
+        numSpan.textContent = d;
+        el.appendChild(numSpan);
+        
+        // 今日の枠線
         if(year===today.getFullYear() && month===today.getMonth() && d===today.getDate()) {
             el.classList.add('today-circle');
         }
         
-        // 出席マーク
+        // A. 出席マーク (緑の背景)
         const isAttended = checkHistoryDates.some(hd => 
             hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
         );
         if(isAttended) {
+            el.classList.add('active-area'); // 緑背景
+            // 緑のチェックマーク等を追加してもよい
             const mark = document.createElement('div');
-            mark.className = 'attended-mark'; // 緑丸
+            mark.className = 'attended-mark'; 
             el.appendChild(mark);
-            el.classList.add('active-area');
         }
 
-        // ★追加: 届出アイコン (青/黄/赤)
+        // B. 届出アイコン (青/黄/赤)
+        // 期間内かどうか判定
         checkReportRanges.forEach(range => {
-            // 日付比較 (時間を無視)
-            const checkStart = new Date(range.start.getFullYear(), range.start.getMonth(), range.start.getDate());
-            const checkEnd = new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate());
-            
-            if (dateObj >= checkStart && dateObj <= checkEnd) {
+            // getTime() で数値比較
+            if (currentCellDate.getTime() >= range.start.getTime() && 
+                currentCellDate.getTime() <= range.end.getTime()) {
+                
                 const icon = document.createElement('div');
                 icon.style.width = '8px';
                 icon.style.height = '8px';
                 icon.style.borderRadius = '50%';
-                icon.style.display = 'inline-block';
-                icon.style.margin = '2px';
+                icon.style.marginTop = '2px';
+                icon.style.marginBottom = '1px';
                 
-                if(range.type === 'absence') icon.style.backgroundColor = 'blue';
-                if(range.type === 'late') icon.style.backgroundColor = '#ffc107'; // 黄
-                if(range.type === 'early') icon.style.backgroundColor = 'red';
+                if(range.type === 'absence') {
+                    icon.style.backgroundColor = '#007bff'; // 青 (欠席)
+                    icon.title = "欠席";
+                } else if(range.type === 'late') {
+                    icon.style.backgroundColor = '#ffc107'; // 黄 (遅刻)
+                    icon.title = "遅刻";
+                } else if(range.type === 'early') {
+                    icon.style.backgroundColor = '#dc3545'; // 赤 (早退)
+                    icon.title = "早退";
+                }
                 
                 el.appendChild(icon);
             }
