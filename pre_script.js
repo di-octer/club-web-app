@@ -196,7 +196,6 @@ async function refreshRequests() {
 }
 
 // 届出リスト一覧
-// 届出リスト一覧
 async function refreshReports() {
     const listEl = document.getElementById('reportList');
     listEl.innerHTML = '<p>読み込み中...</p>';
@@ -219,29 +218,37 @@ async function refreshReports() {
             const typeLabel = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' }[d.type] || d.type;
             const statusLabel = { 'pending':'未承認', 'approved':'承認済', 'confirm':'要確認', 'rejected':'否認' }[d.status] || d.status;
             
+            // ステータスバッジの色 (承認は青にする)
             let badgeColor = "#666";
-            if(d.status==='approved') badgeColor="#28a745";
-            if(d.status==='confirm') badgeColor="#ffc107";
-            if(d.status==='rejected') badgeColor="#dc3545";
+            if(d.status==='approved') badgeColor="#007bff"; // 青
+            if(d.status==='confirm') badgeColor="#ffc107";  // 黄
+            if(d.status==='rejected') badgeColor="#dc3545"; // 赤
 
             const div = document.createElement('div');
             div.className = 'item-card';
             div.style.display = 'block';
+            div.style.padding = '0'; // 内側パディングを個別に設定するためリセット
+            div.style.overflow = 'hidden'; // 角丸用
+
             div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; border-bottom:1px solid #eee; padding-bottom:5px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; background-color:#eeeeee; padding:10px; border-bottom:1px solid #ddd;">
                     <strong>${d.userName}</strong>
-                    <span style="background:${badgeColor}; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em;">${statusLabel}</span>
+                    <span style="background:${badgeColor}; color:white; padding:2px 8px; border-radius:4px; font-size:0.8em;">${statusLabel}</span>
                 </div>
-                <div style="font-size:0.9em; margin:5px 0;">
-                    <span style="color:#007bff; font-weight:bold;">[${typeLabel}]</span> <br>
-                    期間: <b>${periodStr}</b><br>
-                    理由: ${d.reason}
-                </div>
-                ${d.attachment ? `<img src="${d.attachment}" style="max-height:80px; border:1px solid #ccc;">` : ''}
-                <div style="text-align:right; margin-top:5px;">
-                    <button onclick="updateReportStatus('${doc.id}','approved')" style="padding:5px 10px; font-size:0.8em; background:#28a745; color:white; border:none; border-radius:4px; margin-right:5px;">承認</button>
-                    <button onclick="updateReportStatus('${doc.id}','confirm')" style="padding:5px 10px; font-size:0.8em; background:#ffc107; color:black; border:none; border-radius:4px; margin-right:5px;">確認</button>
-                    <button onclick="updateReportStatus('${doc.id}','rejected')" style="padding:5px 10px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px;">否認</button>
+                
+                <div style="padding:10px;">
+                    <div style="font-size:0.9em; margin-bottom:5px;">
+                        <span style="color:#007bff; font-weight:bold;">[${typeLabel}]</span> <br>
+                        期間: <b>${periodStr}</b><br>
+                        理由: ${d.reason}
+                    </div>
+                    ${d.attachment ? `<img src="${d.attachment}" style="max-height:80px; border:1px solid #ccc; display:block; margin:5px 0;">` : ''}
+                    
+                    <div style="text-align:right; margin-top:10px;">
+                        <button onclick="updateReportStatus('${doc.id}','approved')" style="padding:5px 10px; font-size:0.8em; background:#007bff; color:white; border:none; border-radius:4px; margin-right:5px;">承認</button>
+                        <button onclick="updateReportStatus('${doc.id}','confirm')" style="padding:5px 10px; font-size:0.8em; background:#ffc107; color:black; border:none; border-radius:4px; margin-right:5px;">確認</button>
+                        <button onclick="updateReportStatus('${doc.id}','rejected')" style="padding:5px 10px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px;">否認</button>
+                    </div>
                 </div>
             `;
             listEl.appendChild(div);
@@ -1312,12 +1319,11 @@ function renderCalendar() {
         el.style.justifyContent = 'flex-start';
         el.textContent = d;
         
-        // 今日の枠
         if(year===today.getFullYear() && month===today.getMonth() && d===today.getDate()) {
             el.classList.add('today-circle');
         }
         
-        // アイコン表示用コンテナ
+        // アイコンコンテナ
         const iconContainer = document.createElement('div');
         iconContainer.style.marginTop = '2px';
         iconContainer.style.display = 'flex';
@@ -1325,7 +1331,7 @@ function renderCalendar() {
         iconContainer.style.flexWrap = 'wrap';
         iconContainer.style.justifyContent = 'center';
         
-        // 1. 通常出席 (attendance_logs) -> 緑アイコン
+        // 1. 出席アイコン (必須・緑)
         const isAttended = checkHistoryDates.some(hd => 
             hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
         );
@@ -1334,11 +1340,13 @@ function renderCalendar() {
             icon.style.width = '8px'; icon.style.height = '8px';
             icon.style.borderRadius = '50%';
             icon.style.backgroundColor = '#28a745'; // 緑
+            icon.title = "出席";
             iconContainer.appendChild(icon);
             el.classList.add('active-area'); 
         }
         
-        // 2. 届出 (absence_reports) -> ステータス別アイコン
+        // 2. 届出アイコン (追加表示)
+        // 期間内であれば、ステータスに応じた色のアイコンを表示
         checkReportRanges.forEach(range => {
             if (currentCellDate.getTime() >= range.start.getTime() && 
                 currentCellDate.getTime() <= range.end.getTime()) {
@@ -1347,10 +1355,9 @@ function renderCalendar() {
                 icon.style.width = '8px'; icon.style.height = '8px';
                 icon.style.borderRadius = '50%';
                 
-                // 色分けロジック
+                // 色分け: ステータス依存
                 if (range.status === 'approved') {
-                    icon.style.backgroundColor = '#28a745'; // 緑 (承認)
-                    el.classList.add('active-area'); // 背景も薄緑に
+                    icon.style.backgroundColor = '#007bff'; // 青 (承認)
                 } else if (range.status === 'confirm') {
                     icon.style.backgroundColor = '#ffc107'; // 黄 (確認)
                 } else if (range.status === 'rejected') {
@@ -1358,6 +1365,10 @@ function renderCalendar() {
                 } else {
                     icon.style.backgroundColor = 'gray';    // 灰 (申請中)
                 }
+                
+                // ツールチップでタイプを表示
+                const typeLabel = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' }[range.type] || range.type;
+                icon.title = typeLabel;
                 
                 iconContainer.appendChild(icon);
             }
