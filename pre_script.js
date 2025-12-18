@@ -888,23 +888,46 @@ function float32ToBase64(float32) {
     return btoa(binary);
 }
 
-// ==========================================
-//   届出・連絡機能 (Report) - Form
-// ==========================================
+function toggleFormInputs() {
+    const type = document.getElementById('reportType').value;
+    const dateRangeBox = document.getElementById('input-date-range');
+    const dateTimeBox = document.getElementById('input-datetime');
+    
+    if (type === 'absence') {
+        dateRangeBox.style.display = 'block';
+        dateTimeBox.style.display = 'none';
+    } else {
+        dateRangeBox.style.display = 'none';
+        dateTimeBox.style.display = 'block';
+    }
+}
 
 async function submitReport() {
     const name = document.getElementById('reportName').value.trim();
     const type = document.getElementById('reportType').value;
     const reason = document.getElementById('reportReason').value.trim();
-    const startVal = document.getElementById('reportStart').value;
-    const endVal = document.getElementById('reportEnd').value;
     const fileInput = document.getElementById('reportImage');
     
     if (!name || !reason) return alert("名前と理由を入力してください");
-    if (!startVal) return alert("開始日時を入力してください");
 
-    const startDate = new Date(startVal);
-    const endDate = endVal ? new Date(endVal) : null;
+    let startDate = null;
+    let endDate = null;
+
+    // タイプに応じた日時取得
+    if (type === 'absence') {
+        const sVal = document.getElementById('reportStartDate').value;
+        const eVal = document.getElementById('reportEndDate').value;
+        if (!sVal) return alert("開始日を入力してください");
+        
+        startDate = new Date(sVal + 'T00:00:00'); // 時間を00:00に固定
+        endDate = eVal ? new Date(eVal + 'T23:59:59') : new Date(sVal + 'T23:59:59'); // 終了日はその日の終わりまで
+    } else {
+        // 遅刻・早退
+        const dtVal = document.getElementById('reportDateTime').value;
+        if (!dtVal) return alert("日時を入力してください");
+        startDate = new Date(dtVal);
+        endDate = new Date(dtVal); // 点としての扱い
+    }
 
     let imageBase64 = null;
     if (fileInput && fileInput.files[0]) {
@@ -925,12 +948,13 @@ async function submitReport() {
             type: type,
             reason: reason,
             startDate: firebase.firestore.Timestamp.fromDate(startDate),
-            endDate: endDate ? firebase.firestore.Timestamp.fromDate(endDate) : null,
+            endDate: firebase.firestore.Timestamp.fromDate(endDate),
             attachment: imageBase64,
             status: 'pending',
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
         alert("送信しました");
+        // リセット
         document.getElementById('reportReason').value = "";
         document.getElementById('reportImage').value = "";
         document.getElementById('previewArea').innerHTML = "";
@@ -1187,7 +1211,7 @@ async function checkAttendance() {
     document.getElementById('resultArea').style.display = 'block';
     
     try {
-        // 1. 出席ログ取得
+        // 1. 出席ログ取得 (完了扱い)
         const logSnap = await db.collection('attendance_logs')
             .where('userName', '==', name)
             .orderBy('timestamp', 'desc')
@@ -1198,25 +1222,26 @@ async function checkAttendance() {
             checkHistoryDates.push(doc.data().timestamp.toDate());
         });
 
-        // 2. 届出(absence_reports)取得 (承認済みのみ)
+        // 2. 届出取得 (承認済み + 申請中)
+        // クエリ制約のため、statusでフィルタせずクライアント側で振り分けるか、
+        // 単純に名前で引いてから選別するのが確実
         const reportSnap = await db.collection('absence_reports')
             .where('userName', '==', name)
-            .where('status', '==', 'approved')
+            .orderBy('timestamp', 'desc') // 最新順
             .get();
             
         checkReportRanges = [];
         reportSnap.forEach(doc => {
             const d = doc.data();
-            if(d.startDate) {
-                // 時間を00:00:00にリセットして日付のみで比較できるようにする
+            // 否認(rejected)以外を表示対象とする
+            if(d.startDate && d.status !== 'rejected') {
                 let s = d.startDate.toDate();
                 let e = d.endDate ? d.endDate.toDate() : s;
                 
                 checkReportRanges.push({
-                    type: d.type,
-                    // 年月日のみのDateオブジェクトを作成
-                    start: new Date(s.getFullYear(), s.getMonth(), s.getDate()),
-                    end: new Date(e.getFullYear(), e.getMonth(), e.getDate())
+                    status: d.status, // approved, pending, confirm
+                    start: new Date(s.getFullYear(), s.getMonth(), s.getDate()), // 時間除去
+                    end: new Date(e.getFullYear(), e.getMonth(), e.getDate())    // 時間除去
                 });
             }
         });
@@ -1228,9 +1253,7 @@ async function checkAttendance() {
     } catch(e) {
         console.error(e);
         if(e.code === 'failed-precondition') {
-            alert("エラー: 複合インデックスが必要です。管理者に連絡してください。");
-        } else {
-            alert("データ取得エラー: " + e.message);
+            alert("エラー: インデックスが必要です");
         }
     }
 }
@@ -1275,76 +1298,77 @@ function renderCalendar() {
         grid.appendChild(el);
     });
     
-    // 空白セル
     const firstDay = new Date(year, month, 1).getDay();
     for(let i=0; i<firstDay; i++) grid.appendChild(document.createElement('div'));
     
-    // 日付セル
     const lastDay = new Date(year, month + 1, 0).getDate();
     const today = new Date();
     
     for(let d=1; d<=lastDay; d++) {
-        // このセルの日付 (00:00:00)
-        const currentCellDate = new Date(year, month, d);
+        const currentCellDate = new Date(year, month, d); // 00:00:00
         
         const el = document.createElement('div');
         el.className = 'day-cell';
-        el.style.position = 'relative'; // アイコン配置用
-        el.style.display = 'flex';      // Flexboxで配置調整
+        el.style.display = 'flex';
         el.style.flexDirection = 'column';
         el.style.alignItems = 'center';
+        el.style.justifyContent = 'flex-start';
+        el.textContent = d;
         
-        // 日付数字
-        const numSpan = document.createElement('span');
-        numSpan.textContent = d;
-        el.appendChild(numSpan);
-        
-        // 今日の枠線
+        // 今日の枠
         if(year===today.getFullYear() && month===today.getMonth() && d===today.getDate()) {
             el.classList.add('today-circle');
         }
         
-        // A. 出席マーク (緑の背景)
+        // アイコンコンテナ
+        const iconContainer = document.createElement('div');
+        iconContainer.style.marginTop = '2px';
+        iconContainer.style.display = 'flex';
+        iconContainer.style.gap = '2px';
+        
+        // 1. 通常出席 (attendance_logs)
         const isAttended = checkHistoryDates.some(hd => 
             hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
         );
-        if(isAttended) {
-            el.classList.add('active-area'); // 緑背景
-            // 緑のチェックマーク等を追加してもよい
-            const mark = document.createElement('div');
-            mark.className = 'attended-mark'; 
-            el.appendChild(mark);
-        }
-
-        // B. 届出アイコン (青/黄/赤)
-        // 期間内かどうか判定
+        
+        // 2. 届出 (absence_reports)
+        let reportStatus = null; // null, 'approved', 'pending'
+        
+        // この日が範囲に含まれる届出を探す
+        // 重複がある場合は approved を優先
         checkReportRanges.forEach(range => {
-            // getTime() で数値比較
             if (currentCellDate.getTime() >= range.start.getTime() && 
                 currentCellDate.getTime() <= range.end.getTime()) {
                 
-                const icon = document.createElement('div');
-                icon.style.width = '8px';
-                icon.style.height = '8px';
-                icon.style.borderRadius = '50%';
-                icon.style.marginTop = '2px';
-                icon.style.marginBottom = '1px';
-                
-                if(range.type === 'absence') {
-                    icon.style.backgroundColor = '#007bff'; // 青 (欠席)
-                    icon.title = "欠席";
-                } else if(range.type === 'late') {
-                    icon.style.backgroundColor = '#ffc107'; // 黄 (遅刻)
-                    icon.title = "遅刻";
-                } else if(range.type === 'early') {
-                    icon.style.backgroundColor = '#dc3545'; // 赤 (早退)
-                    icon.title = "早退";
+                if (range.status === 'approved') {
+                    reportStatus = 'approved';
+                } else if (reportStatus !== 'approved') {
+                    // まだapprovedが見つかっていない場合のみ pending/confirm をセット
+                    reportStatus = 'pending';
                 }
-                
-                el.appendChild(icon);
             }
         });
 
+        // --- 表示ロジック ---
+        // 出席 または 承認済み届出 -> 緑アイコン
+        if (isAttended || reportStatus === 'approved') {
+            const icon = document.createElement('div');
+            icon.style.width = '8px'; icon.style.height = '8px';
+            icon.style.borderRadius = '50%';
+            icon.style.backgroundColor = '#28a745'; // 緑 (Active)
+            iconContainer.appendChild(icon);
+            el.classList.add('active-area'); // 背景も薄緑にする場合
+        } 
+        // 申請中 -> グレーアイコン
+        else if (reportStatus === 'pending') {
+            const icon = document.createElement('div');
+            icon.style.width = '8px'; icon.style.height = '8px';
+            icon.style.borderRadius = '50%';
+            icon.style.backgroundColor = 'gray'; // グレー (Pending)
+            iconContainer.appendChild(icon);
+        }
+
+        el.appendChild(iconContainer);
         grid.appendChild(el);
     }
 }

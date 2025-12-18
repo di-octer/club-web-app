@@ -32,20 +32,29 @@
 
             <div class="input-group">
                 <label style="display:block; font-weight:bold;">種別</label>
-                <select id="reportType" style="width: 100%; box-sizing: border-box;">
-                    <option value="absence">欠席 (休みます)</option>
-                    <option value="late">遅刻 (遅れます)</option>
-                    <option value="early">早退 (早く帰ります)</option>
+                <select id="reportType" onchange="toggleFormInputs()" style="width: 100%; box-sizing: border-box;">
+                    <option value="absence">欠席 (日単位)</option>
+                    <option value="late">遅刻 (時間指定)</option>
+                    <option value="early">早退 (時間指定)</option>
                 </select>
             </div>
 
-            <div class="input-group">
-                <label style="display:block; font-weight:bold;">対象期間 (開始)</label>
-                <input type="datetime-local" id="reportStart" style="width: 100%; box-sizing: border-box;">
+            <div id="input-date-range">
+                <div class="input-group">
+                    <label style="display:block; font-weight:bold;">欠席期間 (開始日)</label>
+                    <input type="date" id="reportStartDate" style="width: 100%; box-sizing: border-box;">
+                </div>
+                <div class="input-group">
+                    <label style="display:block; font-weight:bold;">欠席期間 (終了日) <small>※1日だけなら開始日と同じでOK</small></label>
+                    <input type="date" id="reportEndDate" style="width: 100%; box-sizing: border-box;">
+                </div>
             </div>
-            <div class="input-group">
-                <label style="display:block; font-weight:bold;">対象期間 (終了/復帰)</label>
-                <input type="datetime-local" id="reportEnd" style="width: 100%; box-sizing: border-box;">
+
+            <div id="input-datetime" style="display: none;">
+                <div class="input-group">
+                    <label style="display:block; font-weight:bold;">対象日時 (到着/早退予定)</label>
+                    <input type="datetime-local" id="reportDateTime" style="width: 100%; box-sizing: border-box;">
+                </div>
             </div>
 
             <div class="input-group">
