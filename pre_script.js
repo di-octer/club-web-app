@@ -38,7 +38,14 @@ let currentDetection = null;
 let faceStableCount = 0;      // 安定検出カウンター
 let lastDetectedDesc = null;  // 直前の顔特徴量
 let missedFrameCount = 0;     // 見失ったフレーム数
-let currentNewsSlide = 0; // 0: おすすめ, 1: トレンド
+
+// 出席確認用
+let checkDisplayDate = new Date();
+let checkHistoryDates = [];
+let checkReportRanges = [];
+
+// ニュース機能用
+let currentNewsSlide = 0;
 
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
@@ -46,8 +53,11 @@ const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】
 window.onload = async () => {
     console.log("初期化開始: bodyId =", document.body.id);
 
-    // ★追加: 全ページ共通の固定アップバーを生成
+    // 全ページ共通の固定アップバーを生成
     setupCommonAppbar();
+    
+    // ★追加: ユーザー情報の自動復元
+    restoreUserSession();
 
     const bodyId = document.body.id;
     
@@ -55,14 +65,14 @@ window.onload = async () => {
     await loadCampuses();
     await loadGpsAreas();
     
-    // ★追加: データ読み込み後にアップバーの表示を更新
+    // アップバーの表示を更新
     updateAppbarStatus();
     
     if (bodyId === 'page-admin') {
         console.log("管理者ページ検出");
         await loadModels();
         await loadRegisteredFaces();
-        await loadAdminRecommendedArticles(); // 以前追加した関数があれば
+        await loadAdminRecommendedArticles();
         switchAdminSubTab('auth'); 
         populateInfoLists();
     } else if (bodyId === 'page-user') {
@@ -73,13 +83,235 @@ window.onload = async () => {
     else if (document.getElementById('news-section')) { 
         console.log("ニュースセクション検出: loadHomeNews実行");
         loadHomeNews();
-    } else {
-        console.log("該当するページIDまたは要素が見つかりません");
     }
 };
 
 // ==========================================
-//   共通データ読み込み
+//   ★ユーザー情報保持・管理機能 (LocalStorage)
+// ==========================================
+
+// 名前を保存する
+function saveUserName(name) {
+    if(!name) return;
+    localStorage.setItem('club_app_username', name);
+    // 保存したら画面上の他のフィールドも更新しておく
+    restoreUserSession(); 
+}
+
+// 保存された名前を取得して入力欄を埋める
+function restoreUserSession() {
+    const savedName = localStorage.getItem('club_app_username');
+    if (!savedName) return;
+
+    // 自動入力対象のinput IDリスト
+    const targetIds = ['userNameInput', 'reportName', 'checkNameInput', 'regName'];
+    
+    targetIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = savedName;
+            // 既にクリアボタンがなければ追加する
+            if (!el.nextElementSibling || el.nextElementSibling.className !== 'clear-user-btn') {
+                const clearBtn = document.createElement('span');
+                clearBtn.className = 'clear-user-btn';
+                clearBtn.innerHTML = ' ×';
+                clearBtn.style.cursor = 'pointer';
+                clearBtn.style.color = '#dc3545';
+                clearBtn.style.fontWeight = 'bold';
+                clearBtn.style.marginLeft = '5px';
+                clearBtn.title = '名前をクリア';
+                clearBtn.onclick = () => {
+                    localStorage.removeItem('club_app_username');
+                    el.value = '';
+                    clearBtn.remove();
+                };
+                el.parentNode.insertBefore(clearBtn, el.nextSibling);
+            }
+        }
+    });
+}
+
+// ==========================================
+//   共通アップバー (固定ヘッダー)
+// ==========================================
+function setupCommonAppbar() {
+    const existing = document.querySelector('header');
+    if(existing) existing.remove();
+
+    const style = document.createElement('style');
+    style.innerHTML = `
+        body { padding-top: 70px; margin: 0; }
+        .appbar-fixed {
+            position: fixed; top: 0; left: 0; width: 100%; height: 60px;
+            background-color: #007bff; color: white;
+            display: flex; justify-content: space-between; align-items: center;
+            z-index: 9999; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            padding: 0 10px; box-sizing: border-box;
+        }
+        .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
+        
+        /* キャンパス名とステータスをまとめるグループ */
+        .appbar-info-group {
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 6px;
+            height: 38px;
+            padding: 0;
+            overflow: hidden;
+            cursor: pointer;
+            flex: 0 1 auto;
+            max-width: 60%;
+            min-width: 120px;
+        }
+
+        .appbar-campus {
+            font-weight: bold; padding: 0 10px; white-space: nowrap; 
+            font-size: 0.9em; color: #fff; background: transparent;
+            border-right: 1px solid rgba(255,255,255,0.3); flex: 0 0 auto;
+        }
+
+        .appbar-center {
+            flex: 1; background: transparent; border-radius: 0; height: 100%;
+            display: flex; align-items: center; color: #fff; font-size: 0.9em; 
+            font-weight: bold; overflow: hidden; position: relative; padding: 0 10px;
+            min-width: 80px;
+        }
+        
+        .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .status-marquee { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee-anim 12s linear infinite; }
+        @keyframes marquee-anim { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
+
+        .icon-btn {
+            font-size: 1.4em; text-decoration: none; color: white;
+            display: flex; align-items: center; justify-content: center;
+            width: 36px; height: 36px; border-radius: 50%; transition: background 0.2s;
+            border: none; background: transparent; cursor: pointer;
+        }
+        .icon-btn:hover { background: rgba(255,255,255,0.2); }
+
+        #statusDetailModal {
+            position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+            background: white; color: #333; padding: 15px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.4); border-radius: 8px;
+            z-index: 10000; display: none; width: 85%; max-width: 400px; text-align: left;
+        }
+        #statusDetailModal h4 { margin: 0 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .detail-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 0.9em; }
+        .detail-badge { background: #28a745; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
+        #modalOverlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 9998; display: none;
+        }
+    `;
+    document.head.appendChild(style);
+
+    const header = document.createElement('header');
+    header.className = 'appbar-fixed';
+    header.innerHTML = `
+        <div class="appbar-side">
+            <a href="pre_home.html" class="icon-btn" title="ホーム">🏠</a>
+            <a href="pre_curriculum.html" class="icon-btn" title="カリキュラム">✏️</a>
+        </div>
+        <div class="appbar-info-group" onclick="toggleStatusModal()">
+            <div id="appbarCampus" class="appbar-campus"></div>
+            <div class="appbar-center" id="appbarStatus">
+                <div class="status-static">位置情報 取得中...</div>
+            </div>
+        </div>
+        <div class="appbar-side">
+            <a href="pre_index.html" class="icon-btn" title="出席認証">👤</a>
+            <a href="pre_settings.html" class="icon-btn" title="設定">⚙️</a>
+        </div>
+    `;
+    document.body.prepend(header);
+
+    if(document.getElementById('modalOverlay')) document.getElementById('modalOverlay').remove();
+    if(document.getElementById('statusDetailModal')) document.getElementById('statusDetailModal').remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'modalOverlay';
+    overlay.onclick = toggleStatusModal; 
+    document.body.appendChild(overlay);
+
+    const modal = document.createElement('div');
+    modal.id = 'statusDetailModal';
+    modal.innerHTML = `<h4>現在の活動場所一覧</h4><div id="statusDetailContent"></div>`;
+    document.body.appendChild(modal);
+}
+
+function toggleStatusModal() {
+    const modal = document.getElementById('statusDetailModal');
+    const overlay = document.getElementById('modalOverlay');
+    if (!modal || !overlay) return;
+
+    const isHidden = modal.style.display === 'none' || modal.style.display === '';
+    modal.style.display = isHidden ? 'block' : 'none';
+    overlay.style.display = isHidden ? 'block' : 'none';
+}
+
+async function updateAppbarStatus() {
+    const campusEl = document.getElementById('appbarCampus');
+    const statusEl = document.getElementById('appbarStatus');
+    
+    if (!statusEl || !registeredGpsAreas || !registeredCampuses || registeredCampuses.length === 0) return;
+
+    const render = (campusName, areas) => {
+        campusEl.textContent = campusName;
+        if (areas.length === 0) {
+            statusEl.innerHTML = '<div class="status-static">活動なし</div>';
+        } else if (areas.length === 1) {
+            statusEl.innerHTML = `<div class="status-static">📍 ${areas[0].name}</div>`;
+        } else {
+            const text = areas.map(a => a.name).join("　　"); 
+            statusEl.innerHTML = `<div class="status-marquee">${text}　　　${text}</div>`;
+        }
+        const modalContent = document.getElementById('statusDetailContent');
+        if (areas.length === 0) {
+            modalContent.innerHTML = `<p>${campusName} で活動中の場所はありません。</p>`;
+        } else {
+            modalContent.innerHTML = areas.map(a => `
+                <div class="detail-item">
+                    <span class="detail-badge">活動中</span>
+                    <strong>${campusName}</strong> - ${a.name}
+                </div>
+            `).join('');
+        }
+    };
+
+    if (!navigator.geolocation) {
+        render("GPS不可", []);
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const uLat = pos.coords.latitude;
+            const uLon = pos.coords.longitude;
+            let nearest = null;
+            let minDist = Infinity;
+            registeredCampuses.forEach(c => {
+                const dist = getDistance(uLat, uLon, c.lat, c.lon);
+                if (dist < minDist) { minDist = dist; nearest = c; }
+            });
+
+            if (nearest) {
+                const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === nearest.id);
+                render(nearest.name, targetAreas);
+            } else {
+                render("キャンパス外", []);
+            }
+        },
+        (err) => {
+            console.warn("Location error:", err);
+            const allActive = registeredGpsAreas.filter(a => a.isActive);
+            render("全キャンパス", allActive);
+        },
+        { timeout: 5000 }
+    );
+}
+
+// ==========================================
+//   共通データ読み込み & ヘルパー
 // ==========================================
 
 async function loadCampuses() {
@@ -112,7 +344,6 @@ async function loadRegisteredFaces() {
                      const bytes = new Uint8Array(len);
                      for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
                      const float32 = new Float32Array(bytes.buffer);
-                     
                      if (float32.length === 128) {
                          registeredFaces.push({
                              docId: doc.id,
@@ -136,7 +367,281 @@ async function loadModels() {
         console.log("AI Models Loaded");
     } catch(e) {
         console.error("Model Load Error:", e);
-        alert("AIモデルの読み込みに失敗しました。");
+    }
+}
+
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3;
+  const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+  const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2) * Math.sin(Δλ/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// 汎用: プロキシ経由フェッチ
+async function fetchWithProxy(targetUrl) {
+    const proxies = [
+        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+    ];
+    let lastError = null;
+    for (const proxyFunc of proxies) {
+        try {
+            const res = await fetch(proxyFunc(targetUrl));
+            if (!res.ok) throw new Error(`Status ${res.status}`);
+            return await res.json();
+        } catch (e) { lastError = e; }
+    }
+    throw lastError;
+}
+
+// ==========================================
+//   ニュース機能 (カルーセルUI & タブ & 管理者機能)
+// ==========================================
+
+async function loadHomeNews() {
+    console.log("ニュース読み込み開始...");
+
+    const section = document.getElementById('news-section');
+    if (section && !document.getElementById('news-tab-bar')) {
+        const tabBar = document.createElement('div');
+        tabBar.id = 'news-tab-bar';
+        tabBar.style.display = 'flex';
+        tabBar.style.marginBottom = '10px';
+        tabBar.style.borderRadius = '5px';
+        tabBar.style.overflow = 'hidden';
+        tabBar.innerHTML = `
+            <button id="tab-news-0" onclick="switchNewsSlide(0)" style="flex:1; padding:12px; border:none; background:#007bff; color:white; font-weight:bold; cursor:pointer;">管理者おすすめ</button>
+            <button id="tab-news-1" onclick="switchNewsSlide(1)" style="flex:1; padding:12px; border:none; background:#eee; color:#333; cursor:pointer;">Qiitaトレンド</button>
+        `;
+        section.insertBefore(tabBar, section.firstChild);
+    }
+
+    const slideRec = document.getElementById('slide-rec');
+    if (slideRec) {
+        try {
+            const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
+            let items = [];
+            snap.forEach(doc => {
+                const d = doc.data();
+                items.push({ title: d.title, url: d.url, badge: 'Pick', color: '#ff9800', author: null });
+            });
+            renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", items, 1);
+        } catch(e) { 
+            console.error(e); 
+            slideRec.innerHTML = '<p>読み込みエラー</p>'; 
+        }
+    }
+
+    const slideTrend = document.getElementById('slide-trend');
+    if (slideTrend) {
+        try {
+            const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=20&query=stocks:>20';
+            const data = await fetchWithProxy(targetUrl);
+            let items = [];
+            if (data && data.length > 0) {
+                items = data.map(item => ({
+                    title: item.title,
+                    url: item.url,
+                    badge: 'Qiita',
+                    color: '#55c500',
+                    author: (item.user ? item.user.id : 'unknown')
+                }));
+            }
+            renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
+        } catch(e) {
+            console.error(e);
+            slideTrend.innerHTML = '<p style="color:red">取得失敗: 通信環境を確認してください</p>';
+        }
+    }
+}
+
+function switchNewsSlide(index) {
+    const track = document.getElementById('newsTrack');
+    currentNewsSlide = index;
+    const translateVal = index === 0 ? '0%' : '-50%';
+    track.style.transform = `translateX(${translateVal})`;
+
+    const tab0 = document.getElementById('tab-news-0');
+    const tab1 = document.getElementById('tab-news-1');
+    if(tab0 && tab1) {
+        if(index === 0) {
+            tab0.style.background = '#007bff'; tab0.style.color = 'white';
+            tab1.style.background = '#eee';    tab1.style.color = '#333';
+        } else {
+            tab0.style.background = '#eee';    tab0.style.color = '#333';
+            tab1.style.background = '#007bff'; tab1.style.color = 'white';
+        }
+    }
+}
+
+function renderNewsSlide(container, title, navText, items, nextIndex) {
+    container.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'news-header';
+    
+    let leftNav = '', rightNav = '';
+    if (nextIndex === 1) { 
+         rightNav = `<span class="nav-hint" onclick="switchNewsSlide(${nextIndex})">${navText}</span>`;
+         leftNav = `<span class="nav-hint" onclick="switchNewsSlide(1)">⬅ Qiitaトレンド</span>`;
+    } else { 
+         leftNav = `<span class="nav-hint" onclick="switchNewsSlide(${nextIndex})">${navText}</span>`;
+         rightNav = `<span class="nav-hint" onclick="switchNewsSlide(0)">管理者おすすめ ➡</span>`;
+    }
+
+    header.innerHTML = `
+        <div style="width:30%; text-align:left;">${leftNav}</div>
+        <h3 style="width:40%; text-align:center;">${title}</h3>
+        <div style="width:30%; text-align:right;">${rightNav}</div>
+    `;
+    container.appendChild(header);
+
+    if (items.length === 0) {
+        container.innerHTML += '<p>記事がありません</p>';
+        return;
+    }
+
+    const listId = `list-${Math.random().toString(36).substr(2, 9)}`;
+    
+    if (items.length > 5) {
+        const topToggle = document.createElement('button');
+        topToggle.className = 'toggle-btn';
+        topToggle.textContent = "🔽 もっと見る (全表示)";
+        topToggle.onclick = () => toggleNewsItems(listId, topToggle);
+        container.appendChild(topToggle);
+    }
+
+    const listDiv = document.createElement('div');
+    listDiv.id = listId;
+    listDiv.className = 'news-list';
+
+    items.forEach((item, index) => {
+        const div = createNewsItem(item.title, item.url, item.badge, item.color, item.author);
+        if (index >= 5) div.classList.add('hidden-item');
+        listDiv.appendChild(div);
+    });
+    container.appendChild(listDiv);
+
+    if (items.length > 5) {
+        const bottomToggle = document.createElement('button');
+        bottomToggle.className = 'toggle-btn';
+        bottomToggle.textContent = "🔽 もっと見る (全表示)";
+        bottomToggle.onclick = () => toggleNewsItems(listId, bottomToggle);
+        container.appendChild(bottomToggle);
+    }
+}
+
+function toggleNewsItems(listId, btn) {
+    const list = document.getElementById(listId);
+    const isExpanded = !list.children[5].classList.contains('hidden-item');
+
+    if (isExpanded) {
+        Array.from(list.children).forEach((child, i) => {
+            if (i >= 5) child.classList.add('hidden-item');
+        });
+        updateToggleButtons(list.parentElement, "🔽 もっと見る");
+    } else {
+        Array.from(list.children).forEach(child => {
+            child.classList.remove('hidden-item');
+        });
+        updateToggleButtons(list.parentElement, "🔼 閉じる");
+    }
+}
+
+function updateToggleButtons(container, text) {
+    const btns = container.querySelectorAll('.toggle-btn');
+    btns.forEach(b => b.textContent = text);
+}
+
+function createNewsItem(title, url, badgeText, badgeColor, author = null) {
+    const div = document.createElement('div');
+    div.className = 'news-item';
+    div.style.borderBottom = "1px solid #eee";
+    div.style.padding = "10px 0";
+    div.style.display = "flex";
+    div.innerHTML = `
+        <div style="background:${badgeColor}; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-right:8px; height:fit-content; flex-shrink:0;">${badgeText}</div>
+        <div>
+            <a href="${url}" target="_blank" style="text-decoration:none; color:#333; font-weight:bold; display:block;">${title}</a>
+            ${author ? `<div style="font-size:0.8em; color:#888;">by @${author}</div>` : ''}
+        </div>
+    `;
+    return div;
+}
+
+// 管理画面: おすすめ記事リスト表示
+async function loadAdminRecommendedArticles() {
+    const listEl = document.getElementById('adminNewsList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '<p>読み込み中...</p>';
+    try {
+        const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
+        listEl.innerHTML = '';
+        if (snap.empty) {
+            listEl.innerHTML = '<p>登録済み記事はありません</p>';
+            return;
+        }
+        snap.forEach(doc => {
+            const d = doc.data();
+            const div = document.createElement('div');
+            div.className = 'list-item-row';
+            div.style.padding = "10px 0";
+            div.style.borderBottom = "1px solid #eee";
+            div.style.display = "flex";
+            div.style.alignItems = "center";
+            div.style.justifyContent = "space-between";
+            div.innerHTML = `
+                <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    <a href="${d.url}" target="_blank" style="font-weight:bold; text-decoration:none; color:#333;">${d.title}</a>
+                </div>
+                <button class="btn-danger" onclick="deleteRecommendedArticle('${doc.id}')" style="margin-left:10px;">削除</button>
+            `;
+            listEl.appendChild(div);
+        });
+    } catch (e) {
+        console.error(e);
+        listEl.innerHTML = '<p>読み込みエラー</p>';
+    }
+}
+
+async function deleteRecommendedArticle(docId) {
+    if (!confirm("この記事を削除しますか？")) return;
+    try {
+        await db.collection('recommended_news').doc(docId).delete();
+        loadAdminRecommendedArticles(); 
+    } catch (e) { alert("削除エラー: " + e.message); }
+}
+
+async function registerRecommendedArticle() {
+    const input = document.getElementById('qiitaInput');
+    const urlOrId = input.value.trim();
+    if (!urlOrId) return;
+
+    let itemId = urlOrId;
+    const match = urlOrId.match(/items\/([a-z0-9]+)/);
+    if (match) itemId = match[1];
+
+    try {
+        const targetUrl = `https://qiita.com/api/v2/items/${itemId}`;
+        const data = await fetchWithProxy(targetUrl);
+
+        await db.collection('recommended_news').add({
+            title: data.title,
+            url: data.url,
+            itemId: itemId,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        alert(`追加しました: ${data.title}`);
+        input.value = "";
+        loadAdminRecommendedArticles();
+
+    } catch(e) {
+        console.error(e);
+        alert("エラー: " + e.message);
     }
 }
 
@@ -234,17 +739,16 @@ async function refreshReports() {
             const typeLabel = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' }[d.type] || d.type;
             const statusLabel = { 'pending':'未承認', 'approved':'承認済', 'confirm':'要確認', 'rejected':'否認' }[d.status] || d.status;
             
-            // ステータスバッジの色 (承認は青にする)
             let badgeColor = "#666";
-            if(d.status==='approved') badgeColor="#007bff"; // 青
-            if(d.status==='confirm') badgeColor="#ffc107";  // 黄
-            if(d.status==='rejected') badgeColor="#dc3545"; // 赤
+            if(d.status==='approved') badgeColor="#007bff"; 
+            if(d.status==='confirm') badgeColor="#ffc107";  
+            if(d.status==='rejected') badgeColor="#dc3545"; 
 
             const div = document.createElement('div');
             div.className = 'item-card';
             div.style.display = 'block';
-            div.style.padding = '0'; // 内側パディングを個別に設定するためリセット
-            div.style.overflow = 'hidden'; // 角丸用
+            div.style.padding = '0'; 
+            div.style.overflow = 'hidden'; 
 
             div.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center; background-color:#eeeeee; padding:10px; border-bottom:1px solid #ddd;">
@@ -729,6 +1233,9 @@ async function reloadAllData() {
 async function startFaceRegistration() {
     const name = document.getElementById('regName').value.trim();
     if(!name) return alert("登録名を入力してください");
+    
+    // ★追加: 名前を保存
+    saveUserName(name);
 
     const statusEl = document.getElementById('regStatus');
     const startBtn = document.getElementById('regStartBtn');
@@ -944,6 +1451,9 @@ async function submitReport() {
     const fileInput = document.getElementById('reportImage');
     
     if (!name || !reason) return alert("名前と理由を入力してください");
+    
+    // ★追加: 名前を保存
+    saveUserName(name);
 
     let startDate = null;
     let endDate = null;
@@ -1019,19 +1529,13 @@ window.addEventListener('DOMContentLoaded', () => {
 //   ユーザー: 顔認証 (User)
 // ==========================================
 
-function getDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // 地球の半径(m)
-  const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
-  const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
-  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2) * Math.sin(Δλ/2)**2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
-}
-
 async function startUserAuthFlow() {
     const name = document.getElementById('userNameInput').value.trim();
     if (!name) return alert("名前を入力してください");
     
+    // ★追加: 名前を保存
+    saveUserName(name);
+
     document.getElementById('step-0').classList.remove('active');
     document.getElementById('step-1').classList.add('active');
     
@@ -1240,13 +1744,13 @@ function drawHCode(codes) {
 // ==========================================
 //   出席履歴確認 (Check)
 // ==========================================
-let checkDisplayDate = new Date();
-let checkHistoryDates = [];
-let checkReportRanges = []; // ★追加: 届出期間リスト
 
 async function checkAttendance() {
     const name = document.getElementById('checkNameInput').value.trim();
     if (!name) return alert("名前を入力してください");
+    
+    // ★追加: 名前を保存
+    saveUserName(name);
     
     document.getElementById('resultArea').style.display = 'block';
     
@@ -1262,8 +1766,7 @@ async function checkAttendance() {
             checkHistoryDates.push(doc.data().timestamp.toDate());
         });
 
-        // 2. 届出取得 (全ステータスを取得するように変更)
-        // ※以前あった .where('status', '==', 'approved') を削除
+        // 2. 届出取得
         const reportSnap = await db.collection('absence_reports')
             .where('userName', '==', name)
             .orderBy('timestamp', 'desc')
@@ -1454,516 +1957,4 @@ function renderCalendar() {
         el.appendChild(iconContainer);
         grid.appendChild(el);
     }
-}
-
-// ==========================================
-//   ニュース機能 (Qiita連携 & 管理者おすすめ)
-// ==========================================
-
-// 汎用: プロキシ経由フェッチ
-async function fetchWithProxy(targetUrl) {
-    const proxies = [
-        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
-    ];
-    let lastError = null;
-    for (const proxyFunc of proxies) {
-        try {
-            const res = await fetch(proxyFunc(targetUrl));
-            if (!res.ok) throw new Error(`Status ${res.status}`);
-            return await res.json();
-        } catch (e) { lastError = e; }
-    }
-    throw lastError;
-}
-
-// --- 1. ホーム画面用: ニュース読み込み (メイン) ---
-async function loadHomeNews() {
-    console.log("ニュース読み込み開始...");
-
-    // ★追加: ブロック型タブの生成 (存在しなければ作成)
-    const section = document.getElementById('news-section');
-    if (section && !document.getElementById('news-tab-bar')) {
-        const tabBar = document.createElement('div');
-        tabBar.id = 'news-tab-bar';
-        tabBar.style.display = 'flex';
-        tabBar.style.marginBottom = '10px';
-        tabBar.style.borderRadius = '5px';
-        tabBar.style.overflow = 'hidden';
-        tabBar.innerHTML = `
-            <button id="tab-news-0" onclick="switchNewsSlide(0)" style="flex:1; padding:12px; border:none; background:#007bff; color:white; font-weight:bold; cursor:pointer;">管理者おすすめ</button>
-            <button id="tab-news-1" onclick="switchNewsSlide(1)" style="flex:1; padding:12px; border:none; background:#eee; color:#333; cursor:pointer;">Qiitaトレンド</button>
-        `;
-        section.insertBefore(tabBar, section.firstChild);
-    }
-
-    // 1. 管理者おすすめ (Firestore)
-    const slideRec = document.getElementById('slide-rec');
-    if (slideRec) {
-        try {
-            const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
-            let items = [];
-            snap.forEach(doc => {
-                const d = doc.data();
-                items.push({ title: d.title, url: d.url, badge: 'Pick', color: '#ff9800', author: null });
-            });
-            // 0(おすすめ) の次は 1(トレンド)
-            renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", items, 1);
-        } catch(e) { 
-            console.error(e); 
-            slideRec.innerHTML = '<p>読み込みエラー</p>'; 
-        }
-    }
-
-    // 2. Qiitaトレンド (API)
-    const slideTrend = document.getElementById('slide-trend');
-    if (slideTrend) {
-        try {
-            const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=20&query=stocks:>20';
-            const data = await fetchWithProxy(targetUrl);
-            let items = [];
-            if (data && data.length > 0) {
-                items = data.map(item => ({
-                    title: item.title,
-                    url: item.url,
-                    badge: 'Qiita',
-                    color: '#55c500',
-                    author: (item.user ? item.user.id : 'unknown')
-                }));
-            }
-            // 1(トレンド) の次は 0(おすすめ) ※ループ
-            renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
-        } catch(e) {
-            console.error(e);
-            slideTrend.innerHTML = '<p style="color:red">取得失敗: 通信環境を確認してください</p>';
-        }
-    }
-}
-
-// スライド生成ヘルパー
-function renderNewsSlide(container, title, navText, items, nextIndex) {
-    container.innerHTML = '';
-
-    // ヘッダー (左右ナビ: どちらに行ってもループするよう次のインデックスを指定)
-    const header = document.createElement('div');
-    header.className = 'news-header';
-    
-    // ナビゲーションの配置
-    let leftNav = '', rightNav = '';
-    // ループ動作のため、左右どちらを押しても切り替わるように設定
-    if (nextIndex === 1) { 
-         // 現在0 -> 右へ行くと1
-         rightNav = `<span class="nav-hint" onclick="switchNewsSlide(${nextIndex})">${navText}</span>`;
-         // 左へ行くと最後(1)へ (ループ)
-         leftNav = `<span class="nav-hint" onclick="switchNewsSlide(1)">⬅ Qiitaトレンド</span>`;
-    } else { 
-         // 現在1 -> 左へ行くと0
-         leftNav = `<span class="nav-hint" onclick="switchNewsSlide(${nextIndex})">${navText}</span>`;
-         // 右へ行くと最初(0)へ (ループ)
-         rightNav = `<span class="nav-hint" onclick="switchNewsSlide(0)">管理者おすすめ ➡</span>`;
-    }
-
-    header.innerHTML = `
-        <div style="width:30%; text-align:left;">${leftNav}</div>
-        <h3 style="width:40%; text-align:center;">${title}</h3>
-        <div style="width:30%; text-align:right;">${rightNav}</div>
-    `;
-    container.appendChild(header);
-
-    if (items.length === 0) {
-        container.innerHTML += '<p>記事がありません</p>';
-        return;
-    }
-
-    // ID生成
-    const listId = `list-${Math.random().toString(36).substr(2, 9)}`;
-    
-    // 上部トグル
-    if (items.length > 5) {
-        const topToggle = document.createElement('button');
-        topToggle.className = 'toggle-btn';
-        topToggle.textContent = "🔽 もっと見る (全表示)";
-        topToggle.onclick = () => toggleNewsItems(listId, topToggle);
-        container.appendChild(topToggle);
-    }
-
-    // リスト
-    const listDiv = document.createElement('div');
-    listDiv.id = listId;
-    listDiv.className = 'news-list';
-
-    items.forEach((item, index) => {
-        const div = createNewsItem(item.title, item.url, item.badge, item.color, item.author);
-        if (index >= 5) div.classList.add('hidden-item');
-        listDiv.appendChild(div);
-    });
-    container.appendChild(listDiv);
-
-    // 下部トグル
-    if (items.length > 5) {
-        const bottomToggle = document.createElement('button');
-        bottomToggle.className = 'toggle-btn';
-        bottomToggle.textContent = "🔽 もっと見る (全表示)";
-        bottomToggle.onclick = () => toggleNewsItems(listId, bottomToggle);
-        container.appendChild(bottomToggle);
-    }
-}
-
-function createNewsItem(title, url, badgeText, badgeColor, author = null) {
-    const div = document.createElement('div');
-    div.className = 'news-item';
-    div.style.borderBottom = "1px solid #eee";
-    div.style.padding = "10px 0";
-    div.style.display = "flex";
-    div.innerHTML = `
-        <div style="background:${badgeColor}; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-right:8px; height:fit-content; flex-shrink:0;">${badgeText}</div>
-        <div>
-            <a href="${url}" target="_blank" style="text-decoration:none; color:#333; font-weight:bold; display:block;">${title}</a>
-            ${author ? `<div style="font-size:0.8em; color:#888;">by @${author}</div>` : ''}
-        </div>
-    `;
-    return div;
-}
-
-// スライド切り替え処理
-function switchNewsSlide(index) {
-    const track = document.getElementById('newsTrack');
-    currentNewsSlide = index;
-    
-    // スライド移動
-    const translateVal = index === 0 ? '0%' : '-50%';
-    track.style.transform = `translateX(${translateVal})`;
-
-    // タブの色更新
-    const tab0 = document.getElementById('tab-news-0');
-    const tab1 = document.getElementById('tab-news-1');
-    if(tab0 && tab1) {
-        if(index === 0) {
-            tab0.style.background = '#007bff'; tab0.style.color = 'white';
-            tab1.style.background = '#eee';    tab1.style.color = '#333';
-        } else {
-            tab0.style.background = '#eee';    tab0.style.color = '#333';
-            tab1.style.background = '#007bff'; tab1.style.color = 'white';
-        }
-    }
-}
-
-function toggleNewsItems(listId, btn) {
-    const list = document.getElementById(listId);
-    const isExpanded = !list.children[5].classList.contains('hidden-item');
-
-    if (isExpanded) {
-        Array.from(list.children).forEach((child, i) => {
-            if (i >= 5) child.classList.add('hidden-item');
-        });
-        updateToggleButtons(list.parentElement, "🔽 もっと見る");
-    } else {
-        Array.from(list.children).forEach(child => {
-            child.classList.remove('hidden-item');
-        });
-        updateToggleButtons(list.parentElement, "🔼 閉じる");
-    }
-}
-
-function updateToggleButtons(container, text) {
-    const btns = container.querySelectorAll('.toggle-btn');
-    btns.forEach(b => b.textContent = text);
-}
-
-// --- 2. 管理者用: おすすめ記事登録 ---
-
-// 記事登録処理
-async function registerRecommendedArticle() {
-    const input = document.getElementById('qiitaInput');
-    const urlOrId = input.value.trim();
-    if (!urlOrId) return;
-
-    let itemId = urlOrId;
-    const match = urlOrId.match(/items\/([a-z0-9]+)/);
-    if (match) itemId = match[1];
-
-    try {
-        // ★修正: ここも同じプロキシに変更
-        const targetUrl = `https://qiita.com/api/v2/items/${itemId}`;
-        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(targetUrl);
-
-        const res = await fetch(proxyUrl);
-        if (!res.ok) throw new Error("記事が見つかりません (またはAPI制限)");
-        const data = await res.json();
-
-        await db.collection('recommended_news').add({
-            title: data.title,
-            url: data.url,
-            itemId: itemId,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
-
-        alert(`追加しました: ${data.title}`);
-        input.value = "";
-        loadAdminRecommendedArticles();
-
-    } catch(e) {
-        console.error(e);
-        alert("エラー: " + e.message);
-    }
-}
-
-// 管理画面リスト表示
-async function loadAdminRecommendedArticles() {
-    const listEl = document.getElementById('adminNewsList');
-    if (!listEl) return;
-    
-    listEl.innerHTML = '<p>読み込み中...</p>';
-    const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
-    
-    listEl.innerHTML = '';
-    if (snap.empty) {
-        listEl.innerHTML = '<p>登録済み記事はありません</p>';
-        return;
-    }
-
-    snap.forEach(doc => {
-        const d = doc.data();
-        const div = document.createElement('div');
-        div.className = 'list-item-row';
-        div.style.padding = "5px 0";
-        div.style.borderBottom = "1px solid #eee";
-        div.innerHTML = `
-            <div style="flex:1;">
-                <a href="${d.url}" target="_blank" style="font-weight:bold;">${d.title}</a>
-            </div>
-            <button class="btn-danger" onclick="deleteRecommendedArticle('${doc.id}')" style="margin-left:10px;">削除</button>
-        `;
-        listEl.appendChild(div);
-    });
-}
-
-async function deleteRecommendedArticle(docId) {
-    if (!confirm("この記事を削除しますか？")) return;
-    await db.collection('recommended_news').doc(docId).delete();
-    loadAdminRecommendedArticles();
-}
-
-// ==========================================
-//   共通アップバー (固定ヘッダー) 機能
-// ==========================================
-
-// モーダルの表示切り替え
-function toggleStatusModal() {
-    const modal = document.getElementById('statusDetailModal');
-    const overlay = document.getElementById('modalOverlay');
-    if (!modal || !overlay) return;
-
-    const isHidden = modal.style.display === 'none' || modal.style.display === '';
-    modal.style.display = isHidden ? 'block' : 'none';
-    overlay.style.display = isHidden ? 'block' : 'none';
-}
-
-function setupCommonAppbar() {
-    // 既存ヘッダーがあれば削除（重複防止）
-    const existing = document.querySelector('header');
-    if(existing) existing.remove();
-
-    // スタイル定義の更新
-    const style = document.createElement('style');
-    style.innerHTML = `
-        body { padding-top: 70px; margin: 0; }
-        
-        /* 固定ヘッダー */
-        .appbar-fixed {
-            position: fixed; top: 0; left: 0; width: 100%; height: 60px;
-            background-color: #007bff; color: white;
-            display: flex; justify-content: space-between; align-items: center;
-            z-index: 9999; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            padding: 0 10px; box-sizing: border-box;
-        }
-        
-        /* 左右アイコンエリア */
-        .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
-        
-        /* ★修正: 中央の情報グループ (キャンパス名 + エリア名) */
-        .appbar-info-group {
-            display: flex; align-items: center; justify-content: center;
-            background: rgba(0, 0, 0, 0.4); /* 背景透明度40% */
-            border-radius: 6px; /* 全体の角を丸く */
-            height: 38px;
-            padding: 0;
-            overflow: hidden;
-            cursor: pointer;
-            flex: 0 1 auto; /* 中身に合わせて伸縮 */
-            max-width: 60%; /* 幅を取りすぎないように制限 */
-            min-width: 120px;
-        }
-
-        /* ★修正: キャンパス名 */
-        .appbar-campus {
-            font-weight: bold; 
-            padding: 0 10px; 
-            white-space: nowrap; 
-            font-size: 0.9em;
-            color: #fff;
-            background: transparent;
-            border-right: 1px solid rgba(255,255,255,0.3); /* 区切り線 */
-            flex: 0 0 auto;
-        }
-
-        /* ★修正: 活動場所エリア (完全な四角・背景なし) */
-        .appbar-center {
-            flex: 1; 
-            background: transparent; /* 親の背景を使う */
-            border-radius: 0;        /* 角丸なし */
-            height: 100%;
-            display: flex; align-items: center; 
-            color: #fff; font-size: 0.9em; font-weight: bold;
-            overflow: hidden;
-            position: relative;
-            padding: 0 10px;
-            min-width: 80px;
-        }
-        
-        .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        
-        /* 電光掲示板アニメーション */
-        .status-marquee { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee-anim 12s linear infinite; }
-        @keyframes marquee-anim { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
-
-        /* アイコンボタン */
-        .icon-btn {
-            font-size: 1.4em; text-decoration: none; color: white;
-            display: flex; align-items: center; justify-content: center;
-            width: 36px; height: 36px; border-radius: 50%; transition: background 0.2s;
-            border: none; background: transparent; cursor: pointer;
-        }
-        .icon-btn:hover { background: rgba(255,255,255,0.2); }
-
-        /* モーダル類 */
-        #statusDetailModal {
-            position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
-            background: white; color: #333; padding: 15px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.4); border-radius: 8px;
-            z-index: 10000; display: none; width: 85%; max-width: 400px; text-align: left;
-        }
-        #statusDetailModal h4 { margin: 0 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-        .detail-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 0.9em; }
-        .detail-badge { background: #28a745; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
-        #modalOverlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); z-index: 9998; display: none;
-        }
-    `;
-    document.head.appendChild(style);
-
-    const header = document.createElement('header');
-    header.className = 'appbar-fixed';
-    header.innerHTML = `
-        <div class="appbar-side">
-            <a href="pre_home.html" class="icon-btn" title="ホーム">🏠</a>
-            <a href="pre_curriculum.html" class="icon-btn" title="カリキュラム">✏️</a>
-        </div>
-
-        <div class="appbar-info-group" onclick="toggleStatusModal()">
-            <div id="appbarCampus" class="appbar-campus"></div>
-            <div class="appbar-center" id="appbarStatus">
-                <div class="status-static">位置情報 取得中...</div>
-            </div>
-        </div>
-
-        <div class="appbar-side">
-            <a href="pre_index.html" class="icon-btn" title="出席認証">👤</a>
-            <a href="pre_settings.html" class="icon-btn" title="設定">⚙️</a>
-        </div>
-    `;
-    document.body.prepend(header);
-
-    // モーダル初期化（古いものがあれば削除）
-    if(document.getElementById('modalOverlay')) document.getElementById('modalOverlay').remove();
-    if(document.getElementById('statusDetailModal')) document.getElementById('statusDetailModal').remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'modalOverlay';
-    overlay.onclick = toggleStatusModal; 
-    document.body.appendChild(overlay);
-
-    const modal = document.createElement('div');
-    modal.id = 'statusDetailModal';
-    modal.innerHTML = `<h4>現在の活動場所一覧</h4><div id="statusDetailContent"></div>`;
-    document.body.appendChild(modal);
-}
-
-async function updateAppbarStatus() {
-    const campusEl = document.getElementById('appbarCampus');
-    const statusEl = document.getElementById('appbarStatus');
-    
-    // まだ要素がない、またはデータがない場合はスキップ
-    if (!statusEl || !registeredGpsAreas || !registeredCampuses || registeredCampuses.length === 0) return;
-
-    // 描画用ヘルパー関数
-    const render = (campusName, areas) => {
-        // 1. キャンパス名
-        campusEl.textContent = campusName;
-
-        // 2. 活動場所エリア
-        if (areas.length === 0) {
-            statusEl.innerHTML = '<div class="status-static">活動なし</div>';
-        } else if (areas.length === 1) {
-            statusEl.innerHTML = `<div class="status-static">📍 ${areas[0].name}</div>`;
-        } else {
-            // ★修正: []をつけずにエリア名を列挙
-            const text = areas.map(a => a.name).join("　　"); 
-            statusEl.innerHTML = `<div class="status-marquee">${text}　　　${text}</div>`;
-        }
-
-        // 3. モーダル詳細
-        const modalContent = document.getElementById('statusDetailContent');
-        if (areas.length === 0) {
-            modalContent.innerHTML = `<p>${campusName} で活動中の場所はありません。</p>`;
-        } else {
-            modalContent.innerHTML = areas.map(a => `
-                <div class="detail-item">
-                    <span class="detail-badge">活動中</span>
-                    <strong>${campusName}</strong> - ${a.name}
-                </div>
-            `).join('');
-        }
-    };
-
-    // 位置情報が使えない場合
-    if (!navigator.geolocation) {
-        render("GPS不可", []);
-        return;
-    }
-
-    // 現在地を取得して最寄りキャンパスを判定
-    navigator.geolocation.getCurrentPosition(
-        (pos) => {
-            const uLat = pos.coords.latitude;
-            const uLon = pos.coords.longitude;
-            
-            let nearest = null;
-            let minDist = Infinity;
-            
-            registeredCampuses.forEach(c => {
-                const dist = getDistance(uLat, uLon, c.lat, c.lon);
-                if (dist < minDist) {
-                    minDist = dist;
-                    nearest = c;
-                }
-            });
-
-            if (nearest) {
-                // 最寄りキャンパス内のアクティブなエリアのみ抽出
-                const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === nearest.id);
-                render(nearest.name, targetAreas);
-            } else {
-                render("キャンパス外", []);
-            }
-        },
-        (err) => {
-            console.warn("Location error:", err);
-            // エラー時は全キャンパスのアクティブエリアを表示（フォールバック）
-            const allActive = registeredGpsAreas.filter(a => a.isActive);
-            render("全キャンパス", allActive);
-        },
-        { timeout: 5000 }
-    );
 }
