@@ -44,7 +44,10 @@ const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】
 
 // --- 初期化 ---
 window.onload = async () => {
-    console.log("初期化開始: bodyId =", document.body.id); // ★デバッグ用
+    console.log("初期化開始: bodyId =", document.body.id);
+
+    // ★追加: 全ページ共通の固定アップバーを生成
+    setupCommonAppbar();
 
     const bodyId = document.body.id;
     
@@ -52,11 +55,14 @@ window.onload = async () => {
     await loadCampuses();
     await loadGpsAreas();
     
+    // ★追加: データ読み込み後にアップバーの表示を更新
+    updateAppbarStatus();
+    
     if (bodyId === 'page-admin') {
         console.log("管理者ページ検出");
         await loadModels();
         await loadRegisteredFaces();
-        await loadAdminRecommendedArticles();
+        await loadAdminRecommendedArticles(); // 以前追加した関数があれば
         switchAdminSubTab('auth'); 
         populateInfoLists();
     } else if (bodyId === 'page-user') {
@@ -64,9 +70,8 @@ window.onload = async () => {
     } else if (bodyId === 'page-check') {
         // 出席確認ページ
     } 
-    // ★ニュースセクションがあるかチェック
     else if (document.getElementById('news-section')) { 
-        console.log("ニュースセクション検出: loadHomeNews実行"); // ★これが表示されるか確認
+        console.log("ニュースセクション検出: loadHomeNews実行");
         loadHomeNews();
     } else {
         console.log("該当するページIDまたは要素が見つかりません");
@@ -1724,4 +1729,177 @@ async function deleteRecommendedArticle(docId) {
     if (!confirm("この記事を削除しますか？")) return;
     await db.collection('recommended_news').doc(docId).delete();
     loadAdminRecommendedArticles();
+}
+
+// ==========================================
+//   共通アップバー (固定ヘッダー) 機能
+// ==========================================
+
+function setupCommonAppbar() {
+    // 既存の古いヘッダーがあれば削除（重複防止）
+    const existing = document.querySelector('header');
+    if(existing) existing.remove();
+
+    // 1. スタイル定義 (CSS) を動的に追加
+    const style = document.createElement('style');
+    style.innerHTML = `
+        /* 本体コンテンツがヘッダーに隠れないように余白を確保 */
+        body { padding-top: 70px; margin: 0; }
+        
+        /* 固定ヘッダー本体 */
+        .appbar-fixed {
+            position: fixed; top: 0; left: 0; width: 100%; height: 60px;
+            background-color: #007bff; color: white;
+            display: flex; justify-content: space-between; align-items: center;
+            z-index: 9999; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            padding: 0 10px; box-sizing: border-box;
+        }
+
+        /* 左・右のアイコンエリア */
+        .appbar-side { display: flex; gap: 15px; flex: 0 0 auto; align-items: center; }
+
+        /* 中央の活動場所表示エリア */
+        .appbar-center {
+            flex: 1; overflow: hidden; position: relative;
+            background: rgba(0,0,0,0.2); border-radius: 20px;
+            height: 36px; margin: 0 15px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 0.9em; font-weight: bold;
+        }
+        .appbar-center:hover { background: rgba(0,0,0,0.3); }
+
+        /* 単一表示用 (固定) */
+        .status-static {
+            width: 100%; text-align: center; 
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            padding: 0 10px;
+        }
+
+        /* 電光掲示板アニメーション (複数用) */
+        .status-marquee {
+            display: inline-block; white-space: nowrap;
+            padding-left: 100%; /* 右端からスタート */
+            animation: marquee-anim 15s linear infinite;
+        }
+        @keyframes marquee-anim {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(-100%, 0); } /* 左へ流れる */
+        }
+
+        /* アイコンボタン */
+        .icon-btn {
+            font-size: 1.5em; text-decoration: none; color: white;
+            display: flex; align-items: center; justify-content: center;
+            width: 40px; height: 40px; border-radius: 50%; transition: background 0.2s;
+            border: none; background: transparent; cursor: pointer;
+        }
+        .icon-btn:hover { background: rgba(255,255,255,0.2); }
+
+        /* 一覧表示用モーダル (詳細リスト) */
+        #statusDetailModal {
+            position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+            background: white; color: #333; padding: 15px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.4); border-radius: 8px;
+            z-index: 10000; display: none; width: 85%; max-width: 400px;
+            text-align: left;
+        }
+        #statusDetailModal h4 { margin: 0 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .detail-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 0.9em; }
+        .detail-item:last-child { border-bottom: none; }
+        .detail-badge { background: #28a745; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
+        
+        /* オーバーレイ (背景暗転) */
+        #modalOverlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 9998; display: none;
+        }
+    `;
+    document.head.appendChild(style);
+
+    // 2. ヘッダーHTMLの生成
+    const header = document.createElement('header');
+    header.className = 'appbar-fixed';
+    header.innerHTML = `
+        <div class="appbar-side">
+            <a href="pre_curriculum.html" class="icon-btn" title="カリキュラム">✏️</a>
+        </div>
+        
+        <div class="appbar-center" id="appbarStatus" onclick="toggleStatusModal()">
+            <div class="status-static">読み込み中...</div>
+        </div>
+
+        <div class="appbar-side">
+            <a href="pre_index.html" class="icon-btn" title="出席認証">👤</a>
+            <a href="pre_settings.html" class="icon-btn" title="設定">⚙️</a>
+        </div>
+    `;
+    document.body.prepend(header);
+
+    // 3. モーダル用のHTML生成
+    const overlay = document.createElement('div');
+    overlay.id = 'modalOverlay';
+    overlay.onclick = toggleStatusModal; // 背景クリックで閉じる
+    document.body.appendChild(overlay);
+
+    const modal = document.createElement('div');
+    modal.id = 'statusDetailModal';
+    modal.innerHTML = `<h4>現在の活動場所一覧</h4><div id="statusDetailContent"></div>`;
+    document.body.appendChild(modal);
+}
+
+// データに基づいて表示を更新する関数
+function updateAppbarStatus() {
+    const statusEl = document.getElementById('appbarStatus');
+    const modalContent = document.getElementById('statusDetailContent');
+    if (!statusEl || !registeredGpsAreas) return;
+
+    // 活動中のエリアを抽出 (isActive: true)
+    const activeAreas = registeredGpsAreas.filter(area => area.isActive);
+    
+    // キャンパス名とエリア名を結合したリストを作成
+    const activeInfoList = activeAreas.map(area => {
+        const campus = registeredCampuses.find(c => c.id === area.campusId);
+        const campusName = campus ? campus.name : "不明なキャンパス";
+        return {
+            fullText: `${campusName} ${area.name}`,
+            campus: campusName,
+            area: area.name
+        };
+    });
+
+    // 1. ヘッダー表示の更新
+    if (activeInfoList.length === 0) {
+        statusEl.innerHTML = '<div class="status-static">現在 活動場所はありません</div>';
+    } else if (activeInfoList.length === 1) {
+        // 単一: 固定表示
+        statusEl.innerHTML = `<div class="status-static">📍 ${activeInfoList[0].fullText}</div>`;
+    } else {
+        // 複数: 電光掲示板 (Marquee)
+        const text = activeInfoList.map(i => `[${i.fullText}]`).join("　　"); // 間隔を空ける
+        // アニメーション用にテキストを2回繰り返して繋げるとスムーズに見える場合もあるが、今回はシンプルに
+        statusEl.innerHTML = `<div class="status-marquee">${text}　　　　${text}</div>`;
+    }
+
+    // 2. モーダル(一覧)の中身更新
+    if (activeInfoList.length === 0) {
+        modalContent.innerHTML = '<p>活動中の場所はありません。</p>';
+    } else {
+        modalContent.innerHTML = activeInfoList.map(info => `
+            <div class="detail-item">
+                <span class="detail-badge">活動中</span>
+                <strong>${info.campus}</strong> - ${info.area}
+            </div>
+        `).join('');
+    }
+}
+
+// モーダルの表示切り替え
+function toggleStatusModal() {
+    const modal = document.getElementById('statusDetailModal');
+    const overlay = document.getElementById('modalOverlay');
+    if (!modal || !overlay) return;
+
+    const isHidden = modal.style.display === 'none' || modal.style.display === '';
+    modal.style.display = isHidden ? 'block' : 'none';
+    overlay.style.display = isHidden ? 'block' : 'none';
 }
