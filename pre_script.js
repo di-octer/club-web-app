@@ -196,6 +196,7 @@ async function refreshRequests() {
 }
 
 // 届出リスト一覧
+// 届出リスト一覧
 async function refreshReports() {
     const listEl = document.getElementById('reportList');
     listEl.innerHTML = '<p>読み込み中...</p>';
@@ -211,7 +212,6 @@ async function refreshReports() {
         
         snapshot.forEach(doc => {
             const d = doc.data();
-            const sentDate = d.timestamp ? d.timestamp.toDate().toLocaleString() : '';
             const startStr = d.startDate ? d.startDate.toDate().toLocaleString() : '未定';
             const endStr = d.endDate ? d.endDate.toDate().toLocaleString() : '';
             const periodStr = endStr ? `${startStr} 〜 ${endStr}` : `${startStr} 〜`;
@@ -239,9 +239,9 @@ async function refreshReports() {
                 </div>
                 ${d.attachment ? `<img src="${d.attachment}" style="max-height:80px; border:1px solid #ccc;">` : ''}
                 <div style="text-align:right; margin-top:5px;">
-                    <button onclick="updateReportStatus('${doc.id}','approved')" style="padding:5px 10px; font-size:0.8em; background:#007bff;">承認</button>
-                    <button onclick="updateReportStatus('${doc.id}','confirm')" style="padding:5px 10px; font-size:0.8em; background:#ffc107; color:black;">確認</button>
-                    <button onclick="updateReportStatus('${doc.id}','rejected')" style="padding:5px 10px; font-size:0.8em; background:#dc3545;">否認</button>
+                    <button onclick="updateReportStatus('${doc.id}','approved')" style="padding:5px 10px; font-size:0.8em; background:#28a745; color:white; border:none; border-radius:4px; margin-right:5px;">承認</button>
+                    <button onclick="updateReportStatus('${doc.id}','confirm')" style="padding:5px 10px; font-size:0.8em; background:#ffc107; color:black; border:none; border-radius:4px; margin-right:5px;">確認</button>
+                    <button onclick="updateReportStatus('${doc.id}','rejected')" style="padding:5px 10px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px;">否認</button>
                 </div>
             `;
             listEl.appendChild(div);
@@ -1200,10 +1200,6 @@ let checkDisplayDate = new Date();
 let checkHistoryDates = [];
 let checkReportRanges = []; // ★追加: 届出期間リスト
 
-// ==========================================
-//   出席履歴確認 (Check)
-// ==========================================
-
 async function checkAttendance() {
     const name = document.getElementById('checkNameInput').value.trim();
     if (!name) return alert("名前を入力してください");
@@ -1211,7 +1207,7 @@ async function checkAttendance() {
     document.getElementById('resultArea').style.display = 'block';
     
     try {
-        // 1. 出席ログ取得 (完了扱い)
+        // 1. 出席ログ取得
         const logSnap = await db.collection('attendance_logs')
             .where('userName', '==', name)
             .orderBy('timestamp', 'desc')
@@ -1222,26 +1218,25 @@ async function checkAttendance() {
             checkHistoryDates.push(doc.data().timestamp.toDate());
         });
 
-        // 2. 届出取得 (承認済み + 申請中)
-        // クエリ制約のため、statusでフィルタせずクライアント側で振り分けるか、
-        // 単純に名前で引いてから選別するのが確実
+        // 2. 届出取得 (全ステータスを取得するように変更)
+        // ※以前あった .where('status', '==', 'approved') を削除
         const reportSnap = await db.collection('absence_reports')
             .where('userName', '==', name)
-            .orderBy('timestamp', 'desc') // 最新順
+            .orderBy('timestamp', 'desc')
             .get();
             
         checkReportRanges = [];
         reportSnap.forEach(doc => {
             const d = doc.data();
-            // 否認(rejected)以外を表示対象とする
-            if(d.startDate && d.status !== 'rejected') {
+            if(d.startDate) {
                 let s = d.startDate.toDate();
                 let e = d.endDate ? d.endDate.toDate() : s;
                 
                 checkReportRanges.push({
-                    status: d.status, // approved, pending, confirm
-                    start: new Date(s.getFullYear(), s.getMonth(), s.getDate()), // 時間除去
-                    end: new Date(e.getFullYear(), e.getMonth(), e.getDate())    // 時間除去
+                    status: d.status, // approved, confirm, rejected, pending
+                    type: d.type,
+                    start: new Date(s.getFullYear(), s.getMonth(), s.getDate()),
+                    end: new Date(e.getFullYear(), e.getMonth(), e.getDate())
                 });
             }
         });
@@ -1254,6 +1249,8 @@ async function checkAttendance() {
         console.error(e);
         if(e.code === 'failed-precondition') {
             alert("エラー: インデックスが必要です");
+        } else {
+            alert("データ取得エラー: " + e.message);
         }
     }
 }
@@ -1289,7 +1286,7 @@ function renderCalendar() {
     const month = checkDisplayDate.getMonth();
     document.getElementById('calendarTitle').textContent = `${year}年 ${month + 1}月`;
     
-    // 曜日ヘッダー
+    // 曜日
     ['日','月','火','水','木','金','土'].forEach(w => {
         const el = document.createElement('div');
         el.className = 'day-cell';
@@ -1320,53 +1317,51 @@ function renderCalendar() {
             el.classList.add('today-circle');
         }
         
-        // アイコンコンテナ
+        // アイコン表示用コンテナ
         const iconContainer = document.createElement('div');
         iconContainer.style.marginTop = '2px';
         iconContainer.style.display = 'flex';
         iconContainer.style.gap = '2px';
+        iconContainer.style.flexWrap = 'wrap';
+        iconContainer.style.justifyContent = 'center';
         
-        // 1. 通常出席 (attendance_logs)
+        // 1. 通常出席 (attendance_logs) -> 緑アイコン
         const isAttended = checkHistoryDates.some(hd => 
             hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
         );
+        if (isAttended) {
+            const icon = document.createElement('div');
+            icon.style.width = '8px'; icon.style.height = '8px';
+            icon.style.borderRadius = '50%';
+            icon.style.backgroundColor = '#28a745'; // 緑
+            iconContainer.appendChild(icon);
+            el.classList.add('active-area'); 
+        }
         
-        // 2. 届出 (absence_reports)
-        let reportStatus = null; // null, 'approved', 'pending'
-        
-        // この日が範囲に含まれる届出を探す
-        // 重複がある場合は approved を優先
+        // 2. 届出 (absence_reports) -> ステータス別アイコン
         checkReportRanges.forEach(range => {
             if (currentCellDate.getTime() >= range.start.getTime() && 
                 currentCellDate.getTime() <= range.end.getTime()) {
                 
+                const icon = document.createElement('div');
+                icon.style.width = '8px'; icon.style.height = '8px';
+                icon.style.borderRadius = '50%';
+                
+                // 色分けロジック
                 if (range.status === 'approved') {
-                    reportStatus = 'approved';
-                } else if (reportStatus !== 'approved') {
-                    // まだapprovedが見つかっていない場合のみ pending/confirm をセット
-                    reportStatus = 'pending';
+                    icon.style.backgroundColor = '#28a745'; // 緑 (承認)
+                    el.classList.add('active-area'); // 背景も薄緑に
+                } else if (range.status === 'confirm') {
+                    icon.style.backgroundColor = '#ffc107'; // 黄 (確認)
+                } else if (range.status === 'rejected') {
+                    icon.style.backgroundColor = '#dc3545'; // 赤 (否認)
+                } else {
+                    icon.style.backgroundColor = 'gray';    // 灰 (申請中)
                 }
+                
+                iconContainer.appendChild(icon);
             }
         });
-
-        // --- 表示ロジック ---
-        // 出席 または 承認済み届出 -> 緑アイコン
-        if (isAttended || reportStatus === 'approved') {
-            const icon = document.createElement('div');
-            icon.style.width = '8px'; icon.style.height = '8px';
-            icon.style.borderRadius = '50%';
-            icon.style.backgroundColor = '#28a745'; // 緑 (Active)
-            iconContainer.appendChild(icon);
-            el.classList.add('active-area'); // 背景も薄緑にする場合
-        } 
-        // 申請中 -> グレーアイコン
-        else if (reportStatus === 'pending') {
-            const icon = document.createElement('div');
-            icon.style.width = '8px'; icon.style.height = '8px';
-            icon.style.borderRadius = '50%';
-            icon.style.backgroundColor = 'gray'; // グレー (Pending)
-            iconContainer.appendChild(icon);
-        }
 
         el.appendChild(iconContainer);
         grid.appendChild(el);
