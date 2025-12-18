@@ -1571,3 +1571,39 @@ async function registerRecommendedArticle() {
         alert("エラー: " + e.message);
     }
 }
+
+// 管理画面リスト表示
+async function loadAdminRecommendedArticles() {
+    const listEl = document.getElementById('adminNewsList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '<p>読み込み中...</p>';
+    const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
+    
+    listEl.innerHTML = '';
+    if (snap.empty) {
+        listEl.innerHTML = '<p>登録済み記事はありません</p>';
+        return;
+    }
+
+    snap.forEach(doc => {
+        const d = doc.data();
+        const div = document.createElement('div');
+        div.className = 'list-item-row';
+        div.style.padding = "5px 0";
+        div.style.borderBottom = "1px solid #eee";
+        div.innerHTML = `
+            <div style="flex:1;">
+                <a href="${d.url}" target="_blank" style="font-weight:bold;">${d.title}</a>
+            </div>
+            <button class="btn-danger" onclick="deleteRecommendedArticle('${doc.id}')" style="margin-left:10px;">削除</button>
+        `;
+        listEl.appendChild(div);
+    });
+}
+
+async function deleteRecommendedArticle(docId) {
+    if (!confirm("この記事を削除しますか？")) return;
+    await db.collection('recommended_news').doc(docId).delete();
+    loadAdminRecommendedArticles();
+}
