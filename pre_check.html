@@ -13,11 +13,11 @@
   <main class="content">
     <div class="container">
         <h2>出席状況の確認</h2>
-        <p>名前を入力して、承認済みの出席記録を確認します。</p>
+        <p>承認済みの出席記録を確認します。</p>
 
-        <div class="input-group">
-            <input type="text" id="checkNameInput" placeholder="名前を入力 (例: 山田太郎)">
-            <button onclick="checkAttendance()">確認</button>
+        <div style="margin-bottom:20px;">
+            <strong>履歴を表示中: </strong> <span id="historyUserName"></span>
+            <script>document.getElementById('historyUserName').textContent = localStorage.getItem('club_app_username');</script>
         </div>
         
         <hr>

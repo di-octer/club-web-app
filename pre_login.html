@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン | 統合アプリ</title>
+    <link rel="stylesheet" href="pre_style.css">
+    <style>
+        body {
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh; margin: 0; background-color: #f0f2f5;
+            font-family: sans-serif;
+        }
+        .login-card {
+            background: white; padding: 40px; border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center; width: 90%; max-width: 400px;
+        }
+        .login-card h2 { margin-bottom: 20px; color: #007bff; }
+        .input-group { margin-bottom: 20px; text-align: left; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .input-group input {
+            width: 100%; padding: 12px; border: 1px solid #ccc;
+            border-radius: 5px; box-sizing: border-box; font-size: 1em;
+        }
+        button {
+            width: 100%; padding: 12px; background-color: #007bff;
+            color: white; border: none; border-radius: 5px;
+            font-size: 1.1em; cursor: pointer; transition: background 0.3s;
+        }
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2>統合アプリ</h2>
+        <div class="input-group">
+            <label>登録名を入力してください</label>
+            <input type="text" id="loginName" placeholder="例: 山田太郎">
+        </div>
+        <button onclick="performLogin()">ログイン</button>
+    </div>
+
+    <script>
+        // 簡易ログイン処理 (Scriptファイルに依存せず単体で動作)
+        function performLogin() {
+            const name = document.getElementById('loginName').value.trim();
+            if (!name) return alert("名前を入力してください");
+            
+            // LocalStorageに保存
+            localStorage.setItem('club_app_username', name);
+            
+            // ホームへ移動
+            window.location.href = 'pre_home.html';
+        }
+
+        // 既にログイン済みならホームへ
+        window.onload = () => {
+            if(localStorage.getItem('club_app_username')) {
+                window.location.href = 'pre_home.html';
+            }
+        };
+    </script>
+</body>
+</html>

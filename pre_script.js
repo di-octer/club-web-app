@@ -49,15 +49,28 @@ let currentNewsSlide = 0;
 
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
-// --- 初期化 ---
+// 【追加】 ログインユーザー名を取得するヘルパー
+function getCurrentUser() {
+    return localStorage.getItem('club_app_username');
+}
+
+// 【上書き】 初期化処理 (ログインチェックを追加)
 window.onload = async () => {
+    // ログインチェック: 名前がなければログインページへ強制移動
+    // (pre_login.html 自身はこのスクリプトを読み込まない前提)
+    const user = getCurrentUser();
+    if (!user) {
+        window.location.href = 'pre_login.html';
+        return;
+    }
+    console.log(`Logged in as: ${user}`);
+
     console.log("初期化開始: bodyId =", document.body.id);
 
     // 全ページ共通の固定アップバーを生成
     setupCommonAppbar();
     
-    // ★追加: ユーザー情報の自動復元
-    restoreUserSession();
+    // ※ restoreUserSession(); は不要になったので削除しました
 
     const bodyId = document.body.id;
     
@@ -78,7 +91,8 @@ window.onload = async () => {
     } else if (bodyId === 'page-user') {
         // ユーザーページ
     } else if (bodyId === 'page-check') {
-        // 出席確認ページ
+        // 出席確認ページ: 自動実行
+        checkAttendance();
     } 
     else if (document.getElementById('news-section')) { 
         console.log("ニュースセクション検出: loadHomeNews実行");
@@ -131,9 +145,7 @@ function restoreUserSession() {
     });
 }
 
-// ==========================================
-//   共通アップバー (固定ヘッダー)
-// ==========================================
+// 【上書き】 共通アップバー (ログアウトボタン追加)
 function setupCommonAppbar() {
     const existing = document.querySelector('header');
     if(existing) existing.remove();
@@ -150,18 +162,11 @@ function setupCommonAppbar() {
         }
         .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
         
-        /* キャンパス名とステータスをまとめるグループ */
         .appbar-info-group {
             display: flex; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.4);
-            border-radius: 6px;
-            height: 38px;
-            padding: 0;
-            overflow: hidden;
-            cursor: pointer;
-            flex: 0 1 auto;
-            max-width: 60%;
-            min-width: 120px;
+            border-radius: 6px; height: 38px; padding: 0; overflow: hidden;
+            cursor: pointer; flex: 0 1 auto; max-width: 60%; min-width: 120px;
         }
 
         .appbar-campus {
@@ -207,6 +212,10 @@ function setupCommonAppbar() {
 
     const header = document.createElement('header');
     header.className = 'appbar-fixed';
+    
+    // ログイン中の名前を取得
+    const user = getCurrentUser() || '';
+    
     header.innerHTML = `
         <div class="appbar-side">
             <a href="pre_home.html" class="icon-btn" title="ホーム">🏠</a>
@@ -221,6 +230,7 @@ function setupCommonAppbar() {
         <div class="appbar-side">
             <a href="pre_index.html" class="icon-btn" title="出席認証">👤</a>
             <a href="pre_settings.html" class="icon-btn" title="設定">⚙️</a>
+            <button class="icon-btn" title="ログアウト: ${user}" onclick="logoutUser()">🚪</button>
         </div>
     `;
     document.body.prepend(header);
@@ -237,6 +247,14 @@ function setupCommonAppbar() {
     modal.id = 'statusDetailModal';
     modal.innerHTML = `<h4>現在の活動場所一覧</h4><div id="statusDetailContent"></div>`;
     document.body.appendChild(modal);
+}
+
+// 【追加】ログアウト関数
+function logoutUser() {
+    if(confirm("ログアウトしますか？")) {
+        localStorage.removeItem('club_app_username');
+        window.location.href = 'pre_login.html';
+    }
 }
 
 function toggleStatusModal() {
@@ -1444,45 +1462,42 @@ function toggleFormInputs() {
     }
 }
 
+// 【上書き】 届出送信 (名前は自動取得)
 async function submitReport() {
-    const name = document.getElementById('reportName').value.trim();
+    const name = getCurrentUser();
+    if (!name) return alert("ログインエラー: 名前が取得できません");
+
     const type = document.getElementById('reportType').value;
     const reason = document.getElementById('reportReason').value.trim();
     const fileInput = document.getElementById('reportImage');
     
-    if (!name || !reason) return alert("名前と理由を入力してください");
-    
-    // ★追加: 名前を保存
-    saveUserName(name);
+    if (!reason) return alert("理由を入力してください");
 
     let startDate = null;
     let endDate = null;
 
-    // タイプに応じた日時取得
     if (type === 'absence') {
         const sVal = document.getElementById('reportStartDate').value;
         const eVal = document.getElementById('reportEndDate').value;
         if (!sVal) return alert("開始日を入力してください");
         
-        startDate = new Date(sVal + 'T00:00:00'); // 時間を00:00に固定
-        endDate = eVal ? new Date(eVal + 'T23:59:59') : new Date(sVal + 'T23:59:59'); // 終了日はその日の終わりまで
+        startDate = new Date(sVal + 'T00:00:00');
+        endDate = eVal ? new Date(eVal + 'T23:59:59') : new Date(sVal + 'T23:59:59');
     } else {
-        // 遅刻・早退
         const dtVal = document.getElementById('reportDateTime').value;
         if (!dtVal) return alert("日時を入力してください");
         startDate = new Date(dtVal);
-        endDate = new Date(dtVal); // 点としての扱い
+        endDate = new Date(dtVal);
     }
 
     let imageBase64 = null;
     if (fileInput && fileInput.files[0]) {
-        const file = fileInput.files[0];
-        if (file.size > 1024 * 1024) return alert("画像は1MB以下にしてください");
+        if (fileInput.files[0].size > 1024 * 1024) return alert("画像は1MB以下にしてください");
         try {
             imageBase64 = await new Promise((resolve) => {
                 const r = new FileReader();
                 r.onload = e => resolve(e.target.result);
-                r.readAsDataURL(file);
+                r.readAsDataURL(fileInput.files[0]);
             });
         } catch(e) { return alert("画像読込エラー"); }
     }
@@ -1499,7 +1514,6 @@ async function submitReport() {
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
         alert("送信しました");
-        // リセット
         document.getElementById('reportReason').value = "";
         document.getElementById('reportImage').value = "";
         document.getElementById('previewArea').innerHTML = "";
@@ -1529,13 +1543,11 @@ window.addEventListener('DOMContentLoaded', () => {
 //   ユーザー: 顔認証 (User)
 // ==========================================
 
+// 【上書き】 出席認証フロー (名前は自動取得)
 async function startUserAuthFlow() {
-    const name = document.getElementById('userNameInput').value.trim();
-    if (!name) return alert("名前を入力してください");
+    const name = getCurrentUser();
+    if (!name) return alert("ログイン情報がありません。再ログインしてください。");
     
-    // ★追加: 名前を保存
-    saveUserName(name);
-
     document.getElementById('step-0').classList.remove('active');
     document.getElementById('step-1').classList.add('active');
     
@@ -1556,6 +1568,8 @@ async function startUserAuthFlow() {
         }
         
         if(!inArea) console.log("エリア外ですが、デバッグのため通過します");
+        
+        // 名前を引数で渡す
         startFaceAuth(name);
 
     }, (err) => {
@@ -1745,17 +1759,15 @@ function drawHCode(codes) {
 //   出席履歴確認 (Check)
 // ==========================================
 
+// 【上書き】 出席履歴確認 (自動実行)
 async function checkAttendance() {
-    const name = document.getElementById('checkNameInput').value.trim();
-    if (!name) return alert("名前を入力してください");
+    const name = getCurrentUser();
+    if (!name) return; // 未ログインなら何もしない(通常ありえない)
     
-    // ★追加: 名前を保存
-    saveUserName(name);
-    
-    document.getElementById('resultArea').style.display = 'block';
+    const resultArea = document.getElementById('resultArea');
+    if (resultArea) resultArea.style.display = 'block';
     
     try {
-        // 1. 出席ログ取得
         const logSnap = await db.collection('attendance_logs')
             .where('userName', '==', name)
             .orderBy('timestamp', 'desc')
@@ -1766,7 +1778,6 @@ async function checkAttendance() {
             checkHistoryDates.push(doc.data().timestamp.toDate());
         });
 
-        // 2. 届出取得
         const reportSnap = await db.collection('absence_reports')
             .where('userName', '==', name)
             .orderBy('timestamp', 'desc')
@@ -1780,7 +1791,7 @@ async function checkAttendance() {
                 let e = d.endDate ? d.endDate.toDate() : s;
                 
                 checkReportRanges.push({
-                    status: d.status, // approved, confirm, rejected, pending
+                    status: d.status, 
                     type: d.type,
                     start: new Date(s.getFullYear(), s.getMonth(), s.getDate()),
                     end: new Date(e.getFullYear(), e.getMonth(), e.getDate())
@@ -1795,9 +1806,10 @@ async function checkAttendance() {
     } catch(e) {
         console.error(e);
         if(e.code === 'failed-precondition') {
-            alert("エラー: インデックスが必要です");
+            console.log("インデックス構築待ち(初回のみエラーが出ます)");
         } else {
-            alert("データ取得エラー: " + e.message);
+            // 自動実行なのでアラートは出さずログのみにするのがベター
+            console.error("データ取得エラー: " + e.message);
         }
     }
 }

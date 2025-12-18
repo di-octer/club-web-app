@@ -16,8 +16,9 @@
 
     <!-- ステップ0: 入力 -->
     <div id="step-0" class="step-content active">
-        <input type="text" id="userNameInput" placeholder="あなたの名前 (登録名)">
+        <p>ようこそ、<span id="displayUserName"></span> さん</p>
         <button onclick="startUserAuthFlow()">認証を開始する</button>
+        <script>document.getElementById('displayUserName').textContent = localStorage.getItem('club_app_username');</script>
     </div>
 
     <!-- ステップ1: 環境チェック & 顔認証 -->
