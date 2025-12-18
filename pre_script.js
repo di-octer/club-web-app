@@ -1344,81 +1344,96 @@ function renderCalendar() {
             el.classList.add('today-circle');
         }
         
-        // アイコンコンテナ
+        // --- データ集計 ---
+        // 1. 出席ログがあるか
+        const hasLog = checkHistoryDates.some(hd => 
+            hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
+        );
+
+        // 2. この日の届出を抽出
+        const dayReports = checkReportRanges.filter(range => 
+            currentCellDate.getTime() >= range.start.getTime() && 
+            currentCellDate.getTime() <= range.end.getTime()
+        );
+
+        // 3. 承認済み欠席があるか (出席扱い用)
+        const isApprovedAbsence = dayReports.some(r => r.status === 'approved' && r.type === 'absence');
+
+        // --- アイコン表示コンテナ ---
         const iconContainer = document.createElement('div');
         iconContainer.style.marginTop = '2px';
         iconContainer.style.display = 'flex';
         iconContainer.style.gap = '2px';
         iconContainer.style.flexWrap = 'wrap';
         iconContainer.style.justifyContent = 'center';
-        
-        // --- 判定ロジック ---
-        
-        // A. 出席ログがあるか
-        const hasLog = checkHistoryDates.some(hd => 
-            hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
-        );
 
-        // B. 承認済みの欠席期間か (★追加)
-        const isApprovedAbsence = checkReportRanges.some(range => 
-            range.status === 'approved' && 
-            range.type === 'absence' &&
-            currentCellDate.getTime() >= range.start.getTime() && 
-            currentCellDate.getTime() <= range.end.getTime()
-        );
-
-        // --- 1. 出席アイコン (必須・緑) ---
-        // ログがある、または承認済み欠席なら「出席扱い」とする
+        // A. 出席アイコン (必須・緑)
         if (hasLog || isApprovedAbsence) {
             const icon = document.createElement('div');
-            icon.style.width = '8px'; icon.style.height = '8px';
+            // 数字を入れるため少し大きくする
+            icon.style.width = '14px'; icon.style.height = '14px';
             icon.style.borderRadius = '50%';
             icon.style.backgroundColor = '#28a745'; // 緑
             icon.title = hasLog ? "出席" : "欠席(承認済)";
             iconContainer.appendChild(icon);
             el.classList.add('active-area'); 
         }
-        
-        // --- 2. 届出アイコン (優先度順に1つだけ表示) ---
-        const dayReports = checkReportRanges.filter(range => 
-            currentCellDate.getTime() >= range.start.getTime() && 
-            currentCellDate.getTime() <= range.end.getTime()
-        );
 
-        if (dayReports.length > 0) {
-            // 優先度ソート: 承認 > 確認 > 否認 > 申請中
-            dayReports.sort((a, b) => {
-                const statusScore = { 'approved': 4, 'confirm': 3, 'rejected': 2, 'pending': 1 };
-                const typeScore = { 'absence': 2, 'late': 1, 'early': 1 };
-                
-                if (statusScore[a.status] !== statusScore[b.status]) {
-                    return statusScore[b.status] - statusScore[a.status];
+        // B. 届出アイコン描画ヘルパー
+        const renderReportIcons = (reports) => {
+            let pendingCount = 0;
+
+            reports.forEach(r => {
+                if (r.status === 'pending') {
+                    pendingCount++;
+                } else {
+                    // 承認(approved)・確認(confirm)・否認(rejected) は個数分表示
+                    const icon = document.createElement('div');
+                    icon.style.width = '14px'; icon.style.height = '14px';
+                    icon.style.borderRadius = '50%';
+                    icon.style.margin = '1px';
+                    
+                    if (r.status === 'approved') icon.style.backgroundColor = '#007bff'; // 青
+                    else if (r.status === 'confirm') icon.style.backgroundColor = '#ffc107'; // 黄
+                    else if (r.status === 'rejected') icon.style.backgroundColor = '#dc3545'; // 赤
+                    
+                    // ツールチップ
+                    const typeMap = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' };
+                    icon.title = `${typeMap[r.type] || r.type} (${r.status})`;
+                    
+                    iconContainer.appendChild(icon);
                 }
-                return typeScore[b.type] - typeScore[a.type];
             });
 
-            const target = dayReports[0];
-
-            const icon = document.createElement('div');
-            icon.style.width = '8px'; icon.style.height = '8px';
-            icon.style.borderRadius = '50%';
-            
-            // 色分け
-            if (target.status === 'approved') {
-                icon.style.backgroundColor = '#007bff'; // 青 (承認)
-            } else if (target.status === 'confirm') {
-                icon.style.backgroundColor = '#ffc107'; // 黄 (確認)
-            } else if (target.status === 'rejected') {
-                icon.style.backgroundColor = '#dc3545'; // 赤 (否認)
-            } else {
-                icon.style.backgroundColor = 'gray';    // 灰 (申請中)
+            // 申請中(pending) はまとめて1つ表示 (数字入り)
+            if (pendingCount > 0) {
+                const icon = document.createElement('div');
+                icon.style.width = '14px'; icon.style.height = '14px';
+                icon.style.borderRadius = '50%';
+                icon.style.backgroundColor = 'gray'; // 灰
+                icon.style.margin = '1px';
+                
+                // 数字表示スタイル
+                icon.style.display = 'flex';
+                icon.style.alignItems = 'center';
+                icon.style.justifyContent = 'center';
+                icon.style.color = 'white';
+                icon.style.fontSize = '9px';
+                icon.style.fontWeight = 'bold';
+                icon.textContent = pendingCount.toString();
+                
+                icon.title = `申請中: ${pendingCount}件`;
+                iconContainer.appendChild(icon);
             }
-            
-            const typeMap = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' };
-            icon.title = typeMap[target.type] || target.type;
-            
-            iconContainer.appendChild(icon);
-        }
+        };
+
+        // グループ1: 欠席 (Absence)
+        const absences = dayReports.filter(r => r.type === 'absence');
+        renderReportIcons(absences);
+
+        // グループ2: 遅刻・早退 (Late/Early)
+        const lateEarlies = dayReports.filter(r => r.type === 'late' || r.type === 'early');
+        renderReportIcons(lateEarlies);
 
         el.appendChild(iconContainer);
         grid.appendChild(el);
