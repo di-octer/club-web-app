@@ -43,6 +43,8 @@ const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】
 
 // --- 初期化 ---
 window.onload = async () => {
+    console.log("初期化開始: bodyId =", document.body.id); // ★デバッグ用
+
     const bodyId = document.body.id;
     
     // 共通データ読み込み
@@ -50,10 +52,10 @@ window.onload = async () => {
     await loadGpsAreas();
     
     if (bodyId === 'page-admin') {
-        // 管理者ページ
+        console.log("管理者ページ検出");
         await loadModels();
         await loadRegisteredFaces();
-        await loadAdminRecommendedArticles(); // ★追加: おすすめ記事管理読み込み
+        await loadAdminRecommendedArticles();
         switchAdminSubTab('auth'); 
         populateInfoLists();
     } else if (bodyId === 'page-user') {
@@ -61,9 +63,12 @@ window.onload = async () => {
     } else if (bodyId === 'page-check') {
         // 出席確認ページ
     } 
-    // ★追加: ホーム画面 (IDがない場合や特定のIDの場合)
-    else if (document.querySelector('#news-section')) { 
+    // ★ニュースセクションがあるかチェック
+    else if (document.getElementById('news-section')) { 
+        console.log("ニュースセクション検出: loadHomeNews実行"); // ★これが表示されるか確認
         loadHomeNews();
+    } else {
+        console.log("該当するページIDまたは要素が見つかりません");
     }
 };
 
@@ -1451,6 +1456,8 @@ function renderCalendar() {
 
 // --- 1. ホーム画面用: ニュース読み込み ---
 async function loadHomeNews() {
+    console.log("ニュース読み込み開始...");
+
     // A. 管理者おすすめ (Firestore)
     const recListEl = document.getElementById('recNewsList');
     if (recListEl) {
@@ -1465,24 +1472,47 @@ async function loadHomeNews() {
                     recListEl.appendChild(createNewsItem(d.title, d.url, 'Pick', '#ff9800'));
                 });
             }
-        } catch(e) { console.error(e); recListEl.innerHTML = '<p>読み込みエラー</p>'; }
+        } catch(e) { 
+            console.error("Firestore読み込みエラー:", e); 
+            recListEl.innerHTML = '<p>読み込みエラー (コンソールを確認)</p>'; 
+        }
     }
 
     // B. Qiitaトレンド (API)
     const trendListEl = document.getElementById('trendNewsList');
     if (trendListEl) {
         try {
-            // クエリ: stocksが20以上の記事を最新順に5件
-            const res = await fetch('https://qiita.com/api/v2/items?page=1&per_page=5&query=stocks:>20');
+            // ★CORS対策: プロキシサーバーを経由させる
+            // Qiita APIを直接叩くとブラウザのセキュリティで弾かれることが多いため
+            const targetUrl = encodeURIComponent('https://qiita.com/api/v2/items?page=1&per_page=5&query=stocks:>20');
+            const proxyUrl = `https://api.allorigins.win/raw?url=${targetUrl}`;
+
+            console.log("Qiita APIへリクエスト送信:", proxyUrl);
+            
+            const res = await fetch(proxyUrl);
+            
+            if (!res.ok) {
+                throw new Error(`API Error: ${res.status} ${res.statusText}`);
+            }
+
             const items = await res.json();
+            console.log("Qiitaデータ取得成功:", items);
             
             trendListEl.innerHTML = '';
+            if (items.length === 0) {
+                trendListEl.innerHTML = '<p>記事が見つかりませんでした</p>';
+                return;
+            }
+
             items.forEach(item => {
-                trendListEl.appendChild(createNewsItem(item.title, item.url, 'Qiita', '#55c500', item.user.id));
+                // allorigins経由の場合、構造が変わることがあるため安全にアクセス
+                const user = item.user || { id: 'unknown' };
+                trendListEl.appendChild(createNewsItem(item.title, item.url, 'Qiita', '#55c500', user.id));
             });
+
         } catch(e) {
-            console.error(e);
-            trendListEl.innerHTML = '<p>Qiita記事の取得に失敗しました (API制限の可能性があります)</p>';
+            console.error("Qiita取得エラー詳細:", e);
+            trendListEl.innerHTML = `<p style="color:red; font-size:0.8em;">取得失敗: ${e.message}</p>`;
         }
     }
 }
@@ -1513,18 +1543,19 @@ async function registerRecommendedArticle() {
     const urlOrId = input.value.trim();
     if (!urlOrId) return;
 
-    // ID抽出 (URLから items/xxxxx の xxxxx 部分を取得、またはそのままID)
     let itemId = urlOrId;
     const match = urlOrId.match(/items\/([a-z0-9]+)/);
     if (match) itemId = match[1];
 
     try {
-        // タイトルを自動取得するためにQiita APIを叩く
-        const res = await fetch(`https://qiita.com/api/v2/items/${itemId}`);
-        if (!res.ok) throw new Error("記事が見つかりません");
+        // ★ここもCORS対策のプロキシ経由に変更
+        const targetUrl = encodeURIComponent(`https://qiita.com/api/v2/items/${itemId}`);
+        const proxyUrl = `https://api.allorigins.win/raw?url=${targetUrl}`;
+
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error("記事が見つかりません (またはAPI制限)");
         const data = await res.json();
 
-        // Firestoreに保存 (Title, URL, Timestamp)
         await db.collection('recommended_news').add({
             title: data.title,
             url: data.url,
@@ -1534,9 +1565,10 @@ async function registerRecommendedArticle() {
 
         alert(`追加しました: ${data.title}`);
         input.value = "";
-        loadAdminRecommendedArticles(); // リスト更新
+        loadAdminRecommendedArticles();
 
     } catch(e) {
+        console.error(e);
         alert("エラー: " + e.message);
     }
 }
