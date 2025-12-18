@@ -93,6 +93,21 @@
     </div>
 
     <div id="tab-info" class="tab-content">
+        
+        <details open>
+            <summary>管理者おすすめニュース設定 (Qiita)</summary>
+            <div class="details-content">
+                <p style="font-size:0.8em; color:#666;">Qiita記事のURLを入力するとタイトルを自動取得して登録します。</p>
+                <div class="input-group">
+                    <input type="text" id="qiitaInput" placeholder="例: https://qiita.com/user/items/...">
+                    <button onclick="registerRecommendedArticle()">追加</button>
+                </div>
+                <div id="adminNewsList" class="list-container"></div>
+            </div>
+        </details>
+
+        <hr>
+
         <details>
             <summary>新規キャンパス登録</summary>
             <div class="details-content">

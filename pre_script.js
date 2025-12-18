@@ -53,12 +53,17 @@ window.onload = async () => {
         // 管理者ページ
         await loadModels();
         await loadRegisteredFaces();
-        switchAdminSubTab('auth'); // 初期タブ
-        populateInfoLists(); // リスト構築
+        await loadAdminRecommendedArticles(); // ★追加: おすすめ記事管理読み込み
+        switchAdminSubTab('auth'); 
+        populateInfoLists();
     } else if (bodyId === 'page-user') {
         // ユーザーページ
     } else if (bodyId === 'page-check') {
         // 出席確認ページ
+    } 
+    // ★追加: ホーム画面 (IDがない場合や特定のIDの場合)
+    else if (document.querySelector('#news-section')) { 
+        loadHomeNews();
     }
 };
 
@@ -1438,4 +1443,136 @@ function renderCalendar() {
         el.appendChild(iconContainer);
         grid.appendChild(el);
     }
+}
+
+// ==========================================
+//   ニュース機能 (Qiita連携 & 管理者おすすめ)
+// ==========================================
+
+// --- 1. ホーム画面用: ニュース読み込み ---
+async function loadHomeNews() {
+    // A. 管理者おすすめ (Firestore)
+    const recListEl = document.getElementById('recNewsList');
+    if (recListEl) {
+        try {
+            const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').limit(5).get();
+            recListEl.innerHTML = '';
+            if (snap.empty) {
+                recListEl.innerHTML = '<p style="font-size:0.9em; color:#666;">お知らせはありません</p>';
+            } else {
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    recListEl.appendChild(createNewsItem(d.title, d.url, 'Pick', '#ff9800'));
+                });
+            }
+        } catch(e) { console.error(e); recListEl.innerHTML = '<p>読み込みエラー</p>'; }
+    }
+
+    // B. Qiitaトレンド (API)
+    const trendListEl = document.getElementById('trendNewsList');
+    if (trendListEl) {
+        try {
+            // クエリ: stocksが20以上の記事を最新順に5件
+            const res = await fetch('https://qiita.com/api/v2/items?page=1&per_page=5&query=stocks:>20');
+            const items = await res.json();
+            
+            trendListEl.innerHTML = '';
+            items.forEach(item => {
+                trendListEl.appendChild(createNewsItem(item.title, item.url, 'Qiita', '#55c500', item.user.id));
+            });
+        } catch(e) {
+            console.error(e);
+            trendListEl.innerHTML = '<p>Qiita記事の取得に失敗しました (API制限の可能性があります)</p>';
+        }
+    }
+}
+
+function createNewsItem(title, url, badgeText, badgeColor, author = null) {
+    const div = document.createElement('div');
+    div.className = 'news-item'; // CSS適用用
+    div.style.borderBottom = "1px solid #eee";
+    div.style.padding = "10px 0";
+    div.style.display = "flex";
+    
+    div.innerHTML = `
+        <div style="background:${badgeColor}; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-right:8px; height:fit-content;">${badgeText}</div>
+        <div>
+            <a href="${url}" target="_blank" style="text-decoration:none; color:#333; font-weight:bold; display:block;">${title}</a>
+            ${author ? `<div style="font-size:0.8em; color:#888;">by @${author}</div>` : ''}
+        </div>
+    `;
+    return div;
+}
+
+
+// --- 2. 管理者用: おすすめ記事登録 ---
+
+// 記事登録処理
+async function registerRecommendedArticle() {
+    const input = document.getElementById('qiitaInput');
+    const urlOrId = input.value.trim();
+    if (!urlOrId) return;
+
+    // ID抽出 (URLから items/xxxxx の xxxxx 部分を取得、またはそのままID)
+    let itemId = urlOrId;
+    const match = urlOrId.match(/items\/([a-z0-9]+)/);
+    if (match) itemId = match[1];
+
+    try {
+        // タイトルを自動取得するためにQiita APIを叩く
+        const res = await fetch(`https://qiita.com/api/v2/items/${itemId}`);
+        if (!res.ok) throw new Error("記事が見つかりません");
+        const data = await res.json();
+
+        // Firestoreに保存 (Title, URL, Timestamp)
+        await db.collection('recommended_news').add({
+            title: data.title,
+            url: data.url,
+            itemId: itemId,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        alert(`追加しました: ${data.title}`);
+        input.value = "";
+        loadAdminRecommendedArticles(); // リスト更新
+
+    } catch(e) {
+        alert("エラー: " + e.message);
+    }
+}
+
+// 管理画面リスト表示
+async function loadAdminRecommendedArticles() {
+    const listEl = document.getElementById('adminNewsList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '<p>読み込み中...</p>';
+    const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
+    
+    listEl.innerHTML = '';
+    if (snap.empty) {
+        listEl.innerHTML = '<p>登録済み記事はありません</p>';
+        return;
+    }
+
+    snap.forEach(doc => {
+        const d = doc.data();
+        const div = document.createElement('div');
+        div.className = 'list-item-row';
+        div.style.padding = "5px 0";
+        div.style.borderBottom = "1px solid #eee";
+        div.innerHTML = `
+            <div style="flex:1;">
+                <a href="${d.url}" target="_blank" style="font-weight:bold;">${d.title}</a>
+            </div>
+            <button class="btn-danger" onclick="deleteRecommendedArticle('${doc.id}')" style="margin-left:10px;">削除</button>
+        `;
+        listEl.appendChild(div);
+    });
+}
+
+async function deleteRecommendedArticle(docId) {
+    if (!confirm("この記事を削除しますか？")) return;
+    await db.collection('recommended_news').doc(docId).delete();
+    loadAdminRecommendedArticles();
 }

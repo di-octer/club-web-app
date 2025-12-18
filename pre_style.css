@@ -56,3 +56,13 @@ button:disabled { background-color: #ccc; }
 .badge-approved { background: #28a745; }
 .badge-confirm { background: #ffc107; color: #333; }
 .badge-rejected { background: #dc3545; }
+
+/* ニュース用スタイル */
+.news-block { margin-bottom: 20px; text-align: left; }
+.news-block h3 { border-left: 5px solid #007bff; padding-left: 10px; font-size: 1.2em; margin-bottom: 10px; background: #f0f8ff; padding: 8px; border-radius: 0 5px 5px 0; }
+.news-item { padding: 10px; border-bottom: 1px solid #eee; display: flex; align-items: flex-start; }
+.news-item:last-child { border-bottom: none; }
+.news-item a { text-decoration: none; color: #333; font-weight: bold; display: block; }
+.news-item a:hover { color: #007bff; text-decoration: underline; }
+.news-meta { font-size: 0.8em; color: #888; margin-top: 4px; }
+.qiita-icon { width: 20px; height: 20px; margin-right: 8px; background: #55c500; color: white; text-align: center; border-radius: 4px; font-size: 12px; line-height: 20px; flex-shrink: 0; }
