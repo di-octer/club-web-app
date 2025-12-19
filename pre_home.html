@@ -5,39 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ホーム | 統合アプリ</title>
   <link rel="stylesheet" href="pre_style.css">
-  
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 </head>
-<body>  
+<body id="page-home">  
   <main class="content">
     <div id="news-section">
         <div class="news-track" id="newsTrack">
-            <div class="news-slide" id="slide-rec">
-                <p>読み込み中...</p>
-            </div>
-            <div class="news-slide" id="slide-trend">
-                <p>読み込み中...</p>
-            </div>
+            <div class="news-slide" id="slide-rec"><p>読み込み中...</p></div>
+            <div class="news-slide" id="slide-trend"><p>読み込み中...</p></div>
         </div>
     </div>
 
-    <hr style="margin: 30px 0;">
+    <hr style="margin: 30px 0; border: 0; border-top: 1px solid #eee;">
     
-    <h2>機能一覧</h2>
+    <h2>メニュー</h2>
     <ul>
-      <li><a href="pre_index.html">📷 出席認証 (GPS + 顔認証)</a></li>
-      <li><a href="pre_check.html">📅 出席履歴の確認</a></li>
-      <li><a href="pre_curriculum.html">📚 カリキュラム学習</a></li>
-      <li><a href="pre_form.html">📝 欠席・遅刻連絡フォーム</a></li>
-      <li><a href="pre_calendar.html">🗓 活動カレンダー</a></li>
-      <li><a href="pre_portfolio.html">🎨 ポートフォリオ・作品集</a></li>
-      <li><a href="pre_settings.html">⚙️ 設定</a></li>
+      <li><a href="pre_index.html">📷 出席認証を行う</a></li>
+      <li><a href="pre_check.html">📅 出席履歴を確認する</a></li>
+      <li><a href="pre_curriculum.html">📚 カリキュラムを進める</a></li>
+      <li><a href="pre_form.html">📝 欠席・遅刻を連絡する</a></li>
+      <li><a href="pre_settings.html">⚙️ アプリの設定</a></li>
     </ul>
   </main>
-
   <script src="pre_script.js"></script>
 </body>
 </html>
