@@ -11,40 +11,34 @@ const firebaseConfig = {
 
 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth(); // ★追加: Auth機能の有効化
 
 // --- グローバル変数 ---
+let currentUser = null; // ★追加: ログインユーザー保持用
 let registeredCampuses = [];
 let registeredGpsAreas = [];
 let registeredFaces = [];
 let currentStream = null;
 
-// ユーザー認証用制御
+// (他の変数はそのまま維持)
 let isAuthCompleted = false; 
 let isDetectingLoop = false;
 let myRequestId = null;
-
-// 管理者認証用制御
 let adminGuideLoopId = null;
 let adminAuthStep = 0; 
 let currentAuthUser = null;
 let colorMatchCounter = 0;
-
-// 顔登録用 (手動進行・安定化ロジック)
 let regStream = null;
 let regStep = 0; 
 let regDescriptors = [];
 let regThumbnail = ""; 
 let currentDetection = null;
-let faceStableCount = 0;      // 安定検出カウンター
-let lastDetectedDesc = null;  // 直前の顔特徴量
-let missedFrameCount = 0;     // 見失ったフレーム数
-
-// 出席確認用
+let faceStableCount = 0;
+let lastDetectedDesc = null;
+let missedFrameCount = 0;
 let checkDisplayDate = new Date();
 let checkHistoryDates = [];
 let checkReportRanges = [];
-
-// ニュース機能用
 let currentNewsSlide = 0;
 
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
@@ -54,51 +48,78 @@ function getCurrentUser() {
     return localStorage.getItem('club_app_username');
 }
 
-// 【上書き】 初期化処理 (ログインチェックを追加)
+// --- 初期化 ---
 window.onload = async () => {
-    // ログインチェック: 名前がなければログインページへ強制移動
-    // (pre_login.html 自身はこのスクリプトを読み込まない前提)
-    const user = getCurrentUser();
-    if (!user) {
-        window.location.href = 'pre_login.html';
-        return;
-    }
-    console.log(`Logged in as: ${user}`);
+    // ★修正: Auth状態の監視
+    auth.onAuthStateChanged(async (user) => {
+        currentUser = user;
+        const path = window.location.pathname;
+        const isLoginPage = path.includes('pre_login.html');
+
+        if (user) {
+            // ログイン済み
+            console.log("Logged in as:", user.displayName);
+            if (isLoginPage) {
+                window.location.href = 'pre_home.html';
+            }
+            // 画面内の名前表示を更新
+            updateUserDisplay(user);
+        } else {
+            // 未ログイン
+            console.log("Not logged in");
+            if (!isLoginPage) {
+                window.location.href = 'pre_login.html';
+            }
+        }
+    });
 
     console.log("初期化開始: bodyId =", document.body.id);
-
-    // 全ページ共通の固定アップバーを生成
     setupCommonAppbar();
-    
-    // ※ restoreUserSession(); は不要になったので削除しました
 
     const bodyId = document.body.id;
     
-    // 共通データ読み込み
     await loadCampuses();
     await loadGpsAreas();
-    
-    // アップバーの表示を更新
     updateAppbarStatus();
     
     if (bodyId === 'page-admin') {
         console.log("管理者ページ検出");
         await loadModels();
         await loadRegisteredFaces();
-        await loadAdminRecommendedArticles();
+        await loadAdminRecommendedArticles(); // ★これが呼べるように後述の「追加」で関数定義します
         switchAdminSubTab('auth'); 
         populateInfoLists();
     } else if (bodyId === 'page-user') {
-        // ユーザーページ
+        // ユーザーページ初期化 (名前入力欄がなくなったため特になし)
     } else if (bodyId === 'page-check') {
-        // 出席確認ページ: 自動実行
-        checkAttendance();
+        // 出席確認ページ (Auth確定後に動くようにしたいが、簡易的にここでも呼んでおく)
+        if(currentUser) checkAttendance();
     } 
     else if (document.getElementById('news-section')) { 
-        console.log("ニュースセクション検出: loadHomeNews実行");
         loadHomeNews();
     }
 };
+
+// ★追加: 画面上の名前表示を更新するヘルパー
+function updateUserDisplay(user) {
+    const nameEls = document.querySelectorAll('#displayUserName, #historyUserName');
+    nameEls.forEach(el => el.textContent = user.displayName);
+    
+    // ログアウトボタンのタイトル更新
+    const logoutBtn = document.querySelector('button[title^="ログアウト"]');
+    if(logoutBtn) logoutBtn.title = `ログアウト: ${user.displayName}`;
+    
+    // Auth確定後に出席履歴などを自動読み込み
+    if(document.body.id === 'page-check') checkAttendance();
+}
+
+function logoutUser() {
+    if(confirm("ログアウトしますか？")) {
+        auth.signOut().then(() => {
+            window.location.href = 'pre_login.html';
+        });
+    }
+}
 
 // ==========================================
 //   ★ユーザー情報保持・管理機能 (LocalStorage)
@@ -145,7 +166,6 @@ function restoreUserSession() {
     });
 }
 
-// 【上書き】 共通アップバー (ログアウトボタン追加)
 function setupCommonAppbar() {
     const existing = document.querySelector('header');
     if(existing) existing.remove();
@@ -168,13 +188,11 @@ function setupCommonAppbar() {
             border-radius: 6px; height: 38px; padding: 0; overflow: hidden;
             cursor: pointer; flex: 0 1 auto; max-width: 60%; min-width: 120px;
         }
-
         .appbar-campus {
             font-weight: bold; padding: 0 10px; white-space: nowrap; 
             font-size: 0.9em; color: #fff; background: transparent;
             border-right: 1px solid rgba(255,255,255,0.3); flex: 0 0 auto;
         }
-
         .appbar-center {
             flex: 1; background: transparent; border-radius: 0; height: 100%;
             display: flex; align-items: center; color: #fff; font-size: 0.9em; 
@@ -193,7 +211,8 @@ function setupCommonAppbar() {
             border: none; background: transparent; cursor: pointer;
         }
         .icon-btn:hover { background: rgba(255,255,255,0.2); }
-
+        
+        /* モーダル関連は省略せずに記述 */
         #statusDetailModal {
             position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
             background: white; color: #333; padding: 15px;
@@ -213,9 +232,7 @@ function setupCommonAppbar() {
     const header = document.createElement('header');
     header.className = 'appbar-fixed';
     
-    // ログイン中の名前を取得
-    const user = getCurrentUser() || '';
-    
+    // ★修正: ログアウトボタンの追加
     header.innerHTML = `
         <div class="appbar-side">
             <a href="pre_home.html" class="icon-btn" title="ホーム">🏠</a>
@@ -230,7 +247,7 @@ function setupCommonAppbar() {
         <div class="appbar-side">
             <a href="pre_index.html" class="icon-btn" title="出席認証">👤</a>
             <a href="pre_settings.html" class="icon-btn" title="設定">⚙️</a>
-            <button class="icon-btn" title="ログアウト: ${user}" onclick="logoutUser()">🚪</button>
+            <button class="icon-btn" title="ログアウト" onclick="logoutUser()">🚪</button>
         </div>
     `;
     document.body.prepend(header);
@@ -249,12 +266,34 @@ function setupCommonAppbar() {
     document.body.appendChild(modal);
 }
 
-// 【追加】ログアウト関数
-function logoutUser() {
-    if(confirm("ログアウトしますか？")) {
-        localStorage.removeItem('club_app_username');
-        window.location.href = 'pre_login.html';
-    }
+// ==========================================
+//   ★認証関連機能 (OpenID Connect: Discord)
+// ==========================================
+
+function loginWithDiscord() {
+    // ★修正: カスタムプロバイダ 'oidc.discord' を使用
+    const provider = new firebase.auth.OAuthProvider('oidc.discord');
+    provider.addScope('identify');
+    
+    auth.signInWithPopup(provider)
+        .then((result) => {
+            const user = result.user;
+            console.log("Login success:", user);
+            
+            db.collection('users').doc(user.uid).set({
+                displayName: user.displayName || "No Name",
+                email: user.email || "",
+                photoURL: user.photoURL || "",
+                lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            window.location.href = 'pre_home.html';
+        })
+        .catch((error) => {
+            console.error("Login Error:", error);
+            const errorEl = document.getElementById('errorMsg');
+            if(errorEl) errorEl.textContent = "ログイン失敗: " + error.message;
+        });
 }
 
 function toggleStatusModal() {
@@ -397,7 +436,7 @@ function getDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// 汎用: プロキシ経由フェッチ
+// 汎用プロキシ関数 (ニュース取得などで使用)
 async function fetchWithProxy(targetUrl) {
     const proxies = [
         (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -589,7 +628,7 @@ function createNewsItem(title, url, badgeText, badgeColor, author = null) {
     return div;
 }
 
-// 管理画面: おすすめ記事リスト表示
+// エラー解消: 管理者おすすめ記事の読み込み
 async function loadAdminRecommendedArticles() {
     const listEl = document.getElementById('adminNewsList');
     if (!listEl) return;
@@ -1462,10 +1501,10 @@ function toggleFormInputs() {
     }
 }
 
-// 【上書き】 届出送信 (名前は自動取得)
+// 届出送信 (名前入力不要)
 async function submitReport() {
-    const name = getCurrentUser();
-    if (!name) return alert("ログインエラー: 名前が取得できません");
+    if (!currentUser) return alert("ログインしてください");
+    const name = currentUser.displayName; // ★修正
 
     const type = document.getElementById('reportType').value;
     const reason = document.getElementById('reportReason').value.trim();
@@ -1480,7 +1519,6 @@ async function submitReport() {
         const sVal = document.getElementById('reportStartDate').value;
         const eVal = document.getElementById('reportEndDate').value;
         if (!sVal) return alert("開始日を入力してください");
-        
         startDate = new Date(sVal + 'T00:00:00');
         endDate = eVal ? new Date(eVal + 'T23:59:59') : new Date(sVal + 'T23:59:59');
     } else {
@@ -1492,7 +1530,6 @@ async function submitReport() {
 
     let imageBase64 = null;
     if (fileInput && fileInput.files[0]) {
-        if (fileInput.files[0].size > 1024 * 1024) return alert("画像は1MB以下にしてください");
         try {
             imageBase64 = await new Promise((resolve) => {
                 const r = new FileReader();
@@ -1543,35 +1580,29 @@ window.addEventListener('DOMContentLoaded', () => {
 //   ユーザー: 顔認証 (User)
 // ==========================================
 
-// 【上書き】 出席認証フロー (名前は自動取得)
+// 出席認証開始 (名前入力不要)
 async function startUserAuthFlow() {
-    const name = getCurrentUser();
-    if (!name) return alert("ログイン情報がありません。再ログインしてください。");
+    if (!currentUser) return alert("ログイン情報が読み込まれていません。");
+    const name = currentUser.displayName; // ★修正: Authから名前取得
     
     document.getElementById('step-0').classList.remove('active');
     document.getElementById('step-1').classList.add('active');
     
-    if (!navigator.geolocation) {
-        alert("位置情報が利用できません");
-        return;
-    }
+    if (!navigator.geolocation) return alert("位置情報が利用できません");
 
     navigator.geolocation.getCurrentPosition(async (pos) => {
+        // (位置判定は既存ロジックのまま)
         const uLat = pos.coords.latitude;
         const uLon = pos.coords.longitude;
-        
         let inArea = false;
         const activeAreas = registeredGpsAreas.filter(a => a.isActive);
         for(const area of activeAreas) {
             const dist = getDistance(uLat, uLon, area.lat, area.lon);
             if(dist <= 100) { inArea = true; break; }
         }
+        if(!inArea) console.log("エリア外: Debug");
         
-        if(!inArea) console.log("エリア外ですが、デバッグのため通過します");
-        
-        // 名前を引数で渡す
-        startFaceAuth(name);
-
+        startFaceAuth(name); 
     }, (err) => {
         alert("位置情報の取得に失敗しました: " + err.message);
     });
@@ -1759,13 +1790,13 @@ function drawHCode(codes) {
 //   出席履歴確認 (Check)
 // ==========================================
 
-// 【上書き】 出席履歴確認 (自動実行)
+// 履歴確認 (名前入力不要)
 async function checkAttendance() {
-    const name = getCurrentUser();
-    if (!name) return; // 未ログインなら何もしない(通常ありえない)
+    if (!currentUser) return;
+    const name = currentUser.displayName; // ★修正
     
-    const resultArea = document.getElementById('resultArea');
-    if (resultArea) resultArea.style.display = 'block';
+    const resultEl = document.getElementById('resultArea');
+    if(resultEl) resultEl.style.display = 'block';
     
     try {
         const logSnap = await db.collection('attendance_logs')
@@ -1806,10 +1837,7 @@ async function checkAttendance() {
     } catch(e) {
         console.error(e);
         if(e.code === 'failed-precondition') {
-            console.log("インデックス構築待ち(初回のみエラーが出ます)");
-        } else {
-            // 自動実行なのでアラートは出さずログのみにするのがベター
-            console.error("データ取得エラー: " + e.message);
+            console.log("インデックス構築待ち...");
         }
     }
 }
