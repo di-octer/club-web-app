@@ -43,7 +43,7 @@ button:disabled { background-color: #ccc; }
 .modal-content { background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 10px; text-align: center; }
 .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
 
-/* pre_style.css に追記 */
+/* 追加スタイル */
 .sub-tab-bar { display: flex; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; overflow: hidden; }
 .sub-tab { flex: 1; padding: 8px; border: none; background: #eee; cursor: pointer; }
 .sub-tab.active { background: #007bff; color: white; }
@@ -66,3 +66,88 @@ button:disabled { background-color: #ccc; }
 .news-item a:hover { color: #007bff; text-decoration: underline; }
 .news-meta { font-size: 0.8em; color: #888; margin-top: 4px; }
 .qiita-icon { width: 20px; height: 20px; margin-right: 8px; background: #55c500; color: white; text-align: center; border-radius: 4px; font-size: 12px; line-height: 20px; flex-shrink: 0; }
+
+/* カルーセル・ニュース用スタイル */
+#news-section {
+    overflow: hidden;
+    width: 100%;
+    position: relative;
+}
+.news-track {
+    display: flex;
+    transition: transform 0.3s ease-in-out;
+    width: 200%;
+}
+.news-slide {
+    width: 50%;
+    padding: 0 10px;
+    box-sizing: border-box;
+}
+
+/* ニュースヘッダー */
+.news-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f0f8ff;
+    padding: 8px;
+    border-radius: 5px;
+    border-left: 5px solid #007bff;
+    margin-bottom: 10px;
+}
+.news-header h3 {
+    margin: 0;
+    font-size: 1.1em;
+    border: none;
+    background: none;
+    padding: 0;
+}
+.nav-hint {
+    font-size: 0.8em;
+    color: #007bff;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.nav-hint:hover { text-decoration: underline; }
+
+/* 表示数切り替えトグル */
+.toggle-btn {
+    display: block;
+    width: 100%;
+    padding: 5px;
+    background: #eee;
+    border: none;
+    border-radius: 4px;
+    color: #555;
+    font-size: 0.8em;
+    cursor: pointer;
+    margin: 5px 0;
+}
+.toggle-btn:hover { background: #ddd; }
+
+/* 初期状態で隠すアイテム */
+.hidden-item { display: none !important; }
+
+/* 設定ページ用タグスタイル */
+.tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 5px;
+    min-height: 30px;
+    border: 1px dashed #ccc;
+    border-radius: 4px;
+}
+.tag-badge {
+    display: inline-block;
+    background: #e0e0e0;
+    border-radius: 12px;
+    padding: 2px 8px;
+    margin: 2px;
+    font-size: 0.8em;
+}
+.setting-note { font-size: 0.8em; color: #666; margin-top: 2px; }
+.settings-details { margin-bottom: 10px; border: 1px solid #ddd; border-radius: 5px; overflow: hidden; }
+.settings-details summary { background: #f8f9fa; padding: 10px; cursor: pointer; font-weight: bold; }
+.settings-details .details-content { padding: 10px; border-top: 1px solid #ddd; }

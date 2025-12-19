@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>設定 | 統合アプリ</title>
+    <link rel="stylesheet" href="pre_style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    </head>
+<body id="page-settings">
+
+<main class="content">
+    <div class="container" style="text-align:left;">
+        <h2>設定</h2>
+
+        <div class="settings-group">
+            <label class="setting-label">デフォルト認証方式</label>
+            <select id="setAuthMethod">
+                <option value="">設定なし (都度選択)</option>
+                <option value="code">カラーコード認証</option>
+                <option value="nfc">NFC認証 (未実装)</option>
+            </select>
+            <p class="setting-note">設定すると認証時の選択画面をスキップします。</p>
+        </div>
+
+        <hr>
+
+        <details class="settings-details">
+            <summary>ニュース設定</summary>
+            <div class="details-content">
+                <div class="input-group">
+                    <label>ニュース表示順</label>
+                    <select id="setNewsOrder">
+                        <option value="newest">新しい順</option>
+                        <option value="recommend">おすすめ順</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>デフォルトのタブ</label>
+                    <select id="setNewsDefaultTab">
+                        <option value="trend">Qiitaトレンド</option>
+                        <option value="recommend">管理者おすすめ</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>デフォルト表示件数</label>
+                    <input type="number" id="setNewsDefaultCount" value="5" min="1" max="20">
+                </div>
+                <div class="input-group">
+                    <label>最大表示件数</label>
+                    <input type="number" id="setNewsMaxCount" value="20" min="5" max="50">
+                </div>
+            </div>
+        </details>
+
+        <hr>
+
+        <details class="settings-details">
+            <summary>プロフィール設定</summary>
+            <div class="details-content">
+                <div class="input-group">
+                    <label>アイコン設定</label>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <img id="previewIcon" src="" style="width:50px; height:50px; border-radius:50%; background:#ccc;">
+                        <input type="file" id="iconUploader" accept="image/*">
+                    </div>
+                    <button onclick="resetToDiscordIcon()" style="margin-top:5px; font-size:0.8em;">Discordアイコンに戻す</button>
+                </div>
+
+                <div class="input-group">
+                    <label>自分の興味 (手動設定)</label>
+                    <input type="text" id="manualInterests" placeholder="カンマ区切り (例: AI, Web, Game)">
+                </div>
+                <div class="input-group">
+                    <label>自分の興味 (自動生成)</label>
+                    <div id="autoInterestsList" class="tag-list">
+                        <span class="tag-disabled">データなし</span>
+                    </div>
+                    <p class="setting-note">削除した項目は半年間再生成されません。</p>
+                </div>
+
+                <div class="input-group">
+                    <label>技術スタック (手動設定)</label>
+                    <input type="text" id="manualTechStack" placeholder="カンマ区切り (例: React, Python)">
+                </div>
+                <div class="input-group">
+                    <label>技術スタック (自動生成)</label>
+                    <div id="autoTechList" class="tag-list">
+                        <span class="tag-disabled">データなし</span>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>プロフィール文 (ポートフォリオ用)</label>
+                    <textarea id="profileText" rows="3"></textarea>
+                </div>
+
+                <div class="input-group">
+                    <label>デフォルトキャンパス</label>
+                    <select id="setDefaultCampus">
+                        <option value="">自動 (GPS検出)</option>
+                        </select>
+                </div>
+            </div>
+        </details>
+
+        <hr>
+
+        <details class="settings-details">
+            <summary>常時講義による欠席・遅刻申請</summary>
+            <div class="details-content">
+                <p class="setting-note">時間割の写真を提出してください。</p>
+                <div class="input-group">
+                    <label>対象期間</label>
+                    <select id="recurringSemester">
+                        <option value="1_spring">一年前期</option>
+                        <option value="1_fall">一年後期</option>
+                        <option value="2_spring">二年前期</option>
+                        <option value="2_fall">二年後期</option>
+                        <option value="3_spring">三年前期</option>
+                        <option value="3_fall">三年後期</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <input type="file" id="recurringImage" accept="image/*">
+                    <button onclick="submitRecurringAbsence()" class="btn-primary" style="margin-top:5px;">写真のみ提出</button>
+                </div>
+            </div>
+        </details>
+
+        <details class="settings-details">
+            <summary>承認済み 定期欠席データ</summary>
+            <div class="details-content">
+                <div id="approvedRecurringList">
+                    <p>読み込み中...</p>
+                </div>
+            </div>
+        </details>
+
+        <hr>
+
+        <div class="settings-group">
+            <label class="setting-label">言語設定 (DeepL)</label>
+            <select id="setLanguage">
+                <option value="ja">日本語</option>
+                <option value="en">English</option>
+                <option value="zh">中文</option>
+            </select>
+        </div>
+
+        <hr>
+        
+        <div style="margin-top: 30px;">
+            <button onclick="saveSettings()" class="btn-primary" style="width:100%; margin-bottom:15px; background-color:#28a745;">設定を保存</button>
+            
+            <button onclick="logoutUser()" class="btn-danger" style="width:100%;">ログアウト</button>
+        </div>
+
+    </div>
+</main>
+
+<script src="pre_script.js"></script>
+</body>
+</html>
