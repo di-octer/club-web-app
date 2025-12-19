@@ -1375,14 +1375,37 @@ async function requestAuth(userName) {
     myRequestId = docRef.id;
 }
 
+// ★カラーコードの完全なH型描画ロジック
 function drawHCode(codes) {
     const canvas = document.getElementById('codeCanvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = "#000"; ctx.fillRect(0,0,300,300);
-    // 簡易描画
-    ctx.fillStyle = "#FFF"; ctx.font = "30px Arial";
-    ctx.fillText(codes.join(' '), 50, 150);
+    const w = canvas.width; const h = canvas.height;
+    const baseW = 230; const baseH = 170;
+    const scale = Math.min(w / baseW, h / baseH);
+    const dx = (w - (baseW * scale)) / 2; const dy = (h - (baseH * scale)) / 2;
+    const r = (x, y, rw, rh) => [dx + (x * scale), dy + (y * scale), rw * scale, rh * scale];
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#000"; ctx.fillRect(...r(0, 0, baseW, baseH)); // 背景
+
+    // 赤い目印
+    ctx.fillStyle = "#FF0000";
+    ctx.fillRect(...r(20, 20, 55, 55)); ctx.fillRect(...r(155, 20, 55, 55)); ctx.fillRect(...r(75, 130, 80, 10));
+
+    // 青い目印
+    ctx.fillStyle = "#0000FF";
+    ctx.fillRect(...r(20, 75, 55, 75)); ctx.fillRect(...r(155, 75, 55, 75));
+
+    // 中央の白いH土台
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(...r(40, 40, 150, 90));
+
+    // 指定された色を塗る (C=シアン, Y=イエロー, M=マゼンタ, G=グリーン)
+    const colorMap = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#00FF00' };
+    ctx.fillStyle = colorMap[codes[0]]; ctx.fillRect(...r(40, 40, 30, 90));
+    ctx.fillStyle = colorMap[codes[1]]; ctx.fillRect(...r(80, 40, 70, 30));
+    ctx.fillStyle = colorMap[codes[2]]; ctx.fillRect(...r(80, 80, 70, 50));
+    ctx.fillStyle = colorMap[codes[3]]; ctx.fillRect(...r(160, 40, 30, 90));
 }
 
 async function checkRequestStatus() {
