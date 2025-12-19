@@ -2,30 +2,65 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>連絡フォーム</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>欠席・遅刻連絡 | 統合アプリ</title>
     <link rel="stylesheet" href="pre_style.css">
+    
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 </head>
 <body id="page-form">
+
   <main class="content">
     <div class="container">
-        <h2>欠席・遅刻連絡</h2>
-        <div class="form-box">
-            <select id="reportType" onchange="toggleFormInputs()">
-                <option value="absence">欠席</option>
-                <option value="late">遅刻</option>
-                <option value="early">早退</option>
-            </select>
-            <div id="input-date-range"><input type="date" id="reportStartDate"><input type="date" id="reportEndDate"></div>
-            <div id="input-datetime" style="display:none;"><input type="datetime-local" id="reportDateTime"></div>
-            <textarea id="reportReason" rows="4" placeholder="理由"></textarea>
-            <input type="file" id="reportImage" accept="image/*">
-            <button onclick="submitReport()">送信</button>
+        <h2>欠席・遅刻連絡フォーム</h2>
+        <p>日時と理由を入力して送信してください。</p>
+
+        <div class="form-box" style="text-align: left;">
+            <div class="input-group">
+                <label style="display:block; font-weight:bold;">種別</label>
+                <select id="reportType" onchange="toggleFormInputs()" style="width: 100%; box-sizing: border-box;">
+                    <option value="absence">欠席 (日単位)</option>
+                    <option value="late">遅刻 (時間指定)</option>
+                    <option value="early">早退 (時間指定)</option>
+                </select>
+            </div>
+
+            <div id="input-date-range">
+                <div class="input-group">
+                    <label style="display:block; font-weight:bold;">欠席期間 (開始日)</label>
+                    <input type="date" id="reportStartDate" style="width: 100%; box-sizing: border-box;">
+                </div>
+                <div class="input-group">
+                    <label style="display:block; font-weight:bold;">欠席期間 (終了日) <small>※1日だけなら開始日と同じでOK</small></label>
+                    <input type="date" id="reportEndDate" style="width: 100%; box-sizing: border-box;">
+                </div>
+            </div>
+
+            <div id="input-datetime" style="display: none;">
+                <div class="input-group">
+                    <label style="display:block; font-weight:bold;">対象日時 (到着/早退予定)</label>
+                    <input type="datetime-local" id="reportDateTime" style="width: 100%; box-sizing: border-box;">
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label style="display:block; font-weight:bold;">理由</label>
+                <textarea id="reportReason" rows="4" placeholder="例: 体調不良のため、電車遅延のため" style="width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ccc; border-radius: 4px;"></textarea>
+            </div>
+
+            <div class="input-group">
+                <label style="display:block; font-weight:bold;">証明写真・添付画像 (任意)</label>
+                <input type="file" id="reportImage" accept="image/*" style="width: 100%;">
+                <div id="previewArea" style="margin-top:10px;"></div>
+            </div>
+
+            <button onclick="submitReport()" style="width: 100%; background-color: #007bff; color: white; padding: 12px; border: none; border-radius: 5px; font-size: 1.1em; cursor: pointer; margin-top: 10px;">送信</button>
         </div>
     </div>
   </main>
+
   <script src="pre_script.js"></script>
 </body>
 </html>
