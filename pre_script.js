@@ -21,6 +21,7 @@ let registeredGpsAreas = [];
 let registeredFaces = [];
 let currentStream = null;
 
+// 各種状態管理
 let isAuthCompleted = false; 
 let isDetectingLoop = false;
 let myRequestId = null;
@@ -43,8 +44,9 @@ let currentNewsSlide = 0;
 
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
-// --- 初期化 ---
+// --- 初期化フロー ---
 window.onload = async () => {
+    // ログイン状態監視
     auth.onAuthStateChanged(async (user) => {
         currentUser = user;
         const path = window.location.pathname;
@@ -54,8 +56,9 @@ window.onload = async () => {
             console.log("Logged in as:", user.displayName);
             if (isLoginPage) window.location.href = 'pre_home.html';
             
-            // ユーザー設定・情報を取得
+            // ユーザー設定読み込み & 自動生成タグ処理
             await loadUserSettings(user.uid);
+            await generateAutoTagsIfNeed(user.uid);
             updateUserDisplay(user);
         } else {
             console.log("Not logged in");
@@ -63,17 +66,17 @@ window.onload = async () => {
         }
     });
 
-    console.log("初期化開始: bodyId =", document.body.id);
+    console.log("Init: bodyId =", document.body.id);
     
-    // データ読み込み
+    // マスターデータ読み込み
     await loadCampuses();
     await loadGpsAreas();
     
-    // データロード後にアップバー構築
-    if(currentUser) await loadUserSettings(currentUser.uid);
+    // アップバー構築 (ユーザー設定ロード後にアイコン反映するため遅延実行も可だが、まずは初期表示)
     setupCommonAppbar(); 
     updateAppbarStatus();
     
+    // ページ別初期化
     const bodyId = document.body.id;
     if (bodyId === 'page-admin') {
         await loadModels();
@@ -82,15 +85,18 @@ window.onload = async () => {
         switchAdminSubTab('auth'); 
         populateInfoLists();
     } else if (bodyId === 'page-check') {
+        // Auth確定後に実行されるよう updateUserDisplay からも呼ばれるが、ここでもチェック
         if(currentUser) checkAttendance();
     } else if (document.getElementById('news-section')) { 
         loadHomeNews();
     } else if (bodyId === 'page-settings') {
-        initSettingsPage();
+        // userSettingsがロードされるのを待つ (onAuthStateChanged内でロード済なら即実行)
+        setTimeout(initSettingsPage, 500); 
     }
 };
 
-// ユーザー設定のロード
+// --- ユーザー設定・情報管理 ---
+
 async function loadUserSettings(uid) {
     try {
         const doc = await db.collection('users').doc(uid).get();
@@ -99,26 +105,59 @@ async function loadUserSettings(uid) {
         } else {
             userSettings = {};
         }
-        setupCommonAppbar(); // アイコン反映
+        setupCommonAppbar(); // アイコン反映のため再描画
     } catch(e) { console.error("Settings load error:", e); }
+}
+
+// 興味タグの自動生成シミュレーション (ログイン時)
+async function generateAutoTagsIfNeed(uid) {
+    if(!userSettings) return;
+    const hidden = userSettings.hiddenInterests || [];
+    const current = userSettings.autoInterests || [];
+    
+    // サンプル: まだ持っておらず、隠されてもいないタグがあれば追加
+    const candidates = ["Python", "TeamDev", "AI", "Design", "Flutter"];
+    const newTags = [];
+    
+    candidates.forEach(tag => {
+        // 既に持っているか確認
+        if(current.includes(tag)) return;
+        
+        // 隠しリストにあるか確認 (期限チェック)
+        const hideEntry = hidden.find(h => h.tag === tag);
+        if(hideEntry) {
+            const until = hideEntry.until.toDate();
+            if(new Date() < until) return; // まだ期限内なら追加しない
+        }
+        
+        // 追加候補
+        if(Math.random() > 0.7) newTags.push(tag); // ランダムに追加
+    });
+
+    if(newTags.length > 0) {
+        const merged = [...current, ...newTags];
+        await db.collection('users').doc(uid).update({ autoInterests: merged });
+        userSettings.autoInterests = merged; // メモリ上も更新
+    }
 }
 
 function updateUserDisplay(user) {
     const nameEls = document.querySelectorAll('#displayUserName, #historyUserName');
     nameEls.forEach(el => el.textContent = user.displayName);
     
-    // Auth確定後に出席履歴などを自動読み込み (タイミング対策)
+    // ページ固有の更新
     if(document.body.id === 'page-check') checkAttendance();
+    if(document.body.id === 'page-settings') initSettingsPage();
 }
 
 // ==========================================
-//   共通アップバー
+//   共通アップバー (完全版)
 // ==========================================
 function setupCommonAppbar() {
     const existing = document.querySelector('header');
     if(existing) existing.remove();
 
-    // アイコン決定ロジック
+    // アイコン決定: 設定 > Auth > デフォルト
     let iconUrl = "https://via.placeholder.com/36?text=U";
     if (userSettings && userSettings.customIcon) {
         iconUrl = userSettings.customIcon;
@@ -138,6 +177,7 @@ function setupCommonAppbar() {
         }
         .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
         
+        /* 幅固定・中央配置 */
         .appbar-info-group {
             display: flex; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.4);
@@ -170,6 +210,7 @@ function setupCommonAppbar() {
         .icon-btn:hover { background: rgba(255,255,255,0.2); }
         .user-icon-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 2px solid white; }
 
+        /* モーダル */
         #statusDetailModal {
             position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
             background: white; color: #333; padding: 15px;
@@ -180,6 +221,8 @@ function setupCommonAppbar() {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.5); z-index: 9998; display: none;
         }
+        .detail-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 0.9em; }
+        .detail-badge { background: #28a745; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
     `;
     document.head.appendChild(style);
 
@@ -226,38 +269,51 @@ function setupCommonAppbar() {
 
 async function initSettingsPage() {
     if (!currentUser) return;
-
     const s = userSettings || {};
     
-    document.getElementById('setAuthMethod').value = s.authMethod || "";
-    document.getElementById('setNewsOrder').value = s.newsOrder || "newest";
-    document.getElementById('setNewsDefaultTab').value = s.newsDefaultTab || "trend";
-    document.getElementById('setNewsDefaultCount').value = s.newsDefaultCount || 5;
-    document.getElementById('setNewsMaxCount').value = s.newsMaxCount || 20;
+    // 値セット
+    setVal('setAuthMethod', s.authMethod || "");
+    setVal('setNewsOrder', s.newsOrder || "newest");
+    setVal('setNewsDefaultTab', s.newsDefaultTab || "trend");
+    setVal('setNewsDefaultCount', s.newsDefaultCount || 5);
+    setVal('setNewsMaxCount', s.newsMaxCount || 20);
+    setVal('manualInterests', (s.manualInterests || []).join(', '));
+    setVal('manualTechStack', (s.manualTechStack || []).join(', '));
+    setVal('profileText', s.profileText || "");
+    setVal('setLanguage', s.language || "ja");
 
+    // アイコン
     const currentIcon = s.customIcon || currentUser.photoURL;
-    document.getElementById('previewIcon').src = currentIcon || "https://via.placeholder.com/50";
+    const iconEl = document.getElementById('previewIcon');
+    if(iconEl) iconEl.src = currentIcon || "https://via.placeholder.com/50";
 
-    document.getElementById('manualInterests').value = (s.manualInterests || []).join(', ');
-    document.getElementById('manualTechStack').value = (s.manualTechStack || []).join(', ');
-    document.getElementById('profileText').value = s.profileText || "";
-
+    // 自動生成タグ
     renderAutoTags('autoInterestsList', s.autoInterests || []);
     renderAutoTags('autoTechList', s.autoTechStack || []);
 
+    // キャンパス選択肢
     const campSelect = document.getElementById('setDefaultCampus');
-    registeredCampuses.forEach(c => {
-        const opt = document.createElement('option');
-        opt.value = c.id; opt.innerText = c.name;
-        campSelect.appendChild(opt);
-    });
-    campSelect.value = s.defaultCampusId || "";
+    if(campSelect) {
+        campSelect.innerHTML = '<option value="">自動 (GPS検出)</option>';
+        registeredCampuses.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id; opt.innerText = c.name;
+            campSelect.appendChild(opt);
+        });
+        campSelect.value = s.defaultCampusId || "";
+    }
 
     loadApprovedRecurring();
 }
 
+function setVal(id, val) {
+    const el = document.getElementById(id);
+    if(el) el.value = val;
+}
+
 function renderAutoTags(containerId, tags) {
     const container = document.getElementById(containerId);
+    if(!container) return;
     container.innerHTML = "";
     if (!tags || tags.length === 0) {
         container.innerHTML = '<span style="color:#999; font-size:0.8em;">データなし</span>';
@@ -282,7 +338,7 @@ async function removeAutoTag(type, tag) {
     const newList = currentList.filter(t => t !== tag);
     
     const until = new Date();
-    until.setMonth(until.getMonth() + 6);
+    until.setMonth(until.getMonth() + 6); // 6ヶ月後
 
     const hiddenItem = { tag: tag, until: firebase.firestore.Timestamp.fromDate(until) };
 
@@ -363,6 +419,7 @@ async function submitRecurringAbsence() {
 
 async function loadApprovedRecurring() {
     const list = document.getElementById('approvedRecurringList');
+    if(!list) return;
     list.innerHTML = "読み込み中...";
     try {
         const snap = await db.collection('recurring_absence_applications')
@@ -392,15 +449,6 @@ async function loadApprovedRecurring() {
     } catch(e) { console.error(e); list.innerHTML = "読み込みエラー"; }
 }
 
-function toBase64(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = error => reject(error);
-    });
-}
-
 // ==========================================
 //   認証機能 (Discord OIDC)
 // ==========================================
@@ -411,6 +459,7 @@ function loginWithDiscord() {
     auth.signInWithPopup(provider)
         .then((result) => {
             const user = result.user;
+            // ログイン時にも情報をマージ
             db.collection('users').doc(user.uid).set({
                 displayName: user.displayName,
                 email: user.email,
@@ -435,27 +484,18 @@ function logoutUser() {
 // ==========================================
 
 function switchAdminSubTab(tab) {
-    document.getElementById('view-auth').style.display = 'none';
-    document.getElementById('view-report').style.display = 'none';
-    document.getElementById('view-recurring').style.display = 'none';
-    document.getElementById('view-users').style.display = 'none';
+    ['auth','report','recurring','users'].forEach(t => {
+        document.getElementById(`view-${t}`).style.display = 'none';
+        document.getElementById(`btn-sub-${t}`).classList.remove('active');
+    });
     
-    document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+    document.getElementById(`view-${tab}`).style.display = 'block';
     document.getElementById(`btn-sub-${tab}`).classList.add('active');
 
-    if (tab === 'auth') {
-        document.getElementById('view-auth').style.display = 'block';
-        refreshRequests();
-    } else if (tab === 'report') {
-        document.getElementById('view-report').style.display = 'block';
-        refreshReports();
-    } else if (tab === 'recurring') {
-        document.getElementById('view-recurring').style.display = 'block';
-        refreshRecurring();
-    } else if (tab === 'users') {
-        document.getElementById('view-users').style.display = 'block';
-        refreshAllUsers();
-    }
+    if (tab === 'auth') refreshRequests();
+    else if (tab === 'report') refreshReports();
+    else if (tab === 'recurring') refreshRecurring();
+    else if (tab === 'users') refreshAllUsers();
 }
 
 async function refreshRecurring() {
@@ -602,7 +642,6 @@ async function updateAppbarStatus() {
     }, { timeout: 5000 });
 }
 
-// データ読み込みヘルパー
 async function loadCampuses() {
     try {
         const snap = await db.collection('campuses').get();
@@ -633,12 +672,7 @@ async function loadRegisteredFaces() {
                      for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
                      const float32 = new Float32Array(bytes.buffer);
                      if (float32.length === 128) {
-                         registeredFaces.push({
-                             docId: doc.id,
-                             label: data.label,
-                             thumbnail: data.thumbnail || null,
-                             descriptor: float32
-                         });
+                         registeredFaces.push({ docId: doc.id, label: data.label, thumbnail: data.thumbnail || null, descriptor: float32 });
                      }
                  } catch(e) {}
             }
@@ -1312,7 +1346,7 @@ async function submitReport() {
 
 async function startUserAuthFlow() {
     if (!currentUser) return alert("ログイン情報が読み込まれていません。");
-    // 設定によるスキップ処理
+    // 設定によるスキップ処理 (将来拡張用)
     if (userSettings.authMethod === 'code') {
         // 顔認証スキップならここを調整ですが、顔認証必須フローなので続行
     }
@@ -1394,80 +1428,47 @@ async function checkRequestStatus() {
     } else { alert('まだです'); }
 }
 
-// 履歴確認（完全版）
 async function checkAttendance() {
     if (!currentUser) return;
-    const name = currentUser.displayName; // Authの名前を使用
+    const name = currentUser.displayName; 
     
-    // 画面表示
     const resultEl = document.getElementById('resultArea');
     if(resultEl) resultEl.style.display = 'block';
     
     try {
-        // 1. 出席ログ取得
-        const logSnap = await db.collection('attendance_logs')
-            .where('userName', '==', name)
-            .orderBy('timestamp', 'desc')
-            .get();
-            
+        const logSnap = await db.collection('attendance_logs').where('userName', '==', name).orderBy('timestamp', 'desc').get();
         checkHistoryDates = [];
         logSnap.forEach(doc => {
-            // timestampをDateオブジェクトに変換して保持
             checkHistoryDates.push(doc.data().timestamp.toDate());
         });
 
-        // 2. 届出取得
-        const reportSnap = await db.collection('absence_reports')
-            .where('userName', '==', name)
-            .orderBy('timestamp', 'desc')
-            .get();
-            
+        const reportSnap = await db.collection('absence_reports').where('userName', '==', name).orderBy('timestamp', 'desc').get();
         checkReportRanges = [];
         reportSnap.forEach(doc => {
             const d = doc.data();
             if(d.startDate) {
                 let s = d.startDate.toDate();
                 let e = d.endDate ? d.endDate.toDate() : s;
-                
                 checkReportRanges.push({
-                    status: d.status, 
-                    type: d.type,
+                    status: d.status, type: d.type,
                     start: new Date(s.getFullYear(), s.getMonth(), s.getDate()),
                     end: new Date(e.getFullYear(), e.getMonth(), e.getDate())
                 });
             }
         });
         
-        // 今日の状態更新 & カレンダー描画
         updateTodayStatus();
         checkDisplayDate = new Date();
         renderCalendar();
-        
-    } catch(e) {
-        console.error(e);
-        // インデックス未作成エラーのハンドリング
-        if(e.code === 'failed-precondition') {
-            console.log("Firestoreインデックスが必要です。コンソールのリンクから作成してください。");
-        }
-    }
+    } catch(e) { console.error(e); }
 }
 
 function updateTodayStatus() {
     const today = new Date();
-    const isAttended = checkHistoryDates.some(d => 
-        d.getFullYear() === today.getFullYear() && 
-        d.getMonth() === today.getMonth() && 
-        d.getDate() === today.getDate()
-    );
-    
+    const isAttended = checkHistoryDates.some(d => d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate());
     const statusEl = document.getElementById('todayStatus');
-    if (isAttended) {
-        statusEl.textContent = "今日の出席：完了 ✅";
-        statusEl.className = "status-card status-ok";
-    } else {
-        statusEl.textContent = "今日の出席：未 ☁️";
-        statusEl.className = "status-card status-no";
-    }
+    if (isAttended) { statusEl.textContent = "今日の出席：完了 ✅"; statusEl.className = "status-card status-ok"; }
+    else { statusEl.textContent = "今日の出席：未 ☁️"; statusEl.className = "status-card status-no"; }
 }
 
 function changeMonth(offset) {
@@ -1477,19 +1478,15 @@ function changeMonth(offset) {
 
 function renderCalendar() {
     const grid = document.getElementById('calendarGrid');
+    if(!grid) return;
     grid.innerHTML = "";
     
     const year = checkDisplayDate.getFullYear();
     const month = checkDisplayDate.getMonth();
     document.getElementById('calendarTitle').textContent = `${year}年 ${month + 1}月`;
     
-    // 曜日
     ['日','月','火','水','木','金','土'].forEach(w => {
-        const el = document.createElement('div');
-        el.className = 'day-cell';
-        el.style.border='none'; el.style.fontWeight='bold'; el.style.backgroundColor='#f0f0f0';
-        el.textContent = w;
-        grid.appendChild(el);
+        const el = document.createElement('div'); el.className = 'day-cell'; el.style.border='none'; el.textContent = w; grid.appendChild(el);
     });
     
     const firstDay = new Date(year, month, 1).getDay();
@@ -1499,112 +1496,37 @@ function renderCalendar() {
     const today = new Date();
     
     for(let d=1; d<=lastDay; d++) {
-        const currentCellDate = new Date(year, month, d); // 00:00:00
+        const currentCellDate = new Date(year, month, d);
+        const el = document.createElement('div'); el.className = 'day-cell'; el.textContent = d;
+        if(year===today.getFullYear() && month===today.getMonth() && d===today.getDate()) el.classList.add('today-circle');
         
-        const el = document.createElement('div');
-        el.className = 'day-cell';
-        el.style.display = 'flex';
-        el.style.flexDirection = 'column';
-        el.style.alignItems = 'center';
-        el.style.justifyContent = 'flex-start';
-        el.textContent = d;
-        
-        if(year===today.getFullYear() && month===today.getMonth() && d===today.getDate()) {
-            el.classList.add('today-circle');
-        }
-        
-        // --- データ集計 ---
-        // 1. 出席ログがあるか
-        const hasLog = checkHistoryDates.some(hd => 
-            hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
-        );
-
-        // 2. この日の届出を抽出
-        const dayReports = checkReportRanges.filter(range => 
-            currentCellDate.getTime() >= range.start.getTime() && 
-            currentCellDate.getTime() <= range.end.getTime()
-        );
-
-        // 3. 承認済み欠席があるか (出席扱い用)
+        const hasLog = checkHistoryDates.some(hd => hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d);
+        const dayReports = checkReportRanges.filter(range => currentCellDate.getTime() >= range.start.getTime() && currentCellDate.getTime() <= range.end.getTime());
         const isApprovedAbsence = dayReports.some(r => r.status === 'approved' && r.type === 'absence');
 
-        // --- アイコン表示コンテナ ---
-        const iconContainer = document.createElement('div');
-        iconContainer.style.marginTop = '2px';
-        iconContainer.style.display = 'flex';
-        iconContainer.style.gap = '2px';
-        iconContainer.style.flexWrap = 'wrap';
-        iconContainer.style.justifyContent = 'center';
-
-        // A. 出席アイコン (必須・緑)
+        const iconContainer = document.createElement('div'); iconContainer.style.marginTop = '2px'; iconContainer.style.display = 'flex';
+        
         if (hasLog || isApprovedAbsence) {
-            const icon = document.createElement('div');
-            // 数字を入れるため少し大きくする
-            icon.style.width = '14px'; icon.style.height = '14px';
-            icon.style.borderRadius = '50%';
-            icon.style.backgroundColor = '#28a745'; // 緑
-            icon.title = hasLog ? "出席" : "欠席(承認済)";
-            iconContainer.appendChild(icon);
-            el.classList.add('active-area'); 
+            const icon = document.createElement('div'); icon.className = 'attended-mark'; iconContainer.appendChild(icon); el.classList.add('active-area'); 
         }
-
-        // B. 届出アイコン描画ヘルパー
-        const renderReportIcons = (reports) => {
-            let pendingCount = 0;
-
-            reports.forEach(r => {
-                if (r.status === 'pending') {
-                    pendingCount++;
-                } else {
-                    // 承認(approved)・確認(confirm)・否認(rejected) は個数分表示
-                    const icon = document.createElement('div');
-                    icon.style.width = '14px'; icon.style.height = '14px';
-                    icon.style.borderRadius = '50%';
-                    icon.style.margin = '1px';
-                    
-                    if (r.status === 'approved') icon.style.backgroundColor = '#007bff'; // 青
-                    else if (r.status === 'confirm') icon.style.backgroundColor = '#ffc107'; // 黄
-                    else if (r.status === 'rejected') icon.style.backgroundColor = '#dc3545'; // 赤
-                    
-                    // ツールチップ
-                    const typeMap = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' };
-                    icon.title = `${typeMap[r.type] || r.type} (${r.status})`;
-                    
-                    iconContainer.appendChild(icon);
-                }
-            });
-
-            // 申請中(pending) はまとめて1つ表示 (数字入り)
-            if (pendingCount > 0) {
-                const icon = document.createElement('div');
-                icon.style.width = '14px'; icon.style.height = '14px';
-                icon.style.borderRadius = '50%';
-                icon.style.backgroundColor = 'gray'; // 灰
-                icon.style.margin = '1px';
-                
-                // 数字表示スタイル
-                icon.style.display = 'flex';
-                icon.style.alignItems = 'center';
-                icon.style.justifyContent = 'center';
-                icon.style.color = 'white';
-                icon.style.fontSize = '9px';
-                icon.style.fontWeight = 'bold';
-                icon.textContent = pendingCount.toString();
-                
-                icon.title = `申請中: ${pendingCount}件`;
+        dayReports.forEach(r => {
+            if(r.status!=='pending'){
+                const icon = document.createElement('div'); icon.className = 'attended-mark'; 
+                if(r.status==='approved') icon.style.backgroundColor='#007bff';
+                else if(r.status==='confirm') icon.style.backgroundColor='#ffc107';
+                else if(r.status==='rejected') icon.style.backgroundColor='#dc3545';
                 iconContainer.appendChild(icon);
             }
-        };
-
-        // グループ1: 欠席 (Absence)
-        const absences = dayReports.filter(r => r.type === 'absence');
-        renderReportIcons(absences);
-
-        // グループ2: 遅刻・早退 (Late/Early)
-        const lateEarlies = dayReports.filter(r => r.type === 'late' || r.type === 'early');
-        renderReportIcons(lateEarlies);
-
-        el.appendChild(iconContainer);
-        grid.appendChild(el);
+        });
+        el.appendChild(iconContainer); grid.appendChild(el);
     }
+}
+
+function toBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+    });
 }
