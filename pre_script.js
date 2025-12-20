@@ -1112,64 +1112,76 @@ function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
         select.innerHTML = '<option value="">キャンパスを選択</option>';
-        registeredCampuses.forEach(c => { const opt = document.createElement('option'); opt.value = c.id; opt.innerText = c.name; select.appendChild(opt); });
+        registeredCampuses.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id; opt.innerText = c.name;
+            select.appendChild(opt);
+        });
     }
 
     const hierList = document.getElementById('hierarchyList');
     if(hierList) {
         hierList.innerHTML = '';
-        registeredCampuses.forEach(campus => {
-            const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
-            
-            const details = document.createElement('details');
-            details.className = 'settings-details';
-            
-            const summary = document.createElement('summary');
-            // ★修正: 親要素(summary)がFlexboxなので、中身はシンプルにグループ化するだけにする
-            // width:100%を削除し、表示崩れを防ぐ
-            summary.innerHTML = `
-                <div style="display:flex; align-items:center;">
-                    <input type="checkbox" class="chk-campus" value="${campus.id}" style="margin-right: 10px;">
-                    <span style="font-weight:bold;">🏢 ${campus.name} (${areas.length})</span>
-                </div>
-            `;
-            
-            const content = document.createElement('div');
-            content.className = 'details-content';
-            
-            if (areas.length > 0) {
-                const actionDiv = document.createElement('div');
-                actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px;';
-                actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')">選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')">全削除</button>`;
-                content.appendChild(actionDiv);
+        if (registeredCampuses.length === 0) {
+            hierList.innerHTML = '<p>登録なし</p>';
+        } else {
+            registeredCampuses.forEach(campus => {
+                const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
                 
-                areas.forEach(area => {
-                    const row = document.createElement('div');
-                    row.className = 'list-item-row nested-area';
-                    if(area.isActive) row.style.backgroundColor = '#e6ffec';
-                    
-                    // ★修正: 左側の要素(チェックボックス+名前)をFlexで束ねる
-                    // 座標を表示しつつ、フォントサイズを小さくしてガタつきを目立たなくする
-                    row.innerHTML = `
-                        <div style="display:flex; align-items:center;">
-                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="margin-right: 10px;">
-                            <div style="text-align:left; line-height:1.2;">
-                                <strong>📍 ${area.name}</strong>
-                                <span style="font-size:0.8em; color:#888; margin-left:5px;">(${area.lat.toFixed(4)}, ${area.lon.toFixed(4)})</span>
+                const details = document.createElement('details');
+                const summary = document.createElement('summary');
+                summary.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <input type="checkbox" class="chk-campus" value="${campus.id}">
+                        <span>🏢 ${campus.name} <small>(${areas.length})</small></span>
+                    </div>
+                `;
+                
+                const content = document.createElement('div');
+                content.className = 'details-content';
+                
+                if (areas.length > 0) {
+                    const actionDiv = document.createElement('div');
+                    actionDiv.style.display = 'flex';
+                    actionDiv.style.justifyContent = 'flex-end';
+                    actionDiv.style.gap = '10px';
+                    actionDiv.style.marginBottom = '10px';
+                    actionDiv.innerHTML = `
+                        <small>エリア操作:</small>
+                        <button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')">選択削除</button>
+                        <button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')">全削除</button>
+                    `;
+                    content.appendChild(actionDiv);
+
+                    areas.forEach(area => {
+                        const row = document.createElement('div');
+                        row.className = 'list-item-row nested-area';
+                        if(area.isActive) row.style.backgroundColor = '#e6ffec';
+                        
+                        row.innerHTML = `
+                            <div class="checkbox-wrapper">
+                                <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}">
+                                <div>
+                                    <strong>📍 ${area.name}</strong> <small>(${area.lat}, ${area.lon})</small><br>
+                                    状態: ${area.isActive ? '<b style="color:green">ON</b>' : '<b style="color:gray">OFF</b>'}
+                                </div>
                             </div>
-                        </div>
-                        <div style="white-space:nowrap;">
-                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="margin-right:5px; padding:5px 10px;">切替</button>
-                            <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')" style="padding:5px 10px;">削除</button>
-                        </div>`;
-                    content.appendChild(row);
-                });
-            } else {
-                content.innerHTML = '<p style="color:#888; text-align:left; padding-left:10px; margin:0;">(エリア未登録)</p>';
-            }
-            
-            details.appendChild(summary); details.appendChild(content); hierList.appendChild(details);
-        });
+                            <div>
+                                <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="font-size:0.8em; margin-right:5px;">切替</button>
+                                <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')">削除</button>
+                            </div>
+                        `;
+                        content.appendChild(row);
+                    });
+                } else {
+                    content.innerHTML = '<div style="padding:10px; color:#999;">(活動場所なし)</div>';
+                }
+                
+                details.appendChild(summary);
+                details.appendChild(content);
+                hierList.appendChild(details);
+            });
+        }
     }
     populateFaceList();
 }
