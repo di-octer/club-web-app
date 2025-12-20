@@ -1104,7 +1104,6 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
-// --- 情報リスト生成 (修正: クラス付与とレイアウト調整) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1116,14 +1115,11 @@ function populateInfoLists() {
         hierList.innerHTML = '';
         registeredCampuses.forEach(campus => {
             const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
-            
-            // ★修正: CSSクラス 'settings-details' を付与してスタイル崩れ(縦書き)を防止
             const details = document.createElement('details');
-            details.className = 'settings-details';
+            details.className = 'settings-details'; // CSS適用のため
             
             const summary = document.createElement('summary');
-            // ★修正: Flexboxで横並び・左詰めを明示
-            summary.innerHTML = `<div style="display:flex; align-items:center; gap:5px;"><input type="checkbox" class="chk-campus" value="${campus.id}"><span>🏢 ${campus.name} (${areas.length})</span></div>`;
+            summary.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><input type="checkbox" class="chk-campus" value="${campus.id}"><span>🏢 ${campus.name} (${areas.length})</span></div>`;
             
             const content = document.createElement('div');
             content.className = 'details-content';
@@ -1131,31 +1127,27 @@ function populateInfoLists() {
             if (areas.length > 0) {
                 const actionDiv = document.createElement('div');
                 actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px;';
-                // 選択削除ボタンにも確認ダイアログが入るdeleteSelectedAreasを呼ぶ
                 actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')">選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')">全削除</button>`;
                 content.appendChild(actionDiv);
                 
                 areas.forEach(area => {
                     const row = document.createElement('div');
-                    row.className = 'list-item-row nested-area';
+                    row.className = 'list-item-row';
                     if(area.isActive) row.style.backgroundColor = '#e6ffec';
-                    
-                    // ★修正: gapを5pxに縮め、空白を削減
                     row.innerHTML = `
-                        <div class="checkbox-wrapper" style="gap:5px;">
+                        <div class="checkbox-wrapper">
                             <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}">
-                            <div style="text-align:left;"><strong>📍 ${area.name}</strong></div>
+                            <div><strong>📍 ${area.name}</strong> <small>(${area.lat},${area.lon})</small></div>
                         </div>
                         <div>
-                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})">切替</button>
+                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="margin-right:5px;">${area.isActive ? 'ON' : 'OFF'}</button>
                             <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')">削除</button>
                         </div>`;
                     content.appendChild(row);
                 });
             } else {
-                content.innerHTML = '<p style="color:#888; text-align:left; padding-left:10px;">(エリア未登録)</p>';
+                content.innerHTML = '<p style="color:#888;">エリア登録なし</p>';
             }
-            
             details.appendChild(summary); details.appendChild(content); hierList.appendChild(details);
         });
     }
@@ -1202,14 +1194,6 @@ async function deleteSelectedItems(type) {
     reloadAllData();
 }
 
-async function deleteSelectedAreas(campusId) {
-    const inputs = document.querySelectorAll(`.chk-area-${campusId}:checked`);
-    const batch = db.batch();
-    inputs.forEach(input => { batch.delete(db.collection('gps_areas').doc(input.value)); });
-    await batch.commit();
-    reloadAllData();
-}
-
 // --- エリア選択削除 (修正: 確認ダイアログ追加) ---
 async function deleteSelectedAreas(campusId) {
     const inputs = document.querySelectorAll(`.chk-area-${campusId}:checked`);
@@ -1221,6 +1205,14 @@ async function deleteSelectedAreas(campusId) {
 
     const batch = db.batch();
     inputs.forEach(input => { batch.delete(db.collection('gps_areas').doc(input.value)); });
+    await batch.commit();
+    reloadAllData();
+}
+
+async function deleteAllAreasInCampus(campusId) {
+    const snap = await db.collection('gps_areas').where('campusId', '==', campusId).get();
+    const batch = db.batch();
+    snap.forEach(doc => batch.delete(doc.ref));
     await batch.commit();
     reloadAllData();
 }
