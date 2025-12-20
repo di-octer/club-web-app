@@ -413,26 +413,30 @@ function logoutUser() {
 //   管理者機能
 // ==========================================
 function switchAdminSubTab(tab) {
-    document.getElementById('view-auth').style.display = 'none';
-    document.getElementById('view-report').style.display = 'none';
-    document.getElementById('view-recurring').style.display = 'none';
-    document.getElementById('view-users').style.display = 'none';
-    
-    document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
-    document.getElementById(`btn-sub-${tab}`).classList.add('active');
+    const authView = document.getElementById('view-auth');
+    const reportView = document.getElementById('view-report');
+    const recurringView = document.getElementById('view-recurring');
 
+    // 表示・非表示のリセット
+    if(authView) authView.style.display = 'none';
+    if(reportView) reportView.style.display = 'none';
+    if(recurringView) recurringView.style.display = 'none';
+    
+    // ボタンのアクティブ状態リセット
+    document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+    const targetBtn = document.getElementById(`btn-sub-${tab}`);
+    if(targetBtn) targetBtn.classList.add('active');
+
+    // コンテンツ表示
     if (tab === 'auth') {
-        document.getElementById('view-auth').style.display = 'block';
+        if(authView) authView.style.display = 'block';
         refreshRequests();
     } else if (tab === 'report') {
-        document.getElementById('view-report').style.display = 'block';
+        if(reportView) reportView.style.display = 'block';
         refreshReports();
     } else if (tab === 'recurring') {
-        document.getElementById('view-recurring').style.display = 'block';
+        if(recurringView) recurringView.style.display = 'block';
         refreshRecurring();
-    } else if (tab === 'users') {
-        document.getElementById('view-users').style.display = 'block';
-        refreshAllUsers();
     }
 }
 
@@ -1100,6 +1104,7 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
+// --- 情報リスト生成 (修正: クラス付与とレイアウト調整) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1111,11 +1116,14 @@ function populateInfoLists() {
         hierList.innerHTML = '';
         registeredCampuses.forEach(campus => {
             const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
+            
+            // ★修正: CSSクラス 'settings-details' を付与してスタイル崩れ(縦書き)を防止
             const details = document.createElement('details');
-            details.className = 'settings-details'; // CSS適用のため
+            details.className = 'settings-details';
             
             const summary = document.createElement('summary');
-            summary.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><input type="checkbox" class="chk-campus" value="${campus.id}"><span>🏢 ${campus.name} (${areas.length})</span></div>`;
+            // ★修正: Flexboxで横並び・左詰めを明示
+            summary.innerHTML = `<div style="display:flex; align-items:center; gap:5px;"><input type="checkbox" class="chk-campus" value="${campus.id}"><span>🏢 ${campus.name} (${areas.length})</span></div>`;
             
             const content = document.createElement('div');
             content.className = 'details-content';
@@ -1123,27 +1131,31 @@ function populateInfoLists() {
             if (areas.length > 0) {
                 const actionDiv = document.createElement('div');
                 actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px;';
+                // 選択削除ボタンにも確認ダイアログが入るdeleteSelectedAreasを呼ぶ
                 actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')">選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')">全削除</button>`;
                 content.appendChild(actionDiv);
                 
                 areas.forEach(area => {
                     const row = document.createElement('div');
-                    row.className = 'list-item-row';
+                    row.className = 'list-item-row nested-area';
                     if(area.isActive) row.style.backgroundColor = '#e6ffec';
+                    
+                    // ★修正: gapを5pxに縮め、空白を削減
                     row.innerHTML = `
-                        <div class="checkbox-wrapper">
+                        <div class="checkbox-wrapper" style="gap:5px;">
                             <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}">
-                            <div><strong>📍 ${area.name}</strong> <small>(${area.lat},${area.lon})</small></div>
+                            <div style="text-align:left;"><strong>📍 ${area.name}</strong></div>
                         </div>
                         <div>
-                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="margin-right:5px;">${area.isActive ? 'ON' : 'OFF'}</button>
+                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})">切替</button>
                             <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')">削除</button>
                         </div>`;
                     content.appendChild(row);
                 });
             } else {
-                content.innerHTML = '<p style="color:#888;">エリア登録なし</p>';
+                content.innerHTML = '<p style="color:#888; text-align:left; padding-left:10px;">(エリア未登録)</p>';
             }
+            
             details.appendChild(summary); details.appendChild(content); hierList.appendChild(details);
         });
     }
@@ -1173,10 +1185,17 @@ async function deleteItem(collection, id) {
     reloadAllData();
 }
 
+// --- 選択削除 (修正: 確認ダイアログ追加) ---
 async function deleteSelectedItems(type) {
     let inputs, collection;
     if (type === 'campuses') { inputs = document.querySelectorAll('.chk-campus:checked'); collection = 'campuses'; }
     else if (type === 'faces') { inputs = document.querySelectorAll('.chk-face:checked'); collection = 'faces'; }
+    
+    if (inputs.length === 0) return alert("選択されていません");
+    
+    // ★追加: 警告ダイアログ
+    if (!confirm(`${inputs.length}件のデータを削除しますか？\nこの操作は取り消せません。`)) return;
+
     const batch = db.batch();
     inputs.forEach(input => { batch.delete(db.collection(collection).doc(input.value)); });
     await batch.commit();
@@ -1191,10 +1210,17 @@ async function deleteSelectedAreas(campusId) {
     reloadAllData();
 }
 
-async function deleteAllAreasInCampus(campusId) {
-    const snap = await db.collection('gps_areas').where('campusId', '==', campusId).get();
+// --- エリア選択削除 (修正: 確認ダイアログ追加) ---
+async function deleteSelectedAreas(campusId) {
+    const inputs = document.querySelectorAll(`.chk-area-${campusId}:checked`);
+    
+    if (inputs.length === 0) return alert("選択されていません");
+
+    // ★追加: 警告ダイアログ
+    if (!confirm(`${inputs.length}件の活動場所を削除しますか？`)) return;
+
     const batch = db.batch();
-    snap.forEach(doc => batch.delete(doc.ref));
+    inputs.forEach(input => { batch.delete(db.collection('gps_areas').doc(input.value)); });
     await batch.commit();
     reloadAllData();
 }
