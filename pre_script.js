@@ -1110,16 +1110,24 @@ function populateInfoLists() {
         select.innerHTML = '<option value="">キャンパスを選択</option>';
         registeredCampuses.forEach(c => { const opt = document.createElement('option'); opt.value = c.id; opt.innerText = c.name; select.appendChild(opt); });
     }
+
     const hierList = document.getElementById('hierarchyList');
     if(hierList) {
         hierList.innerHTML = '';
         registeredCampuses.forEach(campus => {
             const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
+            
             const details = document.createElement('details');
-            details.className = 'settings-details'; // CSS適用のため
+            details.className = 'settings-details';
             
             const summary = document.createElement('summary');
-            summary.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><input type="checkbox" class="chk-campus" value="${campus.id}"><span>🏢 ${campus.name} (${areas.length})</span></div>`;
+            // ★修正: Flexboxで横並び・左詰め・縦書き防止・隙間調整を明示的に指定
+            summary.innerHTML = `
+                <div style="display:flex; align-items:center; justify-content:flex-start; width:100%;">
+                    <input type="checkbox" class="chk-campus" value="${campus.id}" style="margin:0 5px 0 0;">
+                    <span style="white-space:nowrap; font-weight:bold;">🏢 ${campus.name} (${areas.length})</span>
+                </div>
+            `;
             
             const content = document.createElement('div');
             content.className = 'details-content';
@@ -1132,22 +1140,25 @@ function populateInfoLists() {
                 
                 areas.forEach(area => {
                     const row = document.createElement('div');
-                    row.className = 'list-item-row';
+                    row.className = 'list-item-row nested-area';
                     if(area.isActive) row.style.backgroundColor = '#e6ffec';
+                    
+                    // ★修正: 前方の空白を排除し、左詰めレイアウトを強制
                     row.innerHTML = `
-                        <div class="checkbox-wrapper">
-                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}">
-                            <div><strong>📍 ${area.name}</strong> <small>(${area.lat},${area.lon})</small></div>
+                        <div style="display:flex; align-items:center; justify-content:flex-start;">
+                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="margin:0 5px 0 0;">
+                            <strong style="white-space:nowrap;">📍 ${area.name}</strong>
                         </div>
-                        <div>
-                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="margin-right:5px;">${area.isActive ? 'ON' : 'OFF'}</button>
-                            <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')">削除</button>
+                        <div style="white-space:nowrap;">
+                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="margin-right:5px; padding:5px 10px;">切替</button>
+                            <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')" style="padding:5px 10px;">削除</button>
                         </div>`;
                     content.appendChild(row);
                 });
             } else {
-                content.innerHTML = '<p style="color:#888;">エリア登録なし</p>';
+                content.innerHTML = '<p style="color:#888; text-align:left; padding-left:10px; margin:0;">(エリア未登録)</p>';
             }
+            
             details.appendChild(summary); details.appendChild(content); hierList.appendChild(details);
         });
     }
