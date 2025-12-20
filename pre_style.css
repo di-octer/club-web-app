@@ -25,16 +25,17 @@ body { font-family: sans-serif; background-color: #f0f2f5; margin: 0; padding: 0
     background-color: #f8f9fa;
 }
 
-/* ★修正箇所: タブの表示切り替えロジックを追加 */
+/* ★重要: タブの表示切り替えロジック (これが無いと全て縦に並びます) */
 .tab-content { display: none; }
-.tab-content.active { display: block; }
+.tab-content.active { display: block; animation: fadeIn 0.3s; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* タブバー */
 .tab-bar { display: flex; border-bottom: 1px solid #ccc; margin-bottom: 20px; background: #fff; }
 .tab-btn { flex: 1; padding: 12px; border: none; background: #f8f9fa; cursor: pointer; font-weight: bold; color: #666; }
 .tab-btn.active { background: #fff; border-bottom: 3px solid #007bff; color: #007bff; }
 
-/* 管理者サブタブ（ボタン風） */
+/* 管理者サブタブ */
 .sub-tab { padding: 8px 15px; border: none; background: #eee; cursor: pointer; margin: 0; flex: 1; border-right: 1px solid #ddd; }
 .sub-tab:last-child { border-right: none; }
 .sub-tab.active { background: #007bff; color: white; }
@@ -77,17 +78,22 @@ button:disabled { background-color: #ccc; cursor: default; }
 .today-circle { outline: 3px solid #007bff; outline-offset: -3px; font-weight: bold; color: #007bff; }
 .active-area { background-color: #fafffb; }
 
-/* 管理者・設定用 */
+/* 管理者・設定用 (修正: 横並びと左詰めを強化) */
 .settings-details { margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; text-align: left; }
-.settings-details summary { background: #f8f9fa; padding: 12px 15px; cursor: pointer; font-weight: bold; border-bottom: 1px solid #eee; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+.settings-details summary { 
+    background: #f8f9fa; padding: 12px 15px; cursor: pointer; font-weight: bold; border-bottom: 1px solid #eee; 
+    list-style: none; display: flex; justify-content: space-between; align-items: center; /* Flexbox強制 */
+}
 .settings-details summary::-webkit-details-marker { display: none; }
 .details-content { padding: 15px; background: #fff; }
 .list-container { text-align: left; max-height: 400px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 6px; background-color: #fafafa; }
 .item-card { border: 1px solid #eee; padding: 12px; margin-bottom: 10px; border-radius: 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .list-item-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
-.checkbox-wrapper { display: flex; align-items: center; gap: 10px; }
+.checkbox-wrapper { display: flex; align-items: center; gap: 5px; /* 空白を5pxに調整 */ }
 .tag-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px dashed #ccc; border-radius: 8px; min-height: 40px; }
 .tag-badge { background: #e9ecef; border-radius: 20px; padding: 4px 12px; font-size: 0.85em; display: flex; align-items: center; }
+
+/* モーダル */
 .modal { position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
 .modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 8px; }
 .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
