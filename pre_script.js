@@ -866,11 +866,22 @@ async function deleteRecommendedArticle(docId) {
     loadAdminRecommendedArticles();
 }
 
-function switchTab(tabName) {
+function switchTab(tabName, btnElement) {
+    // ボタンのスタイルリセット
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    // コンテンツの非表示
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    if (event && event.target) event.target.classList.add('active');
-    document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    // クリックされたボタンをアクティブ化
+    if (btnElement) {
+        btnElement.classList.add('active');
+    }
+    
+    // 対象コンテンツを表示
+    const content = document.getElementById(`tab-${tabName}`);
+    if (content) {
+        content.classList.add('active');
+    }
 }
 
 // --- 認証リクエスト・カラーコード処理 ---
@@ -1367,33 +1378,54 @@ async function requestAuth(userName) {
     myRequestId = docRef.id;
 }
 
-// ★H型カラーコード描画★
+// ★カラーコードの完全なH型描画ロジック (Dart版準拠・枠線追加)
 function drawHCode(codes) {
     const canvas = document.getElementById('codeCanvas');
-    if (!canvas) return;
+    if (!canvas || !canvas.getContext) return;
     const ctx = canvas.getContext('2d');
-    const w = canvas.width; const h = canvas.height;
-    const baseW = 230; const baseH = 170;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Flet/Dartコードの基準サイズ
+    const baseW = 230;
+    const baseH = 170;
+
+    // 比率維持のスケール計算
     const scale = Math.min(w / baseW, h / baseH);
-    const dx = (w - (baseW * scale)) / 2; const dy = (h - (baseH * scale)) / 2;
+    const dx = (w - (baseW * scale)) / 2;
+    const dy = (h - (baseH * scale)) / 2;
+
     const r = (x, y, rw, rh) => [dx + (x * scale), dy + (y * scale), rw * scale, rh * scale];
 
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "#000"; ctx.fillRect(...r(0, 0, baseW, baseH)); // 背景
+    
+    // 1. 背景 (黒)
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(...r(0, 0, baseW, baseH));
 
-    // 赤い目印
+    // 2. マーカー (赤・青)
     ctx.fillStyle = "#FF0000";
-    ctx.fillRect(...r(20, 20, 55, 55)); ctx.fillRect(...r(155, 20, 55, 55)); ctx.fillRect(...r(75, 130, 80, 10));
+    ctx.fillRect(...r(20, 20, 55, 55));   // 左上
+    ctx.fillRect(...r(155, 20, 55, 55));  // 右上
+    ctx.fillRect(...r(75, 130, 80, 10));  // 中央下の帯
 
-    // 青い目印
     ctx.fillStyle = "#0000FF";
-    ctx.fillRect(...r(20, 75, 55, 75)); ctx.fillRect(...r(155, 75, 55, 75));
+    ctx.fillRect(...r(20, 75, 55, 75));   // 左下
+    ctx.fillRect(...r(155, 75, 55, 75));  // 右下
 
-    // 中央の白いH土台
-    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(...r(40, 40, 150, 90));
+    // 3. 黒いストローク (枠線) - Dart版の strokePaint に相当
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2 * scale;
+    // x=30, y=30, w=170, h=110 の矩形線
+    ctx.strokeRect(...r(30, 30, 170, 110));
 
-    // カラーマップ
+    // 4. データエリア背景 (白)
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(...r(40, 40, 150, 90));
+
+    // 5. カラーコード (4色)
     const colorMap = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#00FF00' };
+    
     ctx.fillStyle = colorMap[codes[0]]; ctx.fillRect(...r(40, 40, 30, 90));  // 左縦
     ctx.fillStyle = colorMap[codes[1]]; ctx.fillRect(...r(80, 40, 70, 30));  // 上横
     ctx.fillStyle = colorMap[codes[2]]; ctx.fillRect(...r(80, 80, 70, 50));  // 下横
