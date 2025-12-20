@@ -1104,6 +1104,10 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
+// ==========================================
+//   (pre_script.js の populateInfoLists を修正)
+// ==========================================
+
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1121,11 +1125,12 @@ function populateInfoLists() {
             details.className = 'settings-details';
             
             const summary = document.createElement('summary');
-            // ★修正: Flexboxで横並び・左詰め・縦書き防止・隙間調整を明示的に指定
+            // ★修正: 親要素(summary)がFlexboxなので、中身はシンプルにグループ化するだけにする
+            // width:100%を削除し、表示崩れを防ぐ
             summary.innerHTML = `
-                <div style="display:flex; align-items:center; justify-content:flex-start; width:100%;">
-                    <input type="checkbox" class="chk-campus" value="${campus.id}" style="margin:0 5px 0 0;">
-                    <span style="white-space:nowrap; font-weight:bold;">🏢 ${campus.name} (${areas.length})</span>
+                <div style="display:flex; align-items:center;">
+                    <input type="checkbox" class="chk-campus" value="${campus.id}" style="margin-right: 10px;">
+                    <span style="font-weight:bold;">🏢 ${campus.name} (${areas.length})</span>
                 </div>
             `;
             
@@ -1143,11 +1148,15 @@ function populateInfoLists() {
                     row.className = 'list-item-row nested-area';
                     if(area.isActive) row.style.backgroundColor = '#e6ffec';
                     
-                    // ★修正: 前方の空白を排除し、左詰めレイアウトを強制
+                    // ★修正: 左側の要素(チェックボックス+名前)をFlexで束ねる
+                    // 座標を表示しつつ、フォントサイズを小さくしてガタつきを目立たなくする
                     row.innerHTML = `
-                        <div style="display:flex; align-items:center; justify-content:flex-start;">
-                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="margin:0 5px 0 0;">
-                            <strong style="white-space:nowrap;">📍 ${area.name}</strong>
+                        <div style="display:flex; align-items:center;">
+                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="margin-right: 10px;">
+                            <div style="text-align:left; line-height:1.2;">
+                                <strong>📍 ${area.name}</strong>
+                                <span style="font-size:0.8em; color:#888; margin-left:5px;">(${area.lat.toFixed(4)}, ${area.lon.toFixed(4)})</span>
+                            </div>
                         </div>
                         <div style="white-space:nowrap;">
                             <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="margin-right:5px; padding:5px 10px;">切替</button>
