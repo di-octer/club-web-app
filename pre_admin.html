@@ -25,7 +25,7 @@
         <div style="display: flex; flex-wrap: wrap; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; overflow: hidden;">
             <button id="btn-sub-auth" class="sub-tab active" onclick="switchAdminSubTab('auth')">出席認証</button>
             <button id="btn-sub-report" class="sub-tab" onclick="switchAdminSubTab('report')">届出・連絡</button>
-            <button id="btn-sub-recurring" class="sub-tab" onclick="switchAdminSubTab('recurring')">定期欠席管理</button>
+            <button id="btn-sub-recurring" class="sub-tab" onclick="switchAdminSubTab('recurring')">定期欠席</button>
             <button id="btn-sub-users" class="sub-tab" onclick="switchAdminSubTab('users')">ユーザー情報</button>
         </div>
 
@@ -66,8 +66,9 @@
     </div>
 
     <div id="tab-info" class="tab-content">
-        <details open>
-            <summary>管理者おすすめニュース設定 (Qiita)</summary>
+        
+        <details class="settings-details">
+            <summary>ニュース登録</summary>
             <div class="details-content">
                 <div class="input-group">
                     <input type="text" id="qiitaInput" placeholder="例: https://qiita.com/items/...">
@@ -76,8 +77,15 @@
                 <div id="adminNewsList" class="list-container"></div>
             </div>
         </details>
-        <hr>
-        <details>
+
+        <details class="settings-details" open>
+            <summary>活動場所設定 (一覧・削除)</summary>
+            <div class="details-content">
+                <div id="hierarchyList" class="list-container" style="border:none; padding:0;"></div>
+            </div>
+        </details>
+
+        <details class="settings-details">
             <summary>新規キャンパス登録</summary>
             <div class="details-content">
                 <div class="input-group">
@@ -88,7 +96,8 @@
                 </div>
             </div>
         </details>
-        <details>
+
+        <details class="settings-details">
             <summary>新規活動場所登録</summary>
             <div class="details-content">
                 <div class="input-group">
@@ -100,10 +109,13 @@
                 </div>
             </div>
         </details>
-        <div id="hierarchyList" class="list-container"></div>
-        <details>
+
+        <details class="settings-details">
             <summary>顔データ一覧</summary>
             <div class="details-content">
+                <div style="text-align: right; margin-bottom: 5px;">
+                     <button class="btn-danger" onclick="deleteSelectedItems('faces')" style="font-size:0.8em;">選択削除</button>
+                </div>
                 <div id="faceList" class="list-container"></div>
             </div>
         </details>
@@ -122,6 +134,7 @@
         <button id="regNextBtn" onclick="proceedToNextStep()" disabled style="width:100%; padding:15px; background-color:#ccc; border:none; border-radius:5px; color:white;">撮影・次へ</button>
         <div id="regStatus">待機中...</div>
     </div>
+
 </div>
 <script src="pre_script.js"></script>
 </body>
