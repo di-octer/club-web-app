@@ -40,6 +40,8 @@ let checkDisplayDate = new Date();
 let checkHistoryDates = [];
 let checkReportRanges = [];
 let currentNewsSlide = 0;
+let touchStartX = 0;
+let touchEndX = 0;
 
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
@@ -53,8 +55,6 @@ window.onload = async () => {
         if (user) {
             console.log("Logged in as:", user.displayName);
             if (isLoginPage) window.location.href = 'pre_home.html';
-            
-            // ユーザー設定・情報を取得
             await loadUserSettings(user.uid);
             updateUserDisplay(user);
         } else {
@@ -65,13 +65,12 @@ window.onload = async () => {
 
     console.log("初期化開始: bodyId =", document.body.id);
     
-    // データ読み込み
+    // 共通データ読み込み
     await loadCampuses();
     await loadGpsAreas();
     
-    // データロード後にアップバー構築
     if(currentUser) await loadUserSettings(currentUser.uid);
-    setupCommonAppbar(); 
+    setupCommonAppbar();
     updateAppbarStatus();
     
     const bodyId = document.body.id;
@@ -79,52 +78,42 @@ window.onload = async () => {
         await loadModels();
         await loadRegisteredFaces();
         await loadAdminRecommendedArticles();
-        switchAdminSubTab('auth'); 
+        switchAdminSubTab('auth');
         populateInfoLists();
     } else if (bodyId === 'page-check') {
         if(currentUser) checkAttendance();
-    } else if (document.getElementById('news-section')) { 
+    } else if (document.getElementById('news-section')) {
         loadHomeNews();
     } else if (bodyId === 'page-settings') {
         initSettingsPage();
     }
 };
 
-// ユーザー設定のロード
+// --- ユーザー設定 ---
 async function loadUserSettings(uid) {
     try {
         const doc = await db.collection('users').doc(uid).get();
-        if (doc.exists) {
-            userSettings = doc.data();
-        } else {
-            userSettings = {};
-        }
-        setupCommonAppbar(); // アイコン反映
+        if (doc.exists) userSettings = doc.data();
+        setupCommonAppbar(); 
     } catch(e) { console.error("Settings load error:", e); }
 }
 
 function updateUserDisplay(user) {
     const nameEls = document.querySelectorAll('#displayUserName, #historyUserName');
     nameEls.forEach(el => el.textContent = user.displayName);
-    
-    // Auth確定後に出席履歴などを自動読み込み (タイミング対策)
     if(document.body.id === 'page-check') checkAttendance();
 }
 
 // ==========================================
-//   共通アップバー
+//   共通UI (AppBar)
 // ==========================================
 function setupCommonAppbar() {
     const existing = document.querySelector('header');
     if(existing) existing.remove();
 
-    // アイコン決定ロジック
     let iconUrl = "https://via.placeholder.com/36?text=U";
-    if (userSettings && userSettings.customIcon) {
-        iconUrl = userSettings.customIcon;
-    } else if (currentUser && currentUser.photoURL) {
-        iconUrl = currentUser.photoURL;
-    }
+    if (userSettings && userSettings.customIcon) iconUrl = userSettings.customIcon;
+    else if (currentUser && currentUser.photoURL) iconUrl = currentUser.photoURL;
 
     const style = document.createElement('style');
     style.innerHTML = `
@@ -137,7 +126,6 @@ function setupCommonAppbar() {
             padding: 0 10px; box-sizing: border-box;
         }
         .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
-        
         .appbar-info-group {
             display: flex; align-items: center; justify-content: center;
             background: rgba(0, 0, 0, 0.4);
@@ -156,11 +144,9 @@ function setupCommonAppbar() {
             font-weight: bold; overflow: hidden; position: relative; padding: 0 5px;
             white-space: nowrap;
         }
-        
         .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .status-marquee { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee-anim 10s linear infinite; }
         @keyframes marquee-anim { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
-
         .icon-btn {
             font-size: 1.4em; text-decoration: none; color: white;
             display: flex; align-items: center; justify-content: center;
@@ -169,7 +155,6 @@ function setupCommonAppbar() {
         }
         .icon-btn:hover { background: rgba(255,255,255,0.2); }
         .user-icon-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 2px solid white; }
-
         #statusDetailModal {
             position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
             background: white; color: #333; padding: 15px;
@@ -185,7 +170,6 @@ function setupCommonAppbar() {
 
     const header = document.createElement('header');
     header.className = 'appbar-fixed';
-    
     header.innerHTML = `
         <div class="appbar-side">
             <a href="pre_home.html" class="icon-btn" title="ホーム">🏠</a>
@@ -211,7 +195,7 @@ function setupCommonAppbar() {
 
     const overlay = document.createElement('div');
     overlay.id = 'modalOverlay';
-    overlay.onclick = toggleStatusModal; 
+    overlay.onclick = toggleStatusModal;
     document.body.appendChild(overlay);
 
     const modal = document.createElement('div');
@@ -404,7 +388,6 @@ function toBase64(file) {
 // ==========================================
 //   認証機能 (Discord OIDC)
 // ==========================================
-
 function loginWithDiscord() {
     const provider = new firebase.auth.OAuthProvider('oidc.discord');
     provider.addScope('identify');
@@ -412,9 +395,7 @@ function loginWithDiscord() {
         .then((result) => {
             const user = result.user;
             db.collection('users').doc(user.uid).set({
-                displayName: user.displayName,
-                email: user.email,
-                photoURL: user.photoURL,
+                displayName: user.displayName, email: user.email, photoURL: user.photoURL,
                 lastLogin: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
             window.location.href = 'pre_home.html';
@@ -424,16 +405,13 @@ function loginWithDiscord() {
 
 function logoutUser() {
     if(confirm("ログアウトしますか？")) {
-        auth.signOut().then(() => {
-            window.location.href = 'pre_login.html';
-        });
+        auth.signOut().then(() => window.location.href = 'pre_login.html');
     }
 }
 
 // ==========================================
 //   管理者機能
 // ==========================================
-
 function switchAdminSubTab(tab) {
     document.getElementById('view-auth').style.display = 'none';
     document.getElementById('view-report').style.display = 'none';
@@ -553,7 +531,6 @@ function toggleStatusModal() {
 async function updateAppbarStatus() {
     const campusEl = document.getElementById('appbarCampus');
     const statusEl = document.getElementById('appbarStatus');
-    
     if (!statusEl || !registeredGpsAreas || !registeredCampuses) return;
     
     let fixedCampus = null;
@@ -568,8 +545,18 @@ async function updateAppbarStatus() {
         } else if (areas.length === 1) {
             statusEl.innerHTML = `<div class="status-static">📍 ${areas[0].name}</div>`;
         } else {
-            const text = areas.map(a => a.name).join("　"); 
+            const text = areas.map(a => a.name).join("　");
             statusEl.innerHTML = `<div class="status-marquee">${text}　　${text}</div>`;
+        }
+        const modalContent = document.getElementById('statusDetailContent');
+        if (areas.length === 0) {
+            modalContent.innerHTML = `<p>${campusName} で活動中の場所はありません。</p>`;
+        } else {
+            modalContent.innerHTML = areas.map(a => `
+                <div style="padding:8px 0; border-bottom:1px solid #f0f0f0;">
+                    <span style="background:#28a745; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em; margin-right:5px;">活動中</span>
+                    <strong>${campusName}</strong> - ${a.name}
+                </div>`).join('');
         }
     };
 
@@ -578,18 +565,14 @@ async function updateAppbarStatus() {
     navigator.geolocation.getCurrentPosition((pos) => {
         const uLat = pos.coords.latitude;
         const uLon = pos.coords.longitude;
-        
-        let targetCampus = null;
-        if (fixedCampus) {
-            targetCampus = fixedCampus;
-        } else {
+        let targetCampus = fixedCampus;
+        if (!targetCampus) {
             let minDist = Infinity;
             registeredCampuses.forEach(c => {
                 const dist = getDistance(uLat, uLon, c.lat, c.lon);
                 if (dist < minDist) { minDist = dist; targetCampus = c; }
             });
         }
-
         if (targetCampus) {
             const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === targetCampus.id);
             render(targetCampus.name, targetAreas);
@@ -602,7 +585,7 @@ async function updateAppbarStatus() {
     }, { timeout: 5000 });
 }
 
-// データ読み込みヘルパー
+// --- その他 共通処理 ---
 async function loadCampuses() {
     try {
         const snap = await db.collection('campuses').get();
@@ -633,12 +616,7 @@ async function loadRegisteredFaces() {
                      for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
                      const float32 = new Float32Array(bytes.buffer);
                      if (float32.length === 128) {
-                         registeredFaces.push({
-                             docId: doc.id,
-                             label: data.label,
-                             thumbnail: data.thumbnail || null,
-                             descriptor: float32
-                         });
+                         registeredFaces.push({ docId: doc.id, label: data.label, thumbnail: data.thumbnail || null, descriptor: float32 });
                      }
                  } catch(e) {}
             }
@@ -652,7 +630,6 @@ async function loadModels() {
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
         await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
         await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        console.log("AI Models Loaded");
     } catch(e) { console.error("Model Load Error:", e); }
 }
 
@@ -665,7 +642,9 @@ function getDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// ニュース機能
+// ==========================================
+//   ニュース機能 (Swipe & Logic)
+// ==========================================
 async function loadHomeNews() {
     const section = document.getElementById('news-section');
     if (section && !document.getElementById('news-tab-bar')) {
@@ -703,17 +682,24 @@ async function loadHomeNews() {
             let items = [];
             if (data && data.length > 0) {
                 items = data.map(item => ({
-                    title: item.title,
-                    url: item.url,
-                    badge: 'Qiita',
-                    color: '#55c500',
-                    author: (item.user ? item.user.id : 'unknown')
+                    title: item.title, url: item.url, badge: 'Qiita', color: '#55c500', author: (item.user ? item.user.id : 'unknown')
                 }));
             }
             renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
         } catch(e) { slideTrend.innerHTML = '<p style="color:red">取得失敗</p>'; }
     }
 }
+
+function handleSwipe() {
+    if (touchEndX < touchStartX - 50) {
+        // 左スワイプ -> 次へ
+        if (currentNewsSlide === 0) switchNewsSlide(1);
+    }
+    if (touchEndX > touchStartX + 50) {
+        // 右スワイプ -> 前へ
+        if (currentNewsSlide === 1) switchNewsSlide(0);
+    }
+}ZZ
 
 async function fetchWithProxy(targetUrl) {
     const proxies = [
@@ -768,10 +754,7 @@ function renderNewsSlide(container, title, navText, items, nextIndex) {
     `;
     container.appendChild(header);
 
-    if (items.length === 0) {
-        container.innerHTML += '<p>記事がありません</p>';
-        return;
-    }
+    if (items.length === 0) { container.innerHTML += '<p>記事がありません</p>'; return; }
 
     const listId = `list-${Math.random().toString(36).substr(2, 9)}`;
     const count = (userSettings && userSettings.newsDefaultCount) ? parseInt(userSettings.newsDefaultCount) : 5;
@@ -809,14 +792,10 @@ function toggleNewsItems(listId, btn, count) {
     const isExpanded = !list.children[count].classList.contains('hidden-item');
 
     if (isExpanded) {
-        Array.from(list.children).forEach((child, i) => {
-            if (i >= count) child.classList.add('hidden-item');
-        });
+        Array.from(list.children).forEach((child, i) => { if (i >= count) child.classList.add('hidden-item'); });
         updateToggleButtons(list.parentElement, "🔽 もっと見る");
     } else {
-        Array.from(list.children).forEach(child => {
-            child.classList.remove('hidden-item');
-        });
+        Array.from(list.children).forEach(child => child.classList.remove('hidden-item'));
         updateToggleButtons(list.parentElement, "🔼 閉じる");
     }
 }
@@ -829,9 +808,6 @@ function updateToggleButtons(container, text) {
 function createNewsItem(title, url, badgeText, badgeColor, author = null) {
     const div = document.createElement('div');
     div.className = 'news-item';
-    div.style.borderBottom = "1px solid #eee";
-    div.style.padding = "10px 0";
-    div.style.display = "flex";
     div.innerHTML = `
         <div style="background:${badgeColor}; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-right:8px; height:fit-content; flex-shrink:0;">${badgeText}</div>
         <div>
@@ -865,12 +841,6 @@ async function loadAdminRecommendedArticles() {
     } catch (e) { listEl.innerHTML = '<p>読み込みエラー</p>'; }
 }
 
-async function deleteRecommendedArticle(docId) {
-    if (!confirm("この記事を削除しますか？")) return;
-    await db.collection('recommended_news').doc(docId).delete();
-    loadAdminRecommendedArticles(); 
-}
-
 async function registerRecommendedArticle() {
     const input = document.getElementById('qiitaInput');
     const urlOrId = input.value.trim();
@@ -890,6 +860,12 @@ async function registerRecommendedArticle() {
     } catch(e) { alert("エラー: " + e.message); }
 }
 
+async function deleteRecommendedArticle(docId) {
+    if (!confirm("この記事を削除しますか？")) return;
+    await db.collection('recommended_news').doc(docId).delete();
+    loadAdminRecommendedArticles();
+}
+
 function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -897,6 +873,7 @@ function switchTab(tabName) {
     document.getElementById(`tab-${tabName}`).classList.add('active');
 }
 
+// --- 認証リクエスト・カラーコード処理 ---
 async function refreshRequests() {
     const listEl = document.getElementById('requestList');
     listEl.innerHTML = '<p>読み込み中...</p>';
@@ -1039,9 +1016,10 @@ async function processAdminFrame() {
 
 function scanColors(ctx, w, h) {
     const refW = 230; const refH = 170;
-    const scale = Math.min(w / refW, h / refH) * 0.8; 
+    const scale = Math.min(w / refW, h / refH) * 0.8;
     const offsetX = (w - refW * scale) / 2; const offsetY = (h - refH * scale) / 2;
     const t = (x, y) => ({ x: Math.floor(offsetX + x * scale), y: Math.floor(offsetY + y * scale) });
+    // H型の4箇所をサンプリング
     const points = [ t(55, 85), t(115, 55), t(115, 105), t(175, 85) ];
     const imageData = ctx.getImageData(0, 0, w, h).data;
     return points.map(p => {
@@ -1052,11 +1030,11 @@ function scanColors(ctx, w, h) {
 
 function classifyColor(r, g, b) {
     const max = Math.max(r, g, b); const min = Math.min(r, g, b);
-    if ((max - min) < 40) return '?'; 
-    if (g > 150 && b > 150 && r < 120) return 'C';
-    if (r > 150 && g > 150 && b < 120) return 'Y';
-    if (r > 150 && b > 150 && g < 120) return 'M';
-    if (g > 100 && r < 100 && b < 100) return 'G';
+    if ((max - min) < 40) return '?';
+    if (g > 150 && b > 150 && r < 120) return 'C'; // Cyan
+    if (r > 150 && g > 150 && b < 120) return 'Y'; // Yellow
+    if (r > 150 && b > 150 && g < 120) return 'M'; // Magenta
+    if (g > 100 && r < 100 && b < 100) return 'G'; // Green
     return '?';
 }
 
@@ -1072,12 +1050,16 @@ function drawAdminGuide(ctx, w, h, step) {
     const t = (x, y) => ({ x: x * scale + offsetX, y: y * scale + offsetY });
     ctx.lineWidth = 4; ctx.lineCap = "round";
     const alpha = step === 0 ? 1.0 : 0.2;
+    
+    // ガイド枠描画 (H型の周辺)
     ctx.strokeStyle = `rgba(255, 0, 0, ${alpha})`;
     ctx.beginPath(); let p = t(30, 50); ctx.moveTo(p.x, p.y); p = t(30, 30); ctx.lineTo(p.x, p.y); p = t(50, 30); ctx.lineTo(p.x, p.y); ctx.stroke();
+    
     if (step === 0) {
         ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
         const fillRect = (x1,y1,x2,y2) => { const s = t(x1,y1); const e = t(x2,y2); ctx.fillRect(s.x, s.y, e.x - s.x, e.y - s.y); };
-        fillRect(70, 40, 80, 130);
+        // H型の透過マスク
+        fillRect(40, 40, 70, 130); fillRect(70, 70, 150, 100); fillRect(150, 40, 180, 130);
     }
 }
 
@@ -1095,9 +1077,7 @@ async function registerCampus() {
     const lat = parseFloat(document.getElementById('campusLat').value);
     const lon = parseFloat(document.getElementById('campusLon').value);
     await db.collection('campuses').add({ name, lat, lon });
-    loadCampuses();
-    populateInfoLists();
-    alert("登録しました");
+    loadCampuses(); populateInfoLists(); alert("登録しました");
 }
 
 async function registerArea() {
@@ -1106,9 +1086,7 @@ async function registerArea() {
     const lat = parseFloat(document.getElementById('areaLat').value);
     const lon = parseFloat(document.getElementById('areaLon').value);
     await db.collection('gps_areas').doc(name).set({ name, campusId, lat, lon, isActive: false });
-    loadGpsAreas();
-    populateInfoLists();
-    alert("登録しました");
+    loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
 function populateInfoLists() {
@@ -1123,22 +1101,37 @@ function populateInfoLists() {
         registeredCampuses.forEach(campus => {
             const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
             const details = document.createElement('details');
+            details.className = 'settings-details'; // CSS適用のため
+            
             const summary = document.createElement('summary');
             summary.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><input type="checkbox" class="chk-campus" value="${campus.id}"><span>🏢 ${campus.name} (${areas.length})</span></div>`;
+            
             const content = document.createElement('div');
             content.className = 'details-content';
+            
             if (areas.length > 0) {
                 const actionDiv = document.createElement('div');
                 actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px;';
                 actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')">選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')">全削除</button>`;
                 content.appendChild(actionDiv);
+                
                 areas.forEach(area => {
                     const row = document.createElement('div');
-                    row.className = 'list-item-row nested-area';
+                    row.className = 'list-item-row';
                     if(area.isActive) row.style.backgroundColor = '#e6ffec';
-                    row.innerHTML = `<div class="checkbox-wrapper"><input type="checkbox" class="chk-area-${campus.id}" value="${area.name}"><div><strong>📍 ${area.name}</strong></div></div><div><button onclick="toggleAreaActive('${area.name}', ${area.isActive})">切替</button><button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')">削除</button></div>`;
+                    row.innerHTML = `
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}">
+                            <div><strong>📍 ${area.name}</strong> <small>(${area.lat},${area.lon})</small></div>
+                        </div>
+                        <div>
+                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="margin-right:5px;">${area.isActive ? 'ON' : 'OFF'}</button>
+                            <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')">削除</button>
+                        </div>`;
                     content.appendChild(row);
                 });
+            } else {
+                content.innerHTML = '<p style="color:#888;">エリア登録なし</p>';
             }
             details.appendChild(summary); details.appendChild(content); hierList.appendChild(details);
         });
@@ -1310,12 +1303,11 @@ async function submitReport() {
     alert("送信しました");
 }
 
+// ==========================================
+//   認証リクエスト (User: H Code Drawing)
+// ==========================================
 async function startUserAuthFlow() {
     if (!currentUser) return alert("ログイン情報が読み込まれていません。");
-    // 設定によるスキップ処理
-    if (userSettings.authMethod === 'code') {
-        // 顔認証スキップならここを調整ですが、顔認証必須フローなので続行
-    }
     
     document.getElementById('step-0').classList.remove('active');
     document.getElementById('step-1').classList.add('active');
@@ -1375,7 +1367,7 @@ async function requestAuth(userName) {
     myRequestId = docRef.id;
 }
 
-// ★カラーコードの完全なH型描画ロジック
+// ★H型カラーコード描画★
 function drawHCode(codes) {
     const canvas = document.getElementById('codeCanvas');
     if (!canvas) return;
@@ -1400,12 +1392,12 @@ function drawHCode(codes) {
     // 中央の白いH土台
     ctx.fillStyle = "#FFFFFF"; ctx.fillRect(...r(40, 40, 150, 90));
 
-    // 指定された色を塗る (C=シアン, Y=イエロー, M=マゼンタ, G=グリーン)
+    // カラーマップ
     const colorMap = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#00FF00' };
-    ctx.fillStyle = colorMap[codes[0]]; ctx.fillRect(...r(40, 40, 30, 90));
-    ctx.fillStyle = colorMap[codes[1]]; ctx.fillRect(...r(80, 40, 70, 30));
-    ctx.fillStyle = colorMap[codes[2]]; ctx.fillRect(...r(80, 80, 70, 50));
-    ctx.fillStyle = colorMap[codes[3]]; ctx.fillRect(...r(160, 40, 30, 90));
+    ctx.fillStyle = colorMap[codes[0]]; ctx.fillRect(...r(40, 40, 30, 90));  // 左縦
+    ctx.fillStyle = colorMap[codes[1]]; ctx.fillRect(...r(80, 40, 70, 30));  // 上横
+    ctx.fillStyle = colorMap[codes[2]]; ctx.fillRect(...r(80, 80, 70, 50));  // 下横
+    ctx.fillStyle = colorMap[codes[3]]; ctx.fillRect(...r(160, 40, 30, 90)); // 右縦
 }
 
 async function checkRequestStatus() {
