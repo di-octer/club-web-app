@@ -1963,6 +1963,60 @@ function switchCalendarSubTab(tab) {
     document.getElementById('btn-sub-monthly').classList.toggle('active', tab === 'monthly');
 }
 
+// --- 年の自動補正ロジック (学年暦) ---
+function updateAllAcadDates() {
+    // 年度変更時に全ての入力済み日付を再計算
+    document.querySelectorAll('.acad-date').forEach(el => enforceAcadYear(el));
+}
+
+function enforceAcadYear(el) {
+    const acadYearStr = document.getElementById('acadYear').value;
+    if (!acadYearStr || !el.value) return;
+    
+    const acadYear = parseInt(acadYearStr);
+    
+    // YYYY-MM-DD を分解
+    const parts = el.value.split('-'); // [0]=YYYY, [1]=MM, [2]=DD
+    if (parts.length !== 3) return;
+    
+    const m = parseInt(parts[1]);
+    const d = parts[2];
+    
+    // 年度判定: 1~3月なら 年度+1、4~12月なら 年度
+    let targetYear = acadYear;
+    if (m >= 1 && m <= 3) {
+        targetYear = acadYear + 1;
+    }
+    
+    const newYearStr = targetYear.toString();
+    
+    // 異なっていれば強制書き換え
+    if (parts[0] !== newYearStr) {
+        const newValue = `${newYearStr}-${parts[1]}-${d}`;
+        el.value = newValue;
+    }
+}
+
+// --- 年の自動補正ロジック (月次設定) ---
+function updateMonthlyBaseYear() {
+    // 対象年月が変わったらイベント入力欄もチェック
+    enforceMonthlyYear(document.getElementById('evtStart'));
+    enforceMonthlyYear(document.getElementById('evtEnd'));
+}
+
+function enforceMonthlyYear(el) {
+    const ym = document.getElementById('targetMonth').value; // YYYY-MM
+    if (!ym || !el.value) return;
+    
+    const targetYear = ym.split('-')[0];
+    const parts = el.value.split('-'); // YYYY-MM-DD
+    
+    // 入力された日付の年を、対象年月の年に強制変更
+    if (parts[0] !== targetYear) {
+        el.value = `${targetYear}-${parts[1]}-${parts[2]}`;
+    }
+}
+
 // --- Admin: 学年暦保存 ---
 async function saveAcademicConfig() {
     const year = document.getElementById('acadYear').value;
@@ -1996,11 +2050,26 @@ async function loadMonthConfig() {
     
     registeredCampuses.forEach(c => {
         const div = document.createElement('div');
-        div.style.marginBottom = "10px";
-        div.innerHTML = `<strong>${c.name}</strong><br>`;
+        div.style.marginBottom = "15px";
+        div.style.borderBottom = "1px solid #eee";
+        div.style.paddingBottom = "10px";
+        
+        div.innerHTML = `<strong style="display:block; margin-bottom:5px;">${c.name}</strong>`;
+        
+        // ★修正: 曜日を横並びにするコンテナを作成
+        const daysContainer = document.createElement('div');
+        daysContainer.style.display = "flex";
+        daysContainer.style.flexWrap = "wrap";
+        daysContainer.style.gap = "15px"; // 間隔
+        
         ['日','月','火','水','木','金','土'].forEach((w, i) => {
-            div.innerHTML += `<label style="margin-right:5px;"><input type="checkbox" class="act-chk" data-campus="${c.id}" value="${i}"> ${w}</label>`;
+            daysContainer.innerHTML += `
+                <label style="cursor:pointer; display:flex; align-items:center;">
+                    <input type="checkbox" class="act-chk" data-campus="${c.id}" value="${i}" style="margin-right:4px;"> ${w}
+                </label>`;
         });
+        
+        div.appendChild(daysContainer);
         cDiv.appendChild(div);
     });
 
@@ -2125,7 +2194,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
         let badges = "";
         
         // 1. 活動日判定 (User設定のデフォルトキャンパスがあればそれ優先、なければ全表示)
-        // ここでは簡易的に全キャンパスの活動日を表示
         if (data.activityDays) {
             let isActivity = false;
             let campusNames = [];
