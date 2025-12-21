@@ -537,48 +537,63 @@ async function approveRecurring(docId) {
     refreshRecurring();
 }
 
+// ==========================================
+//   (pre_script.js の refreshAllUsers を修正)
+// ==========================================
+
 async function refreshAllUsers() {
     const list = document.getElementById('allUsersList');
     list.innerHTML = "読み込み中...";
-    const snap = await db.collection('users').get();
-    
-    list.innerHTML = "";
-    snap.forEach(doc => {
-        const u = doc.data();
-        const uid = doc.id;
-        const detailsId = `details-${uid}`;
+    try {
+        const snap = await db.collection('users').get();
         
-        const div = document.createElement('div');
-        div.className = 'item-card';
-        div.style.display = 'block';
-        
-        const hiddenInfo = `
-            <ul style="font-size:0.8em; color:#555; text-align:left;">
-                <li>所感: ${u.adminMemo || "未設定"}</li>
-                <li>参加率: 活動(${u.rateActivity || 0}%) / チーム(${u.rateTeam || 0}%) / カリキュラム(${u.rateCurriculum || 0}%)</li>
-                <li>仲の良い人: ${u.closeFriends || "不明"}</li>
-                <li>グループ: ${u.groups || "なし"}</li>
-                <li>連携: Qiita(${u.qiitaId || "-"}) / Git(${u.gitId || "-"}) / Discord(${u.discordId || "-"})</li>
-                <li>顔登録: ${u.faceRegistered ? "済" : "未"}</li>
-                <li>Admin権限: ${u.isAdmin ? "あり" : "なし"}</li>
-                <li>借用備品: ${u.borrowedItems || "なし"}</li>
-            </ul>
-        `;
+        list.innerHTML = "";
+        snap.forEach(doc => {
+            const u = doc.data();
+            const uid = doc.id;
+            const detailsId = `details-${uid}`;
+            
+            const div = document.createElement('div');
+            div.className = 'item-card';
+            div.style.display = 'block';
+            
+            // 配列データや未定義値の整形
+            const groupsStr = (Array.isArray(u.groups) && u.groups.length > 0) ? u.groups.join(", ") : "なし";
+            const itemsStr = (Array.isArray(u.borrowedItems) && u.borrowedItems.length > 0) ? u.borrowedItems.join(", ") : "なし";
 
-        div.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <img src="${u.customIcon || u.photoURL || 'https://via.placeholder.com/32'}" style="width:32px; height:32px; border-radius:50%;">
-                    <strong>${u.displayName}</strong>
+            const hiddenInfo = `
+                <ul style="font-size:0.85em; color:#333; text-align:left; padding-left:20px; line-height:1.8;">
+                    <li>所感: ${u.adminMemo || "未設定"}</li>
+                    <li>活動参加率: ${u.rateActivity || 0}%</li>
+                    <li>チーム開発意欲: ${u.rateTeam || 0}%</li>
+                    <li>カリキュラム意欲: ${u.rateCurriculum || 0}%</li>
+                    <li>交友率: ${u.rateFriends || 0}%</li>
+                    <li>よくいるグループ: ${groupsStr}</li>
+                    <li>連携: Qiita(${u.qiitaId || "-"}), Git(${u.gitId || "-"}), Discord(${u.discordId || "-"})</li>
+                    <li>顔登録: ${u.faceRegistered ? "済" : "未"}</li>
+                    <li>Admin権限: ${u.isAdmin ? "あり" : "なし"}</li>
+                    <li>借用備品: ${itemsStr}</li>
+                </ul>
+            `;
+
+            div.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <img src="${u.customIcon || u.photoURL || 'https://via.placeholder.com/32'}" style="width:32px; height:32px; border-radius:50%; object-fit:cover;">
+                        <strong>${u.displayName}</strong>
+                    </div>
+                    <button onclick="document.getElementById('${detailsId}').style.display = document.getElementById('${detailsId}').style.display==='none'?'block':'none'" style="font-size:0.8em; padding:5px 10px;">詳細</button>
                 </div>
-                <button onclick="document.getElementById('${detailsId}').style.display = document.getElementById('${detailsId}').style.display=='none'?'block':'none'" style="font-size:0.8em;">詳細</button>
-            </div>
-            <div id="${detailsId}" style="display:none; margin-top:10px; border-top:1px solid #eee; padding-top:5px;">
-                ${hiddenInfo}
-            </div>
-        `;
-        list.appendChild(div);
-    });
+                <div id="${detailsId}" style="display:none; margin-top:10px; border-top:1px solid #eee; padding-top:10px;">
+                    ${hiddenInfo}
+                </div>
+            `;
+            list.appendChild(div);
+        });
+    } catch(e) { 
+        console.error(e); 
+        list.innerHTML = "読み込みエラー"; 
+    }
 }
 
 function toggleStatusModal() {
