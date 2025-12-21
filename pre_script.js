@@ -2111,7 +2111,7 @@ async function saveAcademicConfig() {
         date: resolveDateYear(e.date, year, true)
     }));
 
-    // ★修正: 新しい入力項目に対応
+    // ★修正: 履修登録期間を前期・後期に分割
     const data = {
         // 前期
         t1_front: { 
@@ -2138,7 +2138,8 @@ async function saveAcademicConfig() {
         },
         
         periods: {
-            reg: resolveDateYear(v('p_reg'), year, true), 
+            reg1: resolveDateYear(v('p_reg_1'), year, true), // 前期履修登録
+            reg2: resolveDateYear(v('p_reg_2'), year, true), // 後期履修登録
             sup: resolveDateYear(v('p_sup'), year, true), 
             exam: resolveDateYear(v('p_exam'), year, true)
         },
