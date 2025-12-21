@@ -141,92 +141,121 @@
         </div>
 
         <div id="view-acad">
-            <p style="font-size:0.9em; color:#666;">日付は <b>MM-DD</b> 形式で入力してください。<br>設定年度に基づき自動で年(YYYY)が補完されます。(1~3月は翌年扱い)</p>
+            <p style="font-size:0.9em; color:#666;">日付は <b>MM-DD</b> 形式。<br>期間は開始と終了を入力してください。</p>
             <div class="input-group">
                 <label>設定年度</label>
                 <input type="number" id="acadYear" value="2024" oninput="updateAllAcadDates()">
             </div>
             
             <details open class="settings-details">
-                <summary>学期期間 (MM-DD)</summary>
+                <summary>通常期間設定</summary>
                 <div class="details-content">
-                    <label style="font-weight:bold; color:#007bff;">前期</label>
-                    <div style="margin-left:10px; margin-bottom:10px;">
-                        <label>前半 (開始 ～ 終了)</label>
+                    
+                    <div style="border-left:4px solid #2196f3; padding-left:10px; margin-bottom:20px;">
+                        <h4 style="margin:0 0 10px 0; color:#2196f3;">前期</h4>
+                        
+                        <label>履修登録期間(前期)</label> 
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:10px;">
+                            <input type="text" id="p_reg_1" placeholder="04-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="p_reg_1_end" placeholder="04-10" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+
+                        <label>前期前半 (開始 ～ 終了)</label>
                         <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
-                            <input type="text" id="t1_f_start" placeholder="04-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="t1_f_start" placeholder="04-11" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
                             <input type="text" id="t1_f_end" placeholder="05-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
                         </div>
-                        <label>後半 (開始 ～ 終了)</label>
-                        <div style="display:flex; gap:5px; align-items:center;">
+                        
+                        <label>前期後半 (開始 ～ 終了)</label>
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:10px;">
                             <input type="text" id="t1_b_start" placeholder="06-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
-                            <input type="text" id="t1_b_end" placeholder="07-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            <input type="text" id="t1_b_end" placeholder="07-20" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+
+                        <label>集中補講期間(前期)</label> 
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="p_sup_1" placeholder="08-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="p_sup_1_end" placeholder="08-07" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+
+                        <label>試験期間(前期)</label> 
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="p_exam_1" placeholder="07-21" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="p_exam_1_end" placeholder="07-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+
+                        <label>成績発表期間(前期)</label> 
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="d_grade_1" placeholder="08-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="d_grade_1_end" placeholder="08-22" class="date-short acad-date" oninput="enforceAcadYear(this)">
                         </div>
                     </div>
 
-                    <hr style="border:0; border-top:1px dashed #ccc; margin:10px 0;">
+                    <div style="border-left:4px solid #ff9800; padding-left:10px;">
+                        <h4 style="margin:0 0 10px 0; color:#ff9800;">後期</h4>
 
-                    <label style="font-weight:bold; color:#007bff;">後期</label>
-                    <div style="margin-left:10px;">
-                        <label>前半 (開始 ～ 終了)</label>
-                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
-                            <input type="text" id="t2_f_start" placeholder="09-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                        <label>履修登録期間(後期)</label> 
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:10px;">
+                            <input type="text" id="p_reg_2" placeholder="09-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="p_reg_2_end" placeholder="09-30" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+
+                        <label>後期前半 (開始 ～ 終了)</label>
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:15px;">
+                            <input type="text" id="t2_f_start" placeholder="10-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
                             <input type="text" id="t2_f_end" placeholder="11-30" class="date-short acad-date" oninput="enforceAcadYear(this)">
                         </div>
-                        <label>後半 (開始 ～ 終了)</label>
+
+                        <div style="background:#fff3e0; padding:10px; border-radius:5px; margin-bottom:15px;">
+                            <label style="font-weight:bold;">キャンパスごと文化祭期間</label>
+                            <div class="input-group" style="margin:5px 0;">
+                                <div style="display:flex; gap:5px;">
+                                    <select id="fesCampus" style="flex:1;"><option value="">キャンパス選択</option></select>
+                                </div>
+                                <div style="display:flex; gap:5px; align-items:center; margin-top:5px;">
+                                    <input type="text" id="fesStart" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                    <input type="text" id="fesEnd" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                                    <button onclick="addAcadFestival()" style="padding:5px 10px; font-size:0.8em;">追加</button>
+                                </div>
+                            </div>
+                            <div id="tempFesList" class="list-container" style="border:1px solid #ccc; padding:5px; height:auto; min-height:30px; background:white;"></div>
+                        </div>
+
+                        <label>後期後半 (開始 ～ 終了)</label>
                         <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
                             <input type="text" id="t2_b_start" placeholder="12-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
                             <input type="text" id="t2_b_end" placeholder="01-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
                         </div>
+
                         <label>冬季休暇 (後期後半内の休み)</label>
-                        <div style="display:flex; gap:5px; align-items:center;">
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:10px;">
                             <input type="text" id="winter_start" placeholder="12-25" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
                             <input type="text" id="winter_end" placeholder="01-07" class="date-short acad-date" oninput="enforceAcadYear(this)">
                         </div>
-                    </div>
-                </div>
-            </details>
 
-           <details class="settings-details">
-                <summary>特殊期間 (MM-DD または MM-DD:MM-DD)</summary>
-                <div class="details-content">
-                    <label>履修登録期間 (前期)</label> 
-                    <input type="text" id="p_reg_1" placeholder="04-01:04-10" class="acad-date">
-                    
-                    <label>履修登録期間 (後期)</label> 
-                    <input type="text" id="p_reg_2" placeholder="09-20:09-30" class="acad-date">
-                    
-                    <label>集中補講期間</label> 
-                    <input type="text" id="p_sup" placeholder="08-01:08-07" class="acad-date">
-                    
-                    <label>試験期間</label> 
-                    <input type="text" id="p_exam" placeholder="07-20:07-31" class="acad-date">
-                    
-                    <label>成績発表日 (MM-DD)</label> 
-                    <input type="text" id="d_grade" placeholder="08-20" class="date-short acad-date" oninput="enforceAcadYear(this)">
-                </div>
-            </details>
-            
-            <details class="settings-details">
-                <summary>文化祭期間 (キャンパス別)</summary>
-                <div class="details-content">
-                    <div class="input-group">
-                        <select id="fesCampus"><option value="">キャンパスを選択</option></select>
-                    </div>
-                    <div class="input-group">
-                        <label>期間 (MM-DD)</label>
-                        <div style="display:flex; gap:5px; align-items:center;">
-                            <input type="text" id="fesStart" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
-                            <input type="text" id="fesEnd" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        <label>集中補講期間(後期)</label> 
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="p_sup_2" placeholder="02-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="p_sup_2_end" placeholder="02-07" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+
+                        <label>試験期間(後期)</label> 
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="p_exam_2" placeholder="01-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="p_exam_2_end" placeholder="01-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+
+                        <label>成績発表期間(後期)</label> 
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="d_grade_2" placeholder="02-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="d_grade_2_end" placeholder="02-22" class="date-short acad-date" oninput="enforceAcadYear(this)">
                         </div>
                     </div>
-                    <button onclick="addAcadFestival()">リストに追加</button>
-                    <div id="tempFesList" class="list-container" style="margin-top:10px; border:1px solid #ccc; padding:5px; height:auto; min-height:50px;"></div>
                 </div>
             </details>
 
             <details class="settings-details">
-                <summary>例外日設定 (授業実施日/休日)</summary>
+                <summary>例外日設定</summary>
                 <div class="details-content">
                     <div class="input-group">
                         <select id="exType">

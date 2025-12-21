@@ -1967,12 +1967,12 @@ function switchCalendarSubTab(tab) {
     
     if(tab === 'acad') {
         document.getElementById('btn-sub-acad').classList.add('active');
-        populateCampusSelects(); // キャンパス選択肢更新
+        populateCampusSelects(); 
     }
     if(tab === 'monthly') document.getElementById('btn-sub-monthly').classList.add('active');
 }
 
-// キャンパスプルダウンの生成 (文化祭用・活動なし日用)
+// キャンパスプルダウンの生成
 async function populateCampusSelects() {
     if(registeredCampuses.length === 0) await loadCampuses();
     
@@ -1992,45 +1992,27 @@ async function populateCampusSelects() {
 // --- 日付変換ヘルパー (MM-DD -> YYYY-MM-DD) ---
 function resolveDateYear(inputStr, baseYear, isAcademic) {
     if (!inputStr) return "";
-    if (inputStr.includes(':')) {
-        const [start, end] = inputStr.split(':');
-        return `${resolveDateYear(start, baseYear, isAcademic)}:${resolveDateYear(end, baseYear, isAcademic)}`;
-    }
     const parts = inputStr.split('-');
     if (parts.length !== 2) return inputStr;
     const m = parseInt(parts[0]);
     const d = parseInt(parts[1]);
     let targetYear = baseYear;
+    // 学年暦モード: 1~3月は翌年扱い
     if (isAcademic && m >= 1 && m <= 3) targetYear = baseYear + 1;
     return `${targetYear}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 
-// --- 年の自動補正ロジック (学年暦) ---
+// --- 年の自動補正ロジック ---
 function updateAllAcadDates() {
     document.querySelectorAll('.acad-date').forEach(el => enforceAcadYear(el));
 }
 
 function enforceAcadYear(el) {
-    const acadYearStr = document.getElementById('acadYear').value;
-    if (!acadYearStr || !el.value) return;
-    const acadYear = parseInt(acadYearStr);
-    
-    const parts = el.value.split('-'); 
-    if (parts.length !== 2) return; // MM-DD 以外なら無視 (YYYY-MM-DDになっていても手動入力時はMM-DDとみなす処理は複雑になるため簡易化)
-    
-    // 入力補助ではなく保存時に変換するため、ここではMM-DDのままでもよいが、
-    // YYYY-MM-DDに変換して表示する場合は以下の処理を入れる
-    // 今回は「MM-DD」入力欄として扱い、保存時にresolveDateYearを通す運用とする
+    // 表示上の補正は行わず、保存時に計算する方針
 }
 
-// --- 年の自動補正ロジック (月次設定) ---
-function updateMonthlyBaseYear() {
-    // 処理なし（保存時に変換）
-}
-
-function enforceMonthlyYear(el) {
-    // 処理なし（保存時に変換）
-}
+function updateMonthlyBaseYear() {}
+function enforceMonthlyYear(el) {}
 
 
 // ==========================
@@ -2066,7 +2048,7 @@ function renderAcadTempLists() {
     const fList = document.getElementById('tempFesList');
     fList.innerHTML = "";
     tempAcadFestivals.forEach((f, i) => {
-        fList.innerHTML += `<div style="border-bottom:1px solid #eee; padding:5px; display:flex; justify-content:space-between; align-items:center;">
+        fList.innerHTML += `<div style="border-bottom:1px solid #eee; padding:5px; display:flex; justify-content:space-between; align-items:center; font-size:0.9em;">
             <span>文化祭(${f.cName}): ${f.start}~${f.end}</span>
             <button onclick="removeAcadFestival(${i})" style="color:white; background:#dc3545; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;">×</button>
         </div>`;
@@ -2076,14 +2058,13 @@ function renderAcadTempLists() {
     eList.innerHTML = "";
     tempAcadExceptions.forEach((e, i) => {
         const label = e.type === 'school_day' ? '授業実施' : '休日';
-        eList.innerHTML += `<div style="border-bottom:1px solid #eee; padding:5px; display:flex; justify-content:space-between; align-items:center;">
+        eList.innerHTML += `<div style="border-bottom:1px solid #eee; padding:5px; display:flex; justify-content:space-between; align-items:center; font-size:0.9em;">
             <span>${label}: ${e.date}</span>
             <button onclick="removeAcadException(${i})" style="color:white; background:#dc3545; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;">×</button>
         </div>`;
     });
 }
 
-// ★追加: 削除関数をグローバルに定義
 function removeAcadFestival(index) {
     tempAcadFestivals.splice(index, 1);
     renderAcadTempLists();
@@ -2099,7 +2080,6 @@ async function saveAcademicConfig() {
     if(!yearStr) return alert("年度を入力してください");
     const year = parseInt(yearStr);
     
-    // 日付変換 (文化祭・例外日も含む)
     const festivals = tempAcadFestivals.map(f => ({
         ...f,
         start: resolveDateYear(f.start, year, true),
@@ -2111,39 +2091,32 @@ async function saveAcademicConfig() {
         date: resolveDateYear(e.date, year, true)
     }));
 
-    // ★修正: 履修登録期間を前期・後期に分割
+    // ヘルパー: IDから期間オブジェクト生成
+    const getPeriod = (startId, endId) => ({
+        start: resolveDateYear(v(startId), year, true),
+        end: resolveDateYear(v(endId), year, true)
+    });
+
     const data = {
-        // 前期
-        t1_front: { 
-            start: resolveDateYear(v('t1_f_start'), year, true), 
-            end: resolveDateYear(v('t1_f_end'), year, true) 
-        },
-        t1_back: { 
-            start: resolveDateYear(v('t1_b_start'), year, true), 
-            end: resolveDateYear(v('t1_b_end'), year, true) 
-        },
-        // 後期
-        t2_front: { 
-            start: resolveDateYear(v('t2_f_start'), year, true), 
-            end: resolveDateYear(v('t2_f_end'), year, true) 
-        },
-        t2_back: { 
-            start: resolveDateYear(v('t2_b_start'), year, true), 
-            end: resolveDateYear(v('t2_b_end'), year, true) 
-        },
-        // 冬季休暇
-        winter: {
-            start: resolveDateYear(v('winter_start'), year, true),
-            end: resolveDateYear(v('winter_end'), year, true)
+        // 学期
+        t1_front: getPeriod('t1_f_start', 't1_f_end'),
+        t1_back: getPeriod('t1_b_start', 't1_b_end'),
+        t2_front: getPeriod('t2_f_start', 't2_f_end'),
+        t2_back: getPeriod('t2_b_start', 't2_b_end'),
+        winter: getPeriod('winter_start', 'winter_end'),
+        
+        // 特殊期間 (前期/後期で分割)
+        periods: {
+            reg1: getPeriod('p_reg_1', 'p_reg_1_end'),
+            reg2: getPeriod('p_reg_2', 'p_reg_2_end'),
+            sup1: getPeriod('p_sup_1', 'p_sup_1_end'),
+            sup2: getPeriod('p_sup_2', 'p_sup_2_end'),
+            exam1: getPeriod('p_exam_1', 'p_exam_1_end'),
+            exam2: getPeriod('p_exam_2', 'p_exam_2_end'),
+            grade1: getPeriod('d_grade_1', 'd_grade_1_end'),
+            grade2: getPeriod('d_grade_2', 'd_grade_2_end'),
         },
         
-        periods: {
-            reg1: resolveDateYear(v('p_reg_1'), year, true), // 前期履修登録
-            reg2: resolveDateYear(v('p_reg_2'), year, true), // 後期履修登録
-            sup: resolveDateYear(v('p_sup'), year, true), 
-            exam: resolveDateYear(v('p_exam'), year, true)
-        },
-        gradeDate: resolveDateYear(v('d_grade'), year, true),
         festivals: festivals,
         exceptions: exceptions,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2159,13 +2132,11 @@ function v(id) { return document.getElementById(id).value; }
 //   月次設定 (Monthly)
 // ==========================
 
-// イベントタイトル制御
 function toggleEventTitleInput() {
     const type = document.getElementById('evtType').value;
     document.getElementById('evtTitleContainer').style.display = (type === 'event') ? 'block' : 'none';
 }
 
-// 活動なし日追加
 function addNoActivityDay() {
     const cid = document.getElementById('noActCampus').value;
     const date = document.getElementById('noActDate').value;
@@ -2181,7 +2152,7 @@ function renderNoActList() {
     const list = document.getElementById('tempNoActList');
     list.innerHTML = "";
     tempNoActivityDays.forEach((item, i) => {
-        list.innerHTML += `<div style="border-bottom:1px solid #eee; padding:5px; display:flex; justify-content:space-between; align-items:center;">
+        list.innerHTML += `<div style="border-bottom:1px solid #eee; padding:5px; font-size:0.9em; display:flex; justify-content:space-between; align-items:center;">
             <span>${item.cName}: ${item.date} (活動なし)</span>
             <button onclick="removeNoActivityDay(${i})" style="color:white; background:#dc3545; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;">×</button>
         </div>`;
@@ -2192,14 +2163,12 @@ function removeNoActivityDay(index) {
     renderNoActList();
 }
 
-// 月次設定読み込み
 async function loadMonthConfig() {
     const ym = document.getElementById('targetMonth').value; 
     if(!ym) return;
     
     await populateCampusSelects();
 
-    // キャンパス曜日設定UI
     const cDiv = document.getElementById('campusActivitySettings');
     cDiv.innerHTML = "";
     registeredCampuses.forEach(c => {
@@ -2282,7 +2251,6 @@ function removeCalendarEvent(index) {
     renderTempEvents();
 }
 
-// 月次保存
 async function saveMonthCalendar() {
     const ym = document.getElementById('targetMonth').value;
     if(!ym) return alert("年月を選択してください");
@@ -2295,7 +2263,6 @@ async function saveMonthCalendar() {
         activityDays[cid].push(parseInt(chk.value));
     });
 
-    // 活動なし日の日付変換
     const noActivityDays = tempNoActivityDays.map(item => ({
         ...item,
         date: resolveDateYear(item.date, targetYear, false)
@@ -2321,7 +2288,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
     let monthData = {};
     let acadData = {};
 
-    // 1. 月次データ取得
     if (mode === 'preview') {
         const activityDays = {};
         document.querySelectorAll('.act-chk:checked').forEach(chk => {
@@ -2346,14 +2312,12 @@ async function renderCalendarGrid(targetId, ym, mode) {
         } catch(e) { console.error(e); }
     }
 
-    // 2. 学年暦データ取得
     const acadYear = (month >= 1 && month <= 3) ? year - 1 : year;
     try {
         const acadDoc = await db.collection('calendar_meta').doc(`config_${acadYear}`).get();
         if(acadDoc.exists) acadData = acadDoc.data();
     } catch(e) {}
 
-    // カレンダー構築
     const firstDay = new Date(year, month - 1, 1).getDay();
     const lastDate = new Date(year, month, 0).getDate();
     
@@ -2362,34 +2326,48 @@ async function renderCalendarGrid(targetId, ym, mode) {
     weekDays.forEach(w => html += `<div class="cal-day-header">${w}</div>`);
     for(let i=0; i<firstDay; i++) html += `<div class="cal-cell" style="background:#f9f9f9;"></div>`;
     
+    // ヘルパー: 期間チェック
+    const isWithin = (date, period) => period && period.start <= date && period.end >= date;
+
     for(let d=1; d<=lastDate; d++) {
         const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const dayOfWeek = new Date(year, month-1, d).getDay();
         let badges = "";
         
-        // --- A. イベントバッジ ---
-        // 1. 学年暦: 文化祭
+        // --- 学年暦イベント (バッジ表示) ---
         if (acadData.festivals) {
             acadData.festivals.forEach(f => {
-                if (f.start <= currentYMD && f.end >= currentYMD) {
-                    badges += `<span class="evt-badge evt-event">文化祭(${f.cName})</span>`;
-                }
+                if (isWithin(currentYMD, f)) badges += `<span class="evt-badge evt-event">文化祭(${f.cName})</span>`;
             });
         }
-        // 2. 学年暦: 例外日
         if (acadData.exceptions) {
             acadData.exceptions.forEach(ex => {
                 if (ex.date === currentYMD) {
-                    const label = ex.type === 'school_day' ? '授業実施日' : '休日';
+                    const label = ex.type === 'school_day' ? '授業実施' : '休日';
                     const color = ex.type === 'school_day' ? '#2196f3' : '#f44336';
                     badges += `<span class="evt-badge" style="background:${color}">${label}</span>`;
                 }
             });
         }
-        // 3. 月次イベント
+        
+        // 学年暦の特殊期間 (試験など)
+        if (acadData.periods) {
+            if (isWithin(currentYMD, acadData.periods.exam1) || isWithin(currentYMD, acadData.periods.exam2)) 
+                badges += `<span class="evt-badge evt-test">試験期間</span>`;
+            if (isWithin(currentYMD, acadData.periods.sup1) || isWithin(currentYMD, acadData.periods.sup2)) 
+                badges += `<span class="evt-badge evt-dev">補講期間</span>`;
+            if (isWithin(currentYMD, acadData.periods.reg1) || isWithin(currentYMD, acadData.periods.reg2)) 
+                badges += `<span class="evt-badge" style="background:#009688;">履修登録</span>`;
+            if (isWithin(currentYMD, acadData.periods.grade1) || isWithin(currentYMD, acadData.periods.grade2)) 
+                badges += `<span class="evt-badge" style="background:#673ab7;">成績発表</span>`;
+        }
+        if (isWithin(currentYMD, acadData.winter)) 
+            badges += `<span class="evt-badge" style="background:#607d8b;">冬季休暇</span>`;
+
+        // 月次イベント
         if (monthData.events) {
             monthData.events.forEach(evt => {
-                if (evt.start <= currentYMD && evt.end >= currentYMD) {
+                if (isWithin(currentYMD, evt)) {
                     let cls = 'evt-event';
                     if(evt.type === 'camp') cls = 'evt-camp';
                     if(evt.type.startsWith('dev')) cls = 'evt-dev';
@@ -2398,7 +2376,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
             });
         }
 
-        // --- B. 活動日判定 ---
+        // --- 活動日判定 ---
         if (monthData.activityDays) {
             let activityCampuses = [];
             for(const [cid, days] of Object.entries(monthData.activityDays)) {
@@ -2413,6 +2391,14 @@ async function renderCalendarGrid(targetId, ym, mode) {
                     }
                 });
             }
+            // 学年暦の例外（休日）なら活動なし
+            // (簡易実装: exceptionsに holiday があれば全キャンパス活動なしとする)
+            if (acadData.exceptions) {
+                if (acadData.exceptions.some(ex => ex.date === currentYMD && ex.type === 'holiday')) {
+                    activityCampuses = [];
+                }
+            }
+
             if(activityCampuses.length > 0) {
                 const uniqueNames = [...new Set(activityCampuses.map(cid => 
                     registeredCampuses.find(c => c.id === cid)?.name || cid
