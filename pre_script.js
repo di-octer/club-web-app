@@ -53,13 +53,17 @@ window.onload = async () => {
     const path = window.location.pathname;
     const isLoginPage = path.includes('pre_login.html');
 
+    // Admin画面で認証モーダルが一瞬表示されるのを防ぐ
+    const authModal = document.getElementById('authModal');
+    if(authModal) authModal.style.display = 'none';
+
     auth.onAuthStateChanged(async (user) => {
         currentUser = user;
         if (user) {
             console.log("Logged in:", user.displayName);
             if (isLoginPage && !isLoggingIn) window.location.href = 'pre_home.html';
             await loadUserSettings(user.uid);
-            await checkGradePromotion(user.uid); // ★回生更新チェック
+            await checkGradePromotion(user.uid); // 回生更新
             updateUserDisplay(user);
             if (!isLoginPage) setupCommonAppbar();
         } else {
@@ -68,6 +72,9 @@ window.onload = async () => {
         }
     });
 
+    console.log("初期化開始: bodyId =", document.body.id);
+
+    // 共通データ読み込み
     await loadCampuses();
     await loadGpsAreas();
     
@@ -79,9 +86,30 @@ window.onload = async () => {
     
     const bodyId = document.body.id;
     if (bodyId === 'page-admin') {
-        await loadModels(); await loadRegisteredFaces(); await loadAdminRecommendedArticles(); await populateRegUserSelect();
-        await populateCampusSelects(); // カレンダー用プルダウン
-        switchAdminSubTab('auth'); populateInfoLists();
+        await loadModels(); 
+        await loadRegisteredFaces(); 
+        await loadAdminRecommendedArticles(); 
+        await populateRegUserSelect();
+        await populateCampusSelects(); 
+        switchAdminSubTab('auth'); 
+        populateInfoLists();
+        
+        // Admin画面を開いたときに現在の年月/年度で設定を自動ロード
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth() + 1;
+        // 学年暦 (4月始まり)
+        const acadY = (m >= 4) ? y : y - 1;
+        const acadInput = document.getElementById('acadYear');
+        if(acadInput) { acadInput.value = acadY; loadAcademicConfigByYear(); }
+
+        // 月次
+        const tmInput = document.getElementById('targetMonth');
+        if(tmInput) {
+            tmInput.value = `${y}-${String(m).padStart(2,'0')}`;
+            loadMonthConfig();
+        }
+
     } else if (bodyId === 'page-check') {
         if(currentUser) checkAttendance();
     } else if (document.getElementById('news-section')) {
@@ -93,22 +121,40 @@ window.onload = async () => {
 
 // --- 回生自動更新 ---
 async function checkGradePromotion(uid) {
-    if(!userSettings) await loadUserSettings(uid);
+    if(!userSettings || Object.keys(userSettings).length === 0) await loadUserSettings(uid);
+    
     const today = new Date();
-    // 4月1日以降ならチェック
-    if (today.getMonth() === 3 && today.getDate() === 1) { 
-        // NOTE: 厳密には「今年まだ上げていないか」をチェック
-        // userSettings.gradePromotedYear に今年の年が入っていなければ上げる
-        const thisYear = today.getFullYear();
-        if (userSettings.gradePromotedYear !== thisYear) {
-            const currentGrade = userSettings.grade || 1;
-            await db.collection('users').doc(uid).update({
-                grade: currentGrade + 1,
-                gradePromotedYear: thisYear
-            });
-            console.log("Grade promoted!");
-            await loadUserSettings(uid);
-        }
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+    // 現在の「年度」(4月切り替え)
+    const currentAcademicYear = (currentMonth >= 4) ? currentYear : currentYear - 1;
+
+    let grade = userSettings.grade;
+    let promotedYear = userSettings.gradePromotedYear;
+
+    // 初回ログイン時などの初期化
+    if (grade === undefined || promotedYear === undefined) {
+        // 初期値: 1回生, 今年度処理済みとする
+        await db.collection('users').doc(uid).update({
+            grade: 1,
+            gradePromotedYear: currentAcademicYear
+        });
+        return;
+    }
+
+    // 最終更新年度と現在の年度の差分を計算
+    const diff = currentAcademicYear - promotedYear;
+    if (diff > 0) {
+        const newGrade = parseInt(grade) + diff;
+        console.log(`Promoting grade: ${grade} -> ${newGrade} (+${diff} years)`);
+        
+        await db.collection('users').doc(uid).update({
+            grade: newGrade,
+            gradePromotedYear: currentAcademicYear
+        });
+        // ローカル変数も更新
+        userSettings.grade = newGrade;
+        userSettings.gradePromotedYear = currentAcademicYear;
     }
 }
 
@@ -430,9 +476,7 @@ function toBase64(file) {
     });
 }
 
-// ==========================================
-//   認証機能 (Discord OIDC)
-// ==========================================
+// --- Discordログイン (初期化修正) ---
 function loginWithDiscord() {
     isLoggingIn = true;
     const provider = new firebase.auth.OAuthProvider('oidc.discord');
@@ -447,6 +491,10 @@ function loginWithDiscord() {
                 const doc = await userRef.get();
                 const currentData = doc.exists ? doc.data() : {};
                 
+                // 現在の年度
+                const today = new Date();
+                const curAcadYear = (today.getMonth() + 1 >= 4) ? today.getFullYear() : today.getFullYear() - 1;
+
                 const updateData = {
                     displayName: user.displayName,
                     email: user.email,
@@ -457,30 +505,28 @@ function loginWithDiscord() {
                     discordIcon: user.photoURL || ""
                 };
 
-                // --- 隠しユーザー情報 ---
+                // --- 未設定項目の初期化 ---
                 if (currentData.realName === undefined) updateData.realName = user.displayName;
                 if (currentData.studentId === undefined) updateData.studentId = "";
-                // ★追加: 回生 (初期値: 1)
-                if (currentData.grade === undefined) updateData.grade = 1;
-                
                 if (currentData.isMember === undefined) updateData.isMember = false;
                 if (currentData.role === undefined) updateData.role = "仮入部";
+                
+                // ★回生情報の初期化 (存在しない場合)
+                if (currentData.grade === undefined) updateData.grade = 1;
+                if (currentData.gradePromotedYear === undefined) updateData.gradePromotedYear = curAcadYear;
 
-                // その他のパラメータ (変更なし)
-                if (currentData.adminMemo === undefined) updateData.adminMemo = "";
-                if (currentData.rateActivity === undefined) updateData.rateActivity = 0;
-                if (currentData.rateTeam === undefined) updateData.rateTeam = 0;
-                if (currentData.rateCurriculum === undefined) updateData.rateCurriculum = 0;
-                if (currentData.rateFriends === undefined) updateData.rateFriends = 0;
-                if (currentData.groups === undefined) updateData.groups = [];
-                if (currentData.qiitaId === undefined) updateData.qiitaId = "";
-                if (currentData.gitId === undefined) updateData.gitId = "";
-                if (currentData.faceRegistered === undefined) updateData.faceRegistered = false;
-                if (currentData.isAdmin === undefined) updateData.isAdmin = false;
-                if (currentData.borrowedItems === undefined) updateData.borrowedItems = [];
+                // その他隠しパラメータ
+                const defaults = {
+                    adminMemo: "", rateActivity: 0, rateTeam: 0, rateCurriculum: 0, rateFriends: 0,
+                    groups: [], qiitaId: "", gitId: "", faceRegistered: false, isAdmin: false, borrowedItems: []
+                };
+                for (const k in defaults) {
+                    if (currentData[k] === undefined) updateData[k] = defaults[k];
+                }
 
                 await userRef.set(updateData, { merge: true });
                 window.location.href = 'pre_home.html';
+                
             } catch (e) {
                 console.error("User Init Error:", e);
                 window.location.href = 'pre_home.html';
@@ -2259,29 +2305,34 @@ function addNoActivityDay() {
 
 function renderNoActList() {
     const list = document.getElementById('tempNoActList');
-    list.innerHTML = "";
-    tempNoActivityDays.forEach((item, i) => {
-        list.innerHTML += `<div style="border-bottom:1px solid #eee; padding:5px; font-size:0.9em; display:flex; justify-content:space-between; align-items:center;">
-            <span>${item.cName}: ${item.date} (活動なし)</span>
-            <button onclick="removeNoActivityDay(${i})" style="color:white; background:#dc3545; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;">×</button>
-        </div>`;
-    });
+    if(list) {
+        list.innerHTML = "";
+        tempNoActivityDays.forEach((item, i) => {
+            list.innerHTML += `
+                <div style="border-bottom:1px solid #eee; padding:5px; font-size:0.9em; display:flex; justify-content:space-between; align-items:center;">
+                    <span>${item.cName}: ${item.date} (活動なし)</span>
+                    <button onclick="removeNoActivityDay(${i})" style="color:white; background:#dc3545; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;">×</button>
+                </div>`;
+        });
+    }
 }
+
 function removeNoActivityDay(index) {
     tempNoActivityDays.splice(index, 1);
     renderNoActList();
 }
 
-// 月次設定読み込み (時間設定含む)
+// --- 月次設定: 年月変更時に自動ロード ---
 async function loadMonthConfig() {
     const ym = document.getElementById('targetMonth').value;
     if(!ym) return;
     
     await populateCampusSelects();
+
     const cDiv = document.getElementById('campusActivitySettings');
     cDiv.innerHTML = "";
     
-    // UI生成 (時間入力付き)
+    // UI生成 (デフォルト時間 17:00-19:40)
     registeredCampuses.forEach(c => {
         const div = document.createElement('div');
         div.style.marginBottom = "15px";
@@ -2291,9 +2342,11 @@ async function loadMonthConfig() {
         
         ['日','月','火','水','木','金','土'].forEach((w, i) => {
             daysDiv.innerHTML += `
-                <div style="border:1px solid #eee; padding:5px; border-radius:4px;">
-                    <label><input type="checkbox" class="act-chk" data-cid="${c.id}" value="${i}"> ${w}</label>
-                    <div style="font-size:0.8em;">
+                <div style="border:1px solid #eee; padding:5px; border-radius:4px; background:#f9f9f9;">
+                    <label style="font-weight:bold; cursor:pointer;">
+                        <input type="checkbox" class="act-chk" data-cid="${c.id}" value="${i}"> ${w}
+                    </label>
+                    <div style="font-size:0.8em; margin-top:2px;">
                         <input type="time" class="act-start" data-cid="${c.id}" data-day="${i}" value="17:00">~
                         <input type="time" class="act-end" data-cid="${c.id}" data-day="${i}" value="19:40">
                     </div>
@@ -2303,40 +2356,47 @@ async function loadMonthConfig() {
         cDiv.appendChild(div);
     });
 
-    // データ復元
+    // リスト初期化
+    tempEvents = [];
+    tempNoActivityDays = [];
+    
     try {
         const doc = await db.collection('calendars').doc(ym).get();
         if(doc.exists) {
             const d = doc.data();
+            
+            // チェックボックス & 時間の復元
             if(d.activityDays) {
                 for(const [cid, days] of Object.entries(d.activityDays)) {
                     days.forEach(item => {
-                        // item は { day: 1, start: "17:00", end: "19:40" } 形式
-                        const idx = item.day;
+                        // item は { day: 1, start: "17:00", end: "19:40" } または 古い形式(数値のみ)
+                        const idx = (typeof item === 'object') ? item.day : item;
+                        
                         const chk = cDiv.querySelector(`.act-chk[data-cid="${cid}"][value="${idx}"]`);
                         if(chk) {
                             chk.checked = true;
-                            const sInput = cDiv.querySelector(`.act-start[data-cid="${cid}"][data-day="${idx}"]`);
-                            const eInput = cDiv.querySelector(`.act-end[data-cid="${cid}"][data-day="${idx}"]`);
-                            if(sInput && item.start) sInput.value = item.start;
-                            if(eInput && item.end) eInput.value = item.end;
+                            // 時間があればセット
+                            if(typeof item === 'object') {
+                                const sInput = cDiv.querySelector(`.act-start[data-cid="${cid}"][data-day="${idx}"]`);
+                                const eInput = cDiv.querySelector(`.act-end[data-cid="${cid}"][data-day="${idx}"]`);
+                                if(sInput && item.start) sInput.value = item.start;
+                                if(eInput && item.end) eInput.value = item.end;
+                            }
                         }
                     });
                 }
             }
-            // イベント復元
+            
+            // リスト復元
             tempEvents = d.events || [];
-            tempNoActivityDays = d.noActivityDays || [];
-            renderTempEvents();
-            renderNoActList();
-        } else {
-            // 新規の場合はリセット
-            tempEvents = [];
-            tempNoActivityDays = [];
-            renderTempEvents();
-            renderNoActList();
+            if(d.noActivityDays && Array.isArray(d.noActivityDays)) {
+                // MM-DD表示用に変換 (YYYY-MM-DD -> MM-DD)
+                tempNoActivityDays = d.noActivityDays.map(n => ({...n, date: n.date.slice(5)}));
+            }
         }
-    } catch(e){}
+        renderTempEvents();
+        renderNoActList();
+    } catch(e){ console.error(e); }
 }
 
 function addCalendarEvent() {
@@ -2423,25 +2483,22 @@ async function renderCalendarGrid(targetId, ym, mode) {
     container.innerHTML = "読み込み中...";
     const [year, month] = ym.split('-').map(Number);
     
-    // データの準備
+    // データコンテナ
     let monthData = {};
     let acadData = {};
     let userLogs = [];
     let userReports = [];
     let userRecurring = [];
 
-    // 1. 月次データ
+    // 1. 月次データ取得
     if (mode === 'preview') {
-        // プレビュー時は管理画面の入力値から構築
         const activityDays = {};
         document.querySelectorAll('.act-chk:checked').forEach(chk => {
             const cid = chk.dataset.cid;
             const day = parseInt(chk.value);
-            // 時間はプレビューでは簡易的に扱う（活動有無の判定に使用）
             if(!activityDays[cid]) activityDays[cid] = [];
             activityDays[cid].push({ day });
         });
-        // 活動なし日 (プレビュー用)
         const previewNoAct = tempNoActivityDays.map(item => ({
              ...item, date: resolveDateYear(item.date, year, false) 
         }));
@@ -2453,40 +2510,37 @@ async function renderCalendarGrid(targetId, ym, mode) {
         } catch(e){}
     }
 
-    // 2. 学年暦データ
-    // 1-3月は前年度の学年暦を参照
+    // 2. 学年暦データ取得 (1-3月は前年度)
     const acadYear = (month >= 1 && month <= 3) ? year - 1 : year;
     try {
         const adoc = await db.collection('calendar_meta').doc(`config_${acadYear}`).get();
         if(adoc.exists) acadData = adoc.data();
     } catch(e){}
 
-    // 3. ユーザーデータ (Userモード時)
+    // 3. ユーザーデータ取得 (Userモード時)
+    let userCampusId = null;
     if (mode === 'user' && currentUser) {
-        // 出席ログ
-        const lSnap = await db.collection('attendance_logs')
-            .where('userName', '==', currentUser.displayName)
-            .get(); 
+        userCampusId = userSettings.defaultCampusId; 
+        
+        // ログ
+        const lSnap = await db.collection('attendance_logs').where('userName', '==', currentUser.displayName).get();
         lSnap.forEach(d => {
             const t = d.data().timestamp.toDate();
             if(t.getFullYear()===year && t.getMonth()+1===month) userLogs.push({date: t.getDate(), data: d.data()});
         });
         
         // 届出
-        const rSnap = await db.collection('absence_reports')
-            .where('userName', '==', currentUser.displayName)
-            .get();
-        rSnap.forEach(d => {
-            userReports.push(d.data());
-        });
+        const rSnap = await db.collection('absence_reports').where('userName', '==', currentUser.displayName).get();
+        rSnap.forEach(d => userReports.push(d.data()));
 
-        // 定期欠席
+        // 定期欠席 (エラー修正: split前のチェック追加)
         const recSnap = await db.collection('recurring_absence_applications')
             .where('userId', '==', currentUser.uid)
             .where('status', '==', 'approved').get();
         recSnap.forEach(d => {
-            if(d.data) {
-                d.data.split('|').forEach(p => {
+            const val = d.data();
+            if(val.data && typeof val.data === 'string') {
+                val.data.split('|').forEach(p => {
                     const [day, periods] = p.split(':');
                     userRecurring.push({day, periods});
                 });
@@ -2494,13 +2548,14 @@ async function renderCalendarGrid(targetId, ym, mode) {
         });
     }
 
-    // グリッド生成
+    // グリッド構築
     const firstDay = new Date(year, month - 1, 1).getDay();
     const lastDate = new Date(year, month, 0).getDate();
     let html = `<div class="cal-grid">`;
     ['日','月','火','水','木','金','土'].forEach(w => html += `<div class="cal-day-header">${w}</div>`);
     for(let i=0; i<firstDay; i++) html += `<div class="cal-cell" style="background:#f9f9f9;"></div>`;
 
+    // 日付ループ
     for(let d=1; d<=lastDate; d++) {
         const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const dateObj = new Date(year, month-1, d);
@@ -2510,49 +2565,66 @@ async function renderCalendarGrid(targetId, ym, mode) {
 
         let cellClass = "cal-cell";
         let icons = "";
+        let badges = "";
 
-        // --- A. 自動追加判定 (定期データの適用可否) ---
-        
-        // 1. 自動追加期間かどうか (学期内 or 授業実施例外日)
-        let isTermPeriod = false;
-        if (acadData) {
-            // 前期・後期 (重複してもtrueならOK)
-            if (isWithin(currentYMD, acadData.t1_front)) isTermPeriod = true;
-            if (isWithin(currentYMD, acadData.t1_back)) isTermPeriod = true;
-            if (isWithin(currentYMD, acadData.t2_front)) isTermPeriod = true;
-            if (isWithin(currentYMD, acadData.t2_back)) isTermPeriod = true;
-            // 例外設定: 授業実施日
-            if (acadData.exceptions && acadData.exceptions.some(e => e.date === currentYMD && e.type === 'school_day')) {
-                isTermPeriod = true;
+        // --- 判定ロジック ---
+
+        // 1. 活動日かどうか (ユーザーのキャンパス、または全キャンパス)
+        let isActivityDay = false;
+        if (monthData.activityDays) {
+            if (userCampusId) {
+                // ユーザーのキャンパスが指定されている場合、そのキャンパスの設定を見る
+                if (monthData.activityDays[userCampusId] && monthData.activityDays[userCampusId].some(s => s.day === dayOfWeek)) {
+                    isActivityDay = true;
+                }
+            } else {
+                // キャンパス未定の場合は、いずれかのキャンパスで活動日ならTrue
+                for(const k in monthData.activityDays) {
+                    if(monthData.activityDays[k].some(s => s.day === dayOfWeek)) isActivityDay = true;
+                }
             }
         }
+        
+        // ブロックルーチン (活動なし日) - 全キャンパス共通または指定キャンパス
+        if (monthData.noActivityDays) {
+            // もし「全キャンパスにおいて活動日でない」なら、ここでFalseになる
+            // キャンパス指定がある場合はそのキャンパスのみ除外
+            const blocked = monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === userCampusId || !userCampusId));
+            if (blocked) isActivityDay = false;
+        }
 
-        // 2. 除外期間かどうか (文化祭、冬季、休日例外)
+        // 2. 除外期間かどうか
         let isExcluded = false;
         if (acadData) {
-            if (acadData.festivals && acadData.festivals.some(f => isWithin(currentYMD, f))) isExcluded = true;
+            // 文化祭 (キャンパス指定)
+            if (acadData.festivals) {
+                const fest = acadData.festivals.find(f => isWithin(currentYMD, f));
+                // 文化祭期間中かつ、自分のキャンパスなら除外
+                if (fest) {
+                    if (!userCampusId || fest.cid === userCampusId) isExcluded = true;
+                }
+            }
+            // 冬季休暇
             if (acadData.winter && isWithin(currentYMD, acadData.winter)) isExcluded = true;
+            // 休日例外
             if (acadData.exceptions && acadData.exceptions.some(e => e.date === currentYMD && e.type === 'holiday')) isExcluded = true;
         }
 
-        // 3. 活動日チェック (全キャンパス対象で、いずれかの活動日であればTrue)
-        let isActivityDay = false;
-        if (monthData.activityDays) {
-            for(const k in monthData.activityDays) {
-                if(monthData.activityDays[k].some(s => s.day === dayOfWeek)) isActivityDay = true;
-            }
-        }
-        // ブロックルーチン (活動なし日)
-        if (monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD)) {
-            isActivityDay = false;
+        // 3. 自動追加期間かどうか (学期内)
+        let isTermPeriod = false;
+        if (acadData) {
+            const periods = [acadData.t1_front, acadData.t1_back, acadData.t2_front, acadData.t2_back];
+            if (periods.some(p => isWithin(currentYMD, p))) isTermPeriod = true;
+            // 授業実施日例外
+            if (acadData.exceptions && acadData.exceptions.some(e => e.date === currentYMD && e.type === 'school_day')) isTermPeriod = true;
         }
 
-        // 判定: 定期データを反映すべき日か
-        // 条件: (自動追加期間内) AND (除外期間でない) AND (活動日である)
-        let shouldApplyRecurring = isTermPeriod && !isExcluded && isActivityDay;
+        // --- 最終的な「定期適用日」判定 ---
+        // 条件: 自動追加期間内 AND 活動日である AND 除外期間でない
+        const shouldApplyRecurring = isTermPeriod && isActivityDay && !isExcluded;
 
         // 定期ステータス決定
-        let recurringStatus = null; // 'absent', 'late_early'
+        let recurringStatus = null; 
         if (shouldApplyRecurring) {
             const rec = userRecurring.find(r => r.day === dayStr);
             if(rec) {
@@ -2560,62 +2632,89 @@ async function renderCalendarGrid(targetId, ym, mode) {
             }
         }
 
-        // --- B. ユーザーアクション判定 ---
+        // --- バッジ表示 (イベント等) ---
+        // 学年暦イベント
+        if (acadData.festivals) {
+            acadData.festivals.forEach(f => {
+                if (isWithin(currentYMD, f)) badges += `<span class="evt-badge evt-event">文化祭(${f.cName})</span>`;
+            });
+        }
+        if (acadData.exceptions) {
+            acadData.exceptions.forEach(ex => {
+                if (ex.date === currentYMD) {
+                    const label = ex.type === 'school_day' ? '授業実施' : '休日';
+                    const color = ex.type === 'school_day' ? '#2196f3' : '#f44336';
+                    badges += `<span class="evt-badge" style="background:${color}">${label}</span>`;
+                }
+            });
+        }
+        // 特殊期間
+        if (acadData.periods) {
+            if (isWithin(currentYMD, acadData.periods.exam1) || isWithin(currentYMD, acadData.periods.exam2)) 
+                badges += `<span class="evt-badge evt-test">試験</span>`;
+            if (isWithin(currentYMD, acadData.periods.reg1) || isWithin(currentYMD, acadData.periods.reg2)) 
+                badges += `<span class="evt-badge" style="background:#009688;">履修登録</span>`;
+        }
+        if (acadData.winter && isWithin(currentYMD, acadData.winter)) 
+             badges += `<span class="evt-badge" style="background:#607d8b;">冬季休暇</span>`;
+
+        // 月次イベント
+        if (monthData.events) {
+            monthData.events.forEach(evt => {
+                if (isWithin(currentYMD, evt)) {
+                    let cls = 'evt-event';
+                    if(evt.type === 'camp') cls = 'evt-camp';
+                    if(evt.type.startsWith('dev')) cls = 'evt-dev';
+                    badges += `<span class="evt-badge ${cls}">${evt.title}</span>`;
+                }
+            });
+        }
+
+
+        // --- アイコン表示 (優先順位) ---
         const log = userLogs.find(l => l.date === d);
-        
         const reports = userReports.filter(r => {
             const s = r.startDate.toDate();
             const e = r.endDate ? r.endDate.toDate() : s;
             s.setHours(0,0,0); e.setHours(23,59,59);
             return dateObj >= s && dateObj <= e;
         });
-
         const approvedAbsence = reports.find(r => r.type === 'absence' && r.status === 'approved');
-        
-        // --- C. 表示優先順位ロジック ---
-        // 1. 出席 (Logあり) -> 緑
-        //    (欠席や定期欠席であっても、出席ログがあれば出席扱い)
+
+        // 1. 出席 (緑)
         if (log) {
-            cellClass += " active-area"; // 緑背景
+            cellClass += " active-area"; 
             icons += createIcon('#28a745', '出席');
-        } 
-        // 2. 承認済み欠席 -> 背景緑(active-area-approved)、アイコン紫
+        }
+        // 2. 承認済欠席 (紫アイコン, 緑背景)
         else if (approvedAbsence) {
-            cellClass += " active-area-approved"; // 薄い緑
+            cellClass += " active-area-approved";
             icons += createIcon('#800080', '欠席(承認済)');
         }
         // 3. 定期欠席 (赤紫)
         else if (recurringStatus === 'absent') {
             icons += createIcon('#C71585', '定期欠席');
         }
-        // それ以外 (定期遅刻早退、通常の遅刻早退など)
+        // その他 (定期遅刻早退、届出)
         else {
-            // 定期遅刻/早退 (青紫)
             if (recurringStatus === 'late_early') {
                 icons += createIcon('#8A2BE2', '定期遅刻/早退');
             }
-            
-            // 届出アイコン列挙 (未確認の欠席届なども含む)
             let pendingCnt = 0;
             reports.forEach(r => {
-                if(r.status === 'pending') {
-                    pendingCnt++;
-                } else if (r.status !== 'approved') { 
-                    // 承認済欠席は上で処理済。ここは遅刻・早退の承認、または否認・確認中など
+                if(r.status === 'pending') pendingCnt++;
+                else if (r.status !== 'approved') {
                     let c = '#666';
-                    if(r.status==='approved') c='#007bff'; // 遅刻早退承認(青)
-                    if(r.status==='confirm') c='#ffc107';  // 確認(黄)
-                    if(r.status==='rejected') c='#dc3545'; // 否認(赤)
+                    if(r.status==='approved') c='#007bff';
+                    if(r.status==='confirm') c='#ffc107';
+                    if(r.status==='rejected') c='#dc3545';
                     icons += createIcon(c, r.type);
                 }
             });
-            // 未確認数バッジ
-            if(pendingCnt > 0) {
-                icons += createIcon('gray', String(pendingCnt), true);
-            }
+            if(pendingCnt > 0) icons += createIcon('gray', String(pendingCnt), true);
         }
 
-        html += `<div class="${cellClass}"><span style="font-weight:bold;">${d}</span><div style="display:flex;flex-wrap:wrap;justify-content:center;gap:1px;">${icons}</div></div>`;
+        html += `<div class="${cellClass}"><span style="font-weight:bold;">${d}</span>${badges}<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:1px;">${icons}</div></div>`;
     }
     html += `</div>`;
     container.innerHTML = html;
@@ -2637,16 +2736,26 @@ function formatDate(d) {
 //   Admin: カレンダー設定 & 活動時間変更
 // ==========================================
 
-// オートロード: 学年暦
+// --- 学年暦: 年度入力時に自動ロード ---
 async function loadAcademicConfigByYear() {
     const y = document.getElementById('acadYear').value;
     if(!y || y.length < 4) return;
+    
+    // リスト初期化
+    tempAcadFestivals = [];
+    tempAcadExceptions = [];
+    renderAcadTempLists();
+
+    // 入力欄リセット
+    const inputs = document.querySelectorAll('.acad-date');
+    inputs.forEach(i => i.value = "");
+
     try {
         const doc = await db.collection('calendar_meta').doc(`config_${y}`).get();
         if(doc.exists) {
             const d = doc.data();
-            // 値のセット (再帰的にセットするのは複雑なので主要項目のみ例示)
-            // 実際は saveAcademicConfig の逆を行う
+            
+            // 期間データの復元
             if(d.periods) {
                 if(d.periods.reg1) setValRange('p_reg_1', d.periods.reg1);
                 if(d.periods.reg2) setValRange('p_reg_2', d.periods.reg2);
@@ -2657,15 +2766,51 @@ async function loadAcademicConfigByYear() {
                 if(d.periods.grade1) setValRange('d_grade_1', d.periods.grade1);
                 if(d.periods.grade2) setValRange('d_grade_2', d.periods.grade2);
             }
-            if(d.t1_front) setValRange('t1_f', d.t1_front); // ID規則が一致している前提
+            if(d.t1_front) setValRange('t1_f', d.t1_front);
             if(d.t1_back) setValRange('t1_b', d.t1_back);
             if(d.t2_front) setValRange('t2_f', d.t2_front);
             if(d.t2_back) setValRange('t2_b', d.t2_back);
             if(d.winter) setValRange('winter', d.winter);
 
-            console.log("Loaded acad config for", y);
+            // リストデータの復元
+            if (d.festivals && Array.isArray(d.festivals)) {
+                tempAcadFestivals = d.festivals.map(f => ({...f, start: f.start.slice(5), end: f.end.slice(5)})); // MM-DD表示用
+            }
+            if (d.exceptions && Array.isArray(d.exceptions)) {
+                tempAcadExceptions = d.exceptions.map(e => ({...e, date: e.date.slice(5)}));
+            }
+            renderAcadTempLists();
+
+            console.log(`Loaded config for ${y}`);
         }
-    } catch(e){}
+    } catch(e){ console.error(e); }
+}
+
+function renderAcadTempLists() {
+    const fList = document.getElementById('tempFesList');
+    if(fList) {
+        fList.innerHTML = "";
+        tempAcadFestivals.forEach((f, i) => {
+            fList.innerHTML += `
+                <div style="border-bottom:1px solid #eee; padding:5px; display:flex; justify-content:space-between; align-items:center; font-size:0.9em;">
+                    <span>文化祭(${f.cName}): ${f.start}~${f.end}</span>
+                    <button onclick="removeAcadFestival(${i})" style="color:white; background:#dc3545; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;">×</button>
+                </div>`;
+        });
+    }
+
+    const eList = document.getElementById('tempExList');
+    if(eList) {
+        eList.innerHTML = "";
+        tempAcadExceptions.forEach((e, i) => {
+            const label = e.type === 'school_day' ? '授業実施' : '休日';
+            eList.innerHTML += `
+                <div style="border-bottom:1px solid #eee; padding:5px; display:flex; justify-content:space-between; align-items:center; font-size:0.9em;">
+                    <span>${label}: ${e.date}</span>
+                    <button onclick="removeAcadException(${i})" style="color:white; background:#dc3545; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;">×</button>
+                </div>`;
+        });
+    }
 }
 
 // ヘルパー: 値セット (YYYY-MM-DD -> MM-DD)
