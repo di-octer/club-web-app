@@ -43,6 +43,7 @@ let currentNewsSlide = 0;
 let touchStartX = 0;
 let touchEndX = 0;
 let isLoggingIn = false; // ★追加: ログイン処理中フラグ
+let checkRecurringData = [];
 
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
@@ -535,29 +536,95 @@ async function refreshRecurring() {
         const d = doc.data();
         const div = document.createElement('div');
         div.className = 'item-card';
+        
+        // 簡易カレンダー(グリッド)の生成
+        const weekDays = ['月', '火', '水', '木', '金', '土'];
+        let gridHtml = `<table class="schedule-table" id="sched-${doc.id}"><thead><tr><th></th>`;
+        weekDays.forEach(w => gridHtml += `<th>${w}</th>`);
+        gridHtml += `</tr></thead><tbody>`;
+
+        // 1行目: 曜日全休選択行
+        gridHtml += `<tr><td>Day</td>`;
+        weekDays.forEach(w => {
+            gridHtml += `<td><input type="checkbox" class="day-chk" data-day="${w}" onchange="toggleDayColumn(this, '${doc.id}', '${w}')"></td>`;
+        });
+        gridHtml += `</tr>`;
+
+        // 2~8行目: 時限 (1-7)
+        for(let p=1; p<=7; p++) {
+            gridHtml += `<tr><td>${p}</td>`;
+            weekDays.forEach(w => {
+                gridHtml += `<td><input type="checkbox" class="period-chk p-${w}" data-day="${w}" data-period="${p}" onchange="togglePeriodCell(this)"></td>`;
+            });
+            gridHtml += `</tr>`;
+        }
+        gridHtml += `</tbody></table>`;
+
         div.innerHTML = `
             <div>
                 <strong>${d.userName}</strong> (${d.semester})<br>
                 <img src="${d.image}" style="max-width:100%; max-height:200px; margin:5px 0;">
-                <div class="input-group">
-                    <label>除外する曜日・時限を設定</label>
-                    <input type="text" id="recData-${doc.id}" placeholder="例: 月1, 水3, 金5">
-                </div>
+                <p style="font-size:0.8em; color:#666;">曜日(全休)か時限を選択してください。<br>※選択部分はグレイアウト(欠席扱い)になります。</p>
+                ${gridHtml}
             </div>
-            <button onclick="approveRecurring('${doc.id}')" class="btn-primary">承認・保存</button>
+            <button onclick="approveRecurring('${doc.id}')" class="btn-primary" style="margin-top:10px;">承認・保存</button>
         `;
         list.appendChild(div);
     });
 }
 
-async function approveRecurring(docId) {
-    const dataVal = document.getElementById(`recData-${docId}`).value;
-    if(!dataVal) return alert("設定値を入力してください");
+// UI操作: 曜日チェックで縦列をグレイアウト
+function toggleDayColumn(checkbox, docId, day) {
+    const table = document.getElementById(`sched-${docId}`);
+    const cells = table.querySelectorAll(`.p-${day}`);
+    const isChecked = checkbox.checked;
     
-    if(!confirm("承認しますか？")) return;
+    // 曜日列のセル背景色を変更 (親のtdの背景を変える)
+    cells.forEach(el => {
+        const td = el.parentElement;
+        if(isChecked) td.classList.add('cell-gray');
+        else {
+            // 個別チェックがなければ戻す
+            if(!el.checked) td.classList.remove('cell-gray');
+        }
+    });
+    // 全休チェック時は親tdもグレーに
+    checkbox.parentElement.classList.toggle('cell-gray', isChecked);
+}
+
+// UI操作: 個別セルチェックでグレイアウト
+function togglePeriodCell(checkbox) {
+    checkbox.parentElement.classList.toggle('cell-gray', checkbox.checked);
+}
+
+async function approveRecurring(docId) {
+    if(!confirm("この内容で承認しますか？")) return;
+
+    const table = document.getElementById(`sched-${docId}`);
+    const weekDays = ['月', '火', '水', '木', '金', '土'];
+    let resultParts = [];
+
+    weekDays.forEach(day => {
+        // 全休チェック確認
+        const dayChk = table.querySelector(`.day-chk[data-day="${day}"]`);
+        if (dayChk && dayChk.checked) {
+            resultParts.push(`${day}:All`);
+        } else {
+            // 個別時限チェック確認
+            const periods = [];
+            const pChks = table.querySelectorAll(`.period-chk[data-day="${day}"]:checked`);
+            pChks.forEach(chk => periods.push(chk.dataset.period));
+            if (periods.length > 0) {
+                resultParts.push(`${day}:${periods.join(',')}`);
+            }
+        }
+    });
+
+    const dataString = resultParts.join('|'); // 保存形式: "月:All|水:1,2|金:5"
+
     await db.collection('recurring_absence_applications').doc(docId).update({
         status: 'approved',
-        data: dataVal
+        data: dataString
     });
     refreshRecurring();
 }
@@ -584,7 +651,6 @@ async function refreshAllUsers() {
             const groupsStr = (Array.isArray(u.groups) && u.groups.length > 0) ? u.groups.join(", ") : "なし";
             const itemsStr = (Array.isArray(u.borrowedItems) && u.borrowedItems.length > 0) ? u.borrowedItems.join(", ") : "なし";
             
-            // 顔登録状態の表示（サムネイルがあれば画像を表示）
             let faceStatusHtml = "未";
             if (u.faceRegistered) {
                 if (u.faceThumbnail) {
@@ -594,7 +660,6 @@ async function refreshAllUsers() {
                 }
             }
 
-            // ★修正: 指定された表示順序に変更
             const hiddenInfo = `
                 <ul style="font-size:0.9em; color:#333; text-align:left; padding-left:0; list-style:none; line-height:1.6;">
                     <li style="margin-bottom:4px;"><b>基本情報:</b> ${u.discordName || u.displayName} / ${u.realName || "未設定"} / ${u.studentId || "学籍番号未設定"}</li>
@@ -1663,7 +1728,6 @@ async function checkAttendance() {
             
         checkHistoryDates = [];
         logSnap.forEach(doc => {
-            // timestampをDateオブジェクトに変換して保持
             checkHistoryDates.push(doc.data().timestamp.toDate());
         });
 
@@ -1688,6 +1752,26 @@ async function checkAttendance() {
                 });
             }
         });
+
+        // 3. ★追加: 定期欠席データ取得
+        const recSnap = await db.collection('recurring_absence_applications')
+            .where('userId', '==', currentUser.uid)
+            .where('status', '==', 'approved')
+            .get();
+        
+        checkRecurringData = [];
+        recSnap.forEach(doc => {
+            const d = doc.data();
+            // 保存形式: "月:All|水:1,2|金:5"
+            // これを解析しやすい形に変換
+            if (d.data) {
+                const parts = d.data.split('|');
+                parts.forEach(part => {
+                    const [day, periods] = part.split(':');
+                    checkRecurringData.push({ day: day, periods: periods });
+                });
+            }
+        });
         
         // 今日の状態更新 & カレンダー描画
         updateTodayStatus();
@@ -1696,7 +1780,6 @@ async function checkAttendance() {
         
     } catch(e) {
         console.error(e);
-        // インデックス未作成エラーのハンドリング
         if(e.code === 'failed-precondition') {
             console.log("Firestoreインデックスが必要です。コンソールのリンクから作成してください。");
         }
@@ -1705,16 +1788,43 @@ async function checkAttendance() {
 
 function updateTodayStatus() {
     const today = new Date();
+    // A. 出席済みか
     const isAttended = checkHistoryDates.some(d => 
         d.getFullYear() === today.getFullYear() && 
         d.getMonth() === today.getMonth() && 
         d.getDate() === today.getDate()
     );
+
+    // B. 承認済み欠席(定期・届出)があるか
+    let isApprovedAbsent = false;
+    
+    // B-1. 届出
+    const todayReport = checkReportRanges.find(range => 
+        today.getTime() >= range.start.getTime() && 
+        today.getTime() <= range.end.getTime() &&
+        range.status === 'approved' &&
+        range.type === 'absence'
+    );
+    if(todayReport) isApprovedAbsent = true;
+
+    // B-2. 定期欠席 (曜日判定)
+    if (!isApprovedAbsent) {
+        const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
+        const dayStr = weekDays[today.getDay()];
+        const recurring = checkRecurringData.find(r => r.day === dayStr);
+        if (recurring && recurring.periods === 'All') {
+            isApprovedAbsent = true;
+        }
+    }
     
     const statusEl = document.getElementById('todayStatus');
     if (isAttended) {
         statusEl.textContent = "今日の出席：完了 ✅";
         statusEl.className = "status-card status-ok";
+    } else if (isApprovedAbsent) {
+        // ★修正: 承認済み欠席なら紫背景
+        statusEl.textContent = "今日の出席：欠 ☔";
+        statusEl.className = "status-card status-absent";
     } else {
         statusEl.textContent = "今日の出席：未 ☁️";
         statusEl.className = "status-card status-no";
@@ -1734,8 +1844,9 @@ function renderCalendar() {
     const month = checkDisplayDate.getMonth();
     document.getElementById('calendarTitle').textContent = `${year}年 ${month + 1}月`;
     
-    // 曜日
-    ['日','月','火','水','木','金','土'].forEach(w => {
+    // 曜日ヘッダー
+    const weekDays = ['日','月','火','水','木','金','土'];
+    weekDays.forEach(w => {
         const el = document.createElement('div');
         el.className = 'day-cell';
         el.style.border='none'; el.style.fontWeight='bold'; el.style.backgroundColor='#f0f0f0';
@@ -1751,7 +1862,8 @@ function renderCalendar() {
     
     for(let d=1; d<=lastDay; d++) {
         const currentCellDate = new Date(year, month, d); // 00:00:00
-        
+        const currentDayStr = weekDays[currentCellDate.getDay()]; // '月' など
+
         const el = document.createElement('div');
         el.className = 'day-cell';
         el.style.display = 'flex';
@@ -1765,19 +1877,28 @@ function renderCalendar() {
         }
         
         // --- データ集計 ---
-        // 1. 出席ログがあるか
+        
+        // 1. 出席ログ
         const hasLog = checkHistoryDates.some(hd => 
             hd.getFullYear()===year && hd.getMonth()===month && hd.getDate()===d
         );
 
-        // 2. この日の届出を抽出
-        const dayReports = checkReportRanges.filter(range => 
+        // 2. 届出 (承認済み欠席)
+        const approvedAbsenceReport = checkReportRanges.find(range => 
             currentCellDate.getTime() >= range.start.getTime() && 
-            currentCellDate.getTime() <= range.end.getTime()
+            currentCellDate.getTime() <= range.end.getTime() &&
+            range.status === 'approved' &&
+            range.type === 'absence'
         );
 
-        // 3. 承認済み欠席があるか (出席扱い用)
-        const isApprovedAbsence = dayReports.some(r => r.status === 'approved' && r.type === 'absence');
+        // 3. 定期データ
+        const recurringInfo = checkRecurringData.find(r => r.day === currentDayStr);
+        let isRecurringAbsence = false;   // 全休
+        let isRecurringLateEarly = false; // 部分休
+        if (recurringInfo) {
+            if (recurringInfo.periods === 'All') isRecurringAbsence = true;
+            else isRecurringLateEarly = true;
+        }
 
         // --- アイコン表示コンテナ ---
         const iconContainer = document.createElement('div');
@@ -1787,75 +1908,78 @@ function renderCalendar() {
         iconContainer.style.flexWrap = 'wrap';
         iconContainer.style.justifyContent = 'center';
 
-        // A. 出席アイコン (必須・緑)
-        if (hasLog || isApprovedAbsence) {
-            const icon = document.createElement('div');
-            // 数字を入れるため少し大きくする
-            icon.style.width = '14px'; icon.style.height = '14px';
-            icon.style.borderRadius = '50%';
-            icon.style.backgroundColor = '#28a745'; // 緑
-            icon.title = hasLog ? "出席" : "欠席(承認済)";
+        // ★アイコン描画ロジック (優先順位: 定期全休 > その他)
+
+        if (isRecurringAbsence) {
+            // 定期全休 (赤紫) - これがある時は他を表示しない
+            const icon = createStatusIcon('#C71585', '定期欠席'); // Red-Purple
             iconContainer.appendChild(icon);
             el.classList.add('active-area'); 
-        }
+        } else {
+            // 出席 (緑)
+            if (hasLog) {
+                const icon = createStatusIcon('#28a745', '出席');
+                iconContainer.appendChild(icon);
+                el.classList.add('active-area');
+            }
 
-        // B. 届出アイコン描画ヘルパー
-        const renderReportIcons = (reports) => {
-            let pendingCount = 0;
-
-            reports.forEach(r => {
-                if (r.status === 'pending') {
-                    pendingCount++;
-                } else {
-                    // 承認(approved)・確認(confirm)・否認(rejected) は個数分表示
-                    const icon = document.createElement('div');
-                    icon.style.width = '14px'; icon.style.height = '14px';
-                    icon.style.borderRadius = '50%';
-                    icon.style.margin = '1px';
-                    
-                    if (r.status === 'approved') icon.style.backgroundColor = '#007bff'; // 青
-                    else if (r.status === 'confirm') icon.style.backgroundColor = '#ffc107'; // 黄
-                    else if (r.status === 'rejected') icon.style.backgroundColor = '#dc3545'; // 赤
-                    
-                    // ツールチップ
-                    const typeMap = { 'absence':'欠席', 'late':'遅刻', 'early':'早退' };
-                    icon.title = `${typeMap[r.type] || r.type} (${r.status})`;
-                    
-                    iconContainer.appendChild(icon);
-                }
-            });
-
-            // 申請中(pending) はまとめて1つ表示 (数字入り)
-            if (pendingCount > 0) {
-                const icon = document.createElement('div');
-                icon.style.width = '14px'; icon.style.height = '14px';
-                icon.style.borderRadius = '50%';
-                icon.style.backgroundColor = 'gray'; // 灰
-                icon.style.margin = '1px';
-                
-                // 数字表示スタイル
-                icon.style.display = 'flex';
-                icon.style.alignItems = 'center';
-                icon.style.justifyContent = 'center';
-                icon.style.color = 'white';
-                icon.style.fontSize = '9px';
-                icon.style.fontWeight = 'bold';
-                icon.textContent = pendingCount.toString();
-                
-                icon.title = `申請中: ${pendingCount}件`;
+            // 定期遅刻/早退 (青紫) - 共存可
+            if (isRecurringLateEarly) {
+                const icon = createStatusIcon('#8A2BE2', `定期遅刻/早退 (${recurringInfo.periods})`); // Blue-Purple
                 iconContainer.appendChild(icon);
             }
-        };
 
-        // グループ1: 欠席 (Absence)
-        const absences = dayReports.filter(r => r.type === 'absence');
-        renderReportIcons(absences);
+            // 通常の承認済み欠席 (紫) - ★変更: 青から紫へ
+            if (approvedAbsenceReport) {
+                const icon = createStatusIcon('#800080', '欠席(届出承認済)'); // Purple
+                iconContainer.appendChild(icon);
+            }
 
-        // グループ2: 遅刻・早退 (Late/Early)
-        const lateEarlies = dayReports.filter(r => r.type === 'late' || r.type === 'early');
-        renderReportIcons(lateEarlies);
+            // その他の届出 (遅刻・早退・未承認など)
+            const otherReports = checkReportRanges.filter(range => 
+                currentCellDate.getTime() >= range.start.getTime() && 
+                currentCellDate.getTime() <= range.end.getTime() &&
+                !(range.status === 'approved' && range.type === 'absence') // さっき処理したものは除外
+            );
+            
+            renderOtherReportIcons(otherReports, iconContainer);
+        }
 
         el.appendChild(iconContainer);
         grid.appendChild(el);
+    }
+}
+
+function createStatusIcon(color, title) {
+    const icon = document.createElement('div');
+    icon.style.width = '14px'; icon.style.height = '14px';
+    icon.style.borderRadius = '50%';
+    icon.style.backgroundColor = color;
+    icon.title = title;
+    return icon;
+}
+
+function renderOtherReportIcons(reports, container) {
+    let pendingCount = 0;
+    reports.forEach(r => {
+        if (r.status === 'pending') {
+            pendingCount++;
+        } else {
+            // 承認済みの遅刻・早退、または確認中・否認
+            let color = '#666';
+            if (r.status === 'approved') color = '#007bff'; // 青 (遅刻早退)
+            else if (r.status === 'confirm') color = '#ffc107'; // 黄
+            else if (r.status === 'rejected') color = '#dc3545'; // 赤
+            
+            const icon = createStatusIcon(color, `${r.type} (${r.status})`);
+            container.appendChild(icon);
+        }
+    });
+    if (pendingCount > 0) {
+        const icon = createStatusIcon('gray', `申請中: ${pendingCount}件`);
+        icon.style.display = 'flex'; icon.style.alignItems = 'center'; icon.style.justifyContent = 'center';
+        icon.style.color = 'white'; icon.style.fontSize = '9px'; icon.style.fontWeight = 'bold';
+        icon.textContent = pendingCount.toString();
+        container.appendChild(icon);
     }
 }
