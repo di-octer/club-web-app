@@ -146,7 +146,8 @@
                 <label>設定年度</label>
                 <input type="number" id="acadYear" value="2024">
             </div>
-            <details open class="settings-details">
+            
+            <details class="settings-details">
                 <summary>学期期間 (MM-DD)</summary>
                 <div class="details-content">
                     <label>前期 (開始 ～ 中間 / 終了)</label>
@@ -163,29 +164,60 @@
                     </div>
                 </div>
             </details>
+
             <details class="settings-details">
                 <summary>特殊期間 (MM-DD または MM-DD:MM-DD)</summary>
                 <div class="details-content">
-                    <label>履修登録期間</label> 
-                    <input type="text" id="p_reg" placeholder="04-01:04-10">
-                    
-                    <label>集中補講期間</label> 
-                    <input type="text" id="p_sup" placeholder="08-01:08-07">
-                    
-                    <label>試験期間</label> 
-                    <input type="text" id="p_exam" placeholder="07-20:07-31">
-                    
-                    <label>成績発表日 (MM-DD)</label> 
-                    <input type="text" id="d_grade" placeholder="08-20">
+                    <label>履修登録期間</label> <input type="text" id="p_reg" placeholder="04-01:04-10">
+                    <label>集中補講期間</label> <input type="text" id="p_sup" placeholder="08-01:08-07">
+                    <label>試験期間</label> <input type="text" id="p_exam" placeholder="07-20:07-31">
+                    <label>成績発表日 (MM-DD)</label> <input type="text" id="d_grade" placeholder="08-20">
                 </div>
             </details>
+            
+            <details class="settings-details">
+                <summary>文化祭期間 (キャンパス別)</summary>
+                <div class="details-content">
+                    <div class="input-group">
+                        <select id="fesCampus"><option value="">キャンパスを選択</option></select>
+                    </div>
+                    <div class="input-group">
+                        <label>期間 (MM-DD)</label>
+                        <div style="display:flex; gap:5px; align-items:center;">
+                            <input type="text" id="fesStart" placeholder="MM-DD" class="date-short"> ～ 
+                            <input type="text" id="fesEnd" placeholder="MM-DD" class="date-short">
+                        </div>
+                    </div>
+                    <button onclick="addAcadFestival()">リストに追加</button>
+                    <div id="tempFesList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
+                </div>
+            </details>
+
+            <details class="settings-details">
+                <summary>例外日設定 (授業実施日/休日)</summary>
+                <div class="details-content">
+                    <div class="input-group">
+                        <select id="exType">
+                            <option value="school_day">通常休日だが学校のある日</option>
+                            <option value="holiday">通常学校のある日だが休日</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>日付 (MM-DD)</label>
+                        <input type="text" id="exDate" placeholder="MM-DD" class="date-short">
+                    </div>
+                    <button onclick="addAcadException()">リストに追加</button>
+                    <div id="tempExList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
+                </div>
+            </details>
+
             <button onclick="saveAcademicConfig()" class="btn-primary" style="width:100%; margin-top:10px;">保存</button>
         </div>
 
         <div id="view-monthly" style="display:none;">
             <div class="input-group">
                 <label>対象年月 <small style="color:#666;">※形式: YYYY-MM</small></label>
-                <input type="month" id="targetMonth">
+                <input type="month" id="targetMonth" onchange="updateMonthlyBaseYear()">
                 <button onclick="loadMonthConfig()">読み込み</button>
             </div>
             
@@ -193,6 +225,22 @@
                 <summary>活動日設定 (曜日)</summary>
                 <div class="details-content">
                     <div id="campusActivitySettings"></div>
+                </div>
+            </details>
+            
+            <details class="settings-details">
+                <summary>活動なし日設定 (ブロックルーチン)</summary>
+                <div class="details-content">
+                    <p style="font-size:0.9em; color:#666;">指定したキャンパス・日付は、曜日設定に関わらず「活動なし」になります。</p>
+                    <div class="input-group">
+                        <select id="noActCampus"><option value="">キャンパスを選択</option></select>
+                    </div>
+                    <div class="input-group">
+                        <label>日付 (MM-DD)</label>
+                        <input type="text" id="noActDate" placeholder="MM-DD" class="date-short">
+                    </div>
+                    <button onclick="addNoActivityDay()">リストに追加</button>
+                    <div id="tempNoActList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
                 </div>
             </details>
 
@@ -212,7 +260,7 @@
                         </select>
                     </div>
                     <div class="input-group">
-                        <label>期間 (MM-DD形式、1日の場合は開始のみ)</label>
+                        <label>期間 (1日の場合は開始のみ)</label>
                         <div style="display:flex; gap:5px; align-items:center;">
                             <input type="text" id="evtStart" placeholder="MM-DD" class="date-short"> ～ 
                             <input type="text" id="evtEnd" placeholder="MM-DD" class="date-short">
@@ -238,7 +286,7 @@
             <button onclick="saveMonthCalendar()" class="btn-primary" style="width:100%; margin-top:15px;">この内容で保存・公開</button>
         </div>
     </div>
-
+    
 </div>
 <script src="pre_script.js"></script>
 </body>
