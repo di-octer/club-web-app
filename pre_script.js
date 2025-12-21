@@ -48,10 +48,11 @@ const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】
 
 // --- 初期化 ---
 window.onload = async () => {
+    const path = window.location.pathname;
+    const isLoginPage = path.includes('pre_login.html');
+
     auth.onAuthStateChanged(async (user) => {
         currentUser = user;
-        const path = window.location.pathname;
-        const isLoginPage = path.includes('pre_login.html');
 
         if (user) {
             console.log("Logged in as:", user.displayName);
@@ -60,6 +61,8 @@ window.onload = async () => {
             }
             await loadUserSettings(user.uid);
             updateUserDisplay(user);
+            // ★追加: ユーザー情報ロード後にアップバーを更新（ログイン画面以外）
+            if (!isLoginPage) setupCommonAppbar();
         } else {
             console.log("Not logged in");
             if (!isLoginPage) window.location.href = 'pre_login.html';
@@ -72,16 +75,19 @@ window.onload = async () => {
     await loadCampuses();
     await loadGpsAreas();
     
-    if(currentUser) await loadUserSettings(currentUser.uid);
-    setupCommonAppbar();
-    updateAppbarStatus();
+    // ★修正: ログインページ以外の場合のみ初期アップバーを表示
+    if (!isLoginPage) {
+        if(currentUser) await loadUserSettings(currentUser.uid);
+        setupCommonAppbar();
+        updateAppbarStatus();
+    }
     
     const bodyId = document.body.id;
     if (bodyId === 'page-admin') {
         await loadModels();
         await loadRegisteredFaces();
         await loadAdminRecommendedArticles();
-        await populateRegUserSelect(); // ★追加: 顔登録用のユーザーリスト取得
+        await populateRegUserSelect();
         switchAdminSubTab('auth');
         populateInfoLists();
     } else if (bodyId === 'page-check') {
