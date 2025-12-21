@@ -1591,103 +1591,118 @@ async function submitReport() {
 async function startUserAuthFlow() {
     if (!currentUser) return alert("ログイン情報なし");
     
-    // 活動時間チェック (キャンパス依存なし、全キャンパスチェック)
-    const now = new Date();
-    const timeStatus = await checkActivityTimeStatus(now);
-    
-    if (timeStatus.status === 'out') {
-        alert("現在は活動時間外です (どのキャンパスも活動時間外、または活動日ではありません)。");
-        return;
-    }
-    
-    if (timeStatus.status === 'late') {
-        isLateAuth = true;
-        alert("活動開始から30分以上経過しています。\n「遅刻」として認証を開始します。");
-    } else {
-        isLateAuth = false;
-    }
-
     document.getElementById('step-0').classList.remove('active');
-    document.getElementById('step-1').classList.add('active');
     
     if (!navigator.geolocation) return alert("位置情報不可");
-    navigator.geolocation.getCurrentPosition((pos) => {
+    
+    // 1. まず位置情報を取得し、最寄りキャンパスを特定
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        
+        let nearestCampus = null;
+        let minDiv = Infinity;
+        
+        // 最寄りキャンパス判定
+        registeredCampuses.forEach(c => {
+            const d = getDistance(lat, lon, c.lat, c.lon);
+            if(d < minDiv) { minDiv = d; nearestCampus = c; }
+        });
+        
+        if (!nearestCampus) {
+            alert("キャンパスデータが見つかりません。");
+            return;
+        }
+
+        console.log(`Nearest Campus: ${nearestCampus.name}`);
+
+        // 2. そのキャンパスの時間設定でチェック
+        const now = new Date();
+        const timeStatus = await checkActivityTimeStatus(now, nearestCampus.id);
+        
+        if (timeStatus.status === 'out') {
+            alert(`現在は ${nearestCampus.name} の活動時間外、または活動日ではありません。`);
+            return;
+        }
+        
+        if (timeStatus.status === 'late') {
+            isLateAuth = true;
+            alert(`【${nearestCampus.name}】\n活動開始から30分以上経過しています。\n「遅刻」として認証を開始します。`);
+        } else {
+            isLateAuth = false;
+        }
+
+        // 3. 認証ステップへ進む
+        document.getElementById('step-1').classList.add('active');
         startFaceAuth(currentUser.displayName);
-    }, (err) => alert("位置情報エラー: " + err.message));
+
+    }, (err) => {
+        alert("位置情報の取得に失敗しました: " + err.message);
+        // 位置情報が取れない場合は認証不可とする
+    });
 }
 
 // 日時・全キャンパスから活動状態を判定
 // return: { status: 'ok'|'late'|'out' }
-async function checkActivityTimeStatus(date) {
+async function checkActivityTimeStatus(date, campusId) {
     const ymd = formatDate(date);
     const ym = ymd.substring(0, 7);
     const day = date.getDay();
     const nowMins = date.getHours() * 60 + date.getMinutes();
 
-    let validCampuses = [];
+    let startTime = "17:00";
+    let endTime = "19:40";
+    let isActivity = false;
 
     try {
-        // 1. 活動例外 (Activity Exceptions) をチェック
-        // activity_exceptions は YYYY-MM-DD_campusId なので、今日の日付を含むドキュメントを検索
-        // しかしID検索はキャンパスIDが必要。クエリで日付検索する
-        const exSnap = await db.collection('activity_exceptions').where('date', '==', ymd).get();
-        exSnap.forEach(doc => {
-            const d = doc.data();
-            validCampuses.push({ cid: d.cid, start: d.start, end: d.end, isException: true });
-        });
-
-        // 2. 月次カレンダー (Calendars) をチェック
-        const calDoc = await db.collection('calendars').doc(ym).get();
-        if (calDoc.exists) {
-            const calData = calDoc.data();
-            
-            // 全キャンパス設定を走査
-            if (calData.activityDays) {
-                for (const [cid, settings] of Object.entries(calData.activityDays)) {
-                    // ブロックリストに入っていればスキップ
-                    const isBlocked = calData.noActivityDays && calData.noActivityDays.some(n => n.date === ymd && (n.cid === cid));
-                    if (isBlocked) continue;
-
-                    // 例外で追加済みならスキップ (例外優先)
-                    if (validCampuses.some(v => v.cid === cid)) continue;
-
-                    const todaySetting = settings.find(s => s.day === day);
-                    if (todaySetting) {
-                        validCampuses.push({ 
-                            cid: cid, 
-                            start: todaySetting.start || "17:00", 
-                            end: todaySetting.end || "19:40" 
-                        });
+        // 1. 活動例外 (Activity Exceptions) をチェック (優先度高)
+        const exId = `${ymd}_${campusId}`;
+        const exDoc = await db.collection('activity_exceptions').doc(exId).get();
+        
+        if (exDoc.exists) {
+            const d = exDoc.data();
+            startTime = d.start;
+            endTime = d.end;
+            isActivity = true; // 例外設定がある＝活動あり
+        } else {
+            // 2. 月次カレンダー (Calendars) をチェック
+            const calDoc = await db.collection('calendars').doc(ym).get();
+            if (calDoc.exists) {
+                const calData = calDoc.data();
+                
+                // A. 活動なし日 (ブロックルーチン) チェック
+                // cidが一致、またはcidなし(全キャンパス)の場合にブロック
+                const isBlocked = calData.noActivityDays && calData.noActivityDays.some(n => n.date === ymd && (n.cid === campusId || !n.cid));
+                
+                if (!isBlocked) {
+                    // B. 曜日設定チェック
+                    if (calData.activityDays && calData.activityDays[campusId]) {
+                        const setting = calData.activityDays[campusId].find(s => s.day === day);
+                        if (setting) {
+                            isActivity = true;
+                            if (setting.start) startTime = setting.start;
+                            if (setting.end) endTime = setting.end;
+                        }
                     }
                 }
             }
         }
     } catch(e) { console.error(e); }
 
-    if (validCampuses.length === 0) return { status: 'out' };
+    if (!isActivity) return { status: 'out' };
 
-    // 全ての有効なキャンパス設定に対して判定
-    // ルール: 「いずれかのキャンパスでOKならOK」「全てでLateならLate」「全てでOutならOut」
-    // 優先順位: OK > Late > Out
-    let bestStatus = 'out';
+    // 時間比較
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    const startMins = sh * 60 + sm;
+    const endMins = eh * 60 + em;
 
-    for (const v of validCampuses) {
-        const [sh, sm] = v.start.split(':').map(Number);
-        const [eh, em] = v.end.split(':').map(Number);
-        const startMins = sh * 60 + sm;
-        const endMins = eh * 60 + em;
+    if (nowMins < startMins || nowMins > endMins) return { status: 'out' };
+    
+    // 遅刻判定 (開始30分後)
+    if (nowMins > startMins + 30) return { status: 'late' };
 
-        if (nowMins >= startMins && nowMins <= endMins) {
-            // 時間内
-            if (nowMins <= startMins + 30) {
-                return { status: 'ok' }; // 即座にOK
-            } else {
-                if (bestStatus !== 'ok') bestStatus = 'late';
-            }
-        }
-    }
-
-    return { status: bestStatus };
+    return { status: 'ok' };
 }
 
 async function startFaceAuth(userName) {
@@ -2315,8 +2330,11 @@ async function renderCalendarGrid(targetId, ym, mode) {
     
     let monthData = {};
     let acadData = {};
-    
-    // 1. 月次データ
+    let userLogs = [];
+    let userReports = [];
+    let userRecurring = [];
+
+    // 1. 月次データ取得
     if (mode === 'preview') {
         const activityDays = {};
         document.querySelectorAll('.act-chk:checked').forEach(chk => {
@@ -2334,12 +2352,40 @@ async function renderCalendarGrid(targetId, ym, mode) {
         } catch(e){}
     }
 
-    // 2. 学年暦データ
+    // 2. 学年暦データ取得
     const acadYear = (month >= 1 && month <= 3) ? year - 1 : year;
     try {
         const adoc = await db.collection('calendar_meta').doc(`config_${acadYear}`).get();
         if(adoc.exists) acadData = adoc.data();
     } catch(e){}
+
+    // 3. ユーザーデータ取得 (Userモード時のみ)
+    if (mode === 'user' && currentUser) {
+        // ログ
+        const lSnap = await db.collection('attendance_logs').where('userName', '==', currentUser.displayName).get();
+        lSnap.forEach(d => {
+            const t = d.data().timestamp.toDate();
+            if(t.getFullYear()===year && t.getMonth()+1===month) userLogs.push({date: t.getDate(), data: d.data()});
+        });
+        
+        // 届出
+        const rSnap = await db.collection('absence_reports').where('userName', '==', currentUser.displayName).get();
+        rSnap.forEach(d => userReports.push(d.data()));
+
+        // 定期欠席
+        const recSnap = await db.collection('recurring_absence_applications')
+            .where('userId', '==', currentUser.uid)
+            .where('status', '==', 'approved').get();
+        recSnap.forEach(d => {
+            const val = d.data();
+            if(val.data && typeof val.data === 'string') {
+                val.data.split('|').forEach(p => {
+                    const [day, periods] = p.split(':');
+                    userRecurring.push({day, periods});
+                });
+            }
+        });
+    }
 
     // 最終更新日時表示
     const updateEl = document.getElementById('userCalUpdated');
@@ -2365,43 +2411,62 @@ async function renderCalendarGrid(targetId, ym, mode) {
         let icons = "";
         let badges = "";
 
-        // --- A. 自動追加判定 ---
-        // 1. 自動追加期間内か (重複チェック済み)
+        // --- 条件判定ロジック ---
+
+        // 1. 自動追加期間かどうか (前後期の前半・後半、授業実施例外日)
         let isTermPeriod = false;
         if (acadData) {
-            const periods = [acadData.t1_front, acadData.t1_back, acadData.t2_front, acadData.t2_back];
-            if (periods.some(p => isWithin(currentYMD, p))) isTermPeriod = true;
-            if (acadData.exceptions && acadData.exceptions.some(e => e.date === currentYMD && e.type === 'school_day')) isTermPeriod = true;
-        }
-
-        // 2. 除外期間か
-        let isExcluded = false;
-        if (acadData) {
-            if (acadData.festivals && acadData.festivals.some(f => isWithin(currentYMD, f))) isExcluded = true;
-            if (acadData.winter && isWithin(currentYMD, acadData.winter)) isExcluded = true;
-            if (acadData.exceptions && acadData.exceptions.some(e => e.date === currentYMD && e.type === 'holiday')) isExcluded = true;
-        }
-
-        // 3. 活動日か (全キャンパス判定)
-        let isActivityDay = false;
-        if (monthData.activityDays) {
-            // いずれかのキャンパスでこの曜日が活動日ならTrue
-            for(const k in monthData.activityDays) {
-                if(monthData.activityDays[k].some(s => s.day === dayOfWeek)) isActivityDay = true;
+            // 前後期・前後半 (重複しても単一の期間内とみなす)
+            const terms = [acadData.t1_front, acadData.t1_back, acadData.t2_front, acadData.t2_back];
+            if (terms.some(p => isWithin(currentYMD, p))) isTermPeriod = true;
+            
+            // 授業実施日例外 (休日でも授業がある日)
+            if (acadData.exceptions && acadData.exceptions.some(e => e.date === currentYMD && e.type === 'school_day')) {
+                isTermPeriod = true;
             }
         }
-        if (monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD)) {
-            // 全キャンパスで活動なし (特定キャンパスのみの場合は厳密にはActivityDayだが、ここでは簡易的にFalse)
-            // ※「全キャンパスにおいて活動日でない日」という要件なので、全除外ならFalse
-            const blockedAll = monthData.noActivityDays.filter(n => n.date === currentYMD).length >= registeredCampuses.length; 
-            // 簡易: 指定キャンパスがあるならその人にとっては休みだが、全体としては？
-            // ユーザー要件: 「全キャンパスにおいて活動日でない日は...無視」
-            // ここでは「一つでも活動日設定があれば活動日」とする
+
+        // 2. 除外期間かどうか (文化祭、冬季、休日例外)
+        let isExcluded = false;
+        if (acadData) {
+            // 文化祭 (キャンパス指定有無に関わらず、文化祭期間は授業なし=定期適用なしとする)
+            // ※「キャンパスごと」だが、ユーザーがどのキャンパスか不明なカレンダー表示では「文化祭がある日」として除外
+            if (acadData.festivals && acadData.festivals.some(f => isWithin(currentYMD, f))) isExcluded = true;
+            
+            // 冬季休暇
+            if (acadData.winter && isWithin(currentYMD, acadData.winter)) isExcluded = true;
+            
+            // 休日例外 (通常授業日だが休みの日)
+            if (acadData.exceptions && acadData.exceptions.some(e => e.date === currentYMD && e.type === 'holiday')) {
+                isExcluded = true;
+            }
         }
 
+        // 3. 活動日かどうか
+        // 「全キャンパスにおいて活動日でない日は自動追加を無視」
+        // = いずれか一つのキャンパスでも活動日設定があれば True
+        let isActivityDay = false;
+        if (monthData.activityDays) {
+            // 全キャンパスの設定を走査
+            for(const k in monthData.activityDays) {
+                // ブロックルーチンチェック (このキャンパスkがブロックされていないか)
+                const isBlocked = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === k || !n.cid));
+                
+                if (!isBlocked) {
+                    // ブロックされていないキャンパスで、曜日設定があれば活動日ありとみなす
+                    if(monthData.activityDays[k].some(s => s.day === dayOfWeek)) {
+                        isActivityDay = true;
+                        break; // 一つでもあればOK
+                    }
+                }
+            }
+        }
+
+        // ★最終判定: 定期データを適用するか
         const shouldApplyRecurring = isTermPeriod && !isExcluded && isActivityDay;
 
-        // --- B. イベント・バッジ表示 ---
+
+        // --- バッジ表示 (イベント等) ---
         if (acadData.festivals) acadData.festivals.forEach(f => { if (isWithin(currentYMD, f)) badges += `<span class="evt-badge evt-event">文化祭(${f.cName})</span>`; });
         if (acadData.exceptions) acadData.exceptions.forEach(ex => { if (ex.date === currentYMD) badges += `<span class="evt-badge" style="background:${ex.type==='school_day'?'#2196f3':'#f44336'}">${ex.type==='school_day'?'授業実施':'休日'}</span>`; });
         if (acadData.periods) {
@@ -2411,7 +2476,8 @@ async function renderCalendarGrid(targetId, ym, mode) {
         if (acadData.winter && isWithin(currentYMD, acadData.winter)) badges += `<span class="evt-badge" style="background:#607d8b;">冬季休暇</span>`;
         if (monthData.events) monthData.events.forEach(evt => { if (isWithin(currentYMD, evt)) badges += `<span class="evt-badge evt-event">${evt.title}</span>`; });
 
-        // --- C. アイコン (User Mode) ---
+
+        // --- アイコン表示 (User Mode) ---
         if (mode === 'user') {
             let recurringStatus = null;
             if (shouldApplyRecurring) {
@@ -2419,30 +2485,53 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 if(rec) recurringStatus = (rec.periods === 'All') ? 'absent' : 'late_early';
             }
 
-            const log = checkHistoryDates.find(ld => ld.getDate() === d);
-            const reports = checkReportRanges.filter(r => dateObj >= r.start && dateObj <= r.end);
+            const log = userLogs.find(l => l.date === d);
+            const reports = userReports.filter(r => {
+                const s = r.startDate.toDate();
+                const e = r.endDate ? r.endDate.toDate() : s;
+                s.setHours(0,0,0); e.setHours(23,59,59);
+                return dateObj >= s && dateObj <= e;
+            });
             const approvedAbsence = reports.find(r => r.type === 'absence' && r.status === 'approved');
 
             // 優先順位表示
+            // 1. 出席 (緑) - 何があっても出席していれば出席
             if (log) {
-                cellClass += " active-area"; icons += createIcon('#28a745', '出席');
-            } else if (approvedAbsence) {
-                cellClass += " active-area-approved"; icons += createIcon('#800080', '欠席(承認済)');
-            } else if (recurringStatus === 'absent') {
+                cellClass += " active-area"; 
+                icons += createIcon('#28a745', '出席');
+            } 
+            // 2. 承認済欠席 (紫アイコン, 緑背景)
+            else if (approvedAbsence) {
+                cellClass += " active-area-approved";
+                icons += createIcon('#800080', '欠席(承認済)');
+            } 
+            // 3. 定期欠席 (赤紫) - 適用条件を満たす場合のみ
+            else if (recurringStatus === 'absent') {
                 icons += createIcon('#C71585', '定期欠席');
-            } else {
-                if (recurringStatus === 'late_early') icons += createIcon('#8A2BE2', '定期遅刻/早退');
-                let pCnt = 0;
+            } 
+            // その他
+            else {
+                // 定期遅刻/早退 (青紫)
+                if (recurringStatus === 'late_early') {
+                    icons += createIcon('#8A2BE2', '定期遅刻/早退');
+                }
+                
+                // 届出 (未承認など)
+                let pendingCnt = 0;
                 reports.forEach(r => {
-                    if(r.status==='pending') pCnt++;
-                    else if(r.status!=='approved') {
-                        let c='#666'; if(r.status==='approved')c='#007bff'; if(r.status==='confirm')c='#ffc107'; if(r.status==='rejected')c='#dc3545';
+                    if(r.status === 'pending') pendingCnt++;
+                    else if (r.status !== 'approved') { // 承認済欠席は上で処理済
+                        let c = '#666';
+                        if(r.status==='approved') c='#007bff'; // 遅刻/早退の承認
+                        if(r.status==='confirm') c='#ffc107';
+                        if(r.status==='rejected') c='#dc3545';
                         icons += createIcon(c, r.type);
                     }
                 });
-                if(pCnt>0) icons += createIcon('gray', String(pCnt), true);
+                if(pendingCnt > 0) icons += createIcon('gray', String(pendingCnt), true);
             }
         }
+        
         html += `<div class="${cellClass}"><span style="font-weight:bold;">${d}</span>${badges}<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:1px;">${icons}</div></div>`;
     }
     html += `</div>`;
