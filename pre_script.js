@@ -42,6 +42,7 @@ let checkReportRanges = [];
 let currentNewsSlide = 0;
 let touchStartX = 0;
 let touchEndX = 0;
+let isLoggingIn = false; // ★追加: ログイン処理中フラグ
 
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
@@ -54,7 +55,10 @@ window.onload = async () => {
 
         if (user) {
             console.log("Logged in as:", user.displayName);
-            if (isLoginPage) window.location.href = 'pre_home.html';
+            // ★修正: ログイン処理中(isLoggingIn)の場合はリダイレクトせず、DB保存処理の完了を待つ
+            if (isLoginPage && !isLoggingIn) {
+                window.location.href = 'pre_home.html';
+            }
             await loadUserSettings(user.uid);
             updateUserDisplay(user);
         } else {
@@ -389,6 +393,7 @@ function toBase64(file) {
 //   認証機能 (Discord OIDC)
 // ==========================================
 function loginWithDiscord() {
+    isLoggingIn = true; // ★追加: ログイン処理開始（自動リダイレクトをブロック）
     const provider = new firebase.auth.OAuthProvider('oidc.discord');
     provider.addScope('identify');
     auth.signInWithPopup(provider)
@@ -446,7 +451,10 @@ function loginWithDiscord() {
                 window.location.href = 'pre_home.html';
             }
         })
-        .catch((error) => console.error("Login Error:", error));
+        .catch((error) => {
+            console.error("Login Error:", error);
+            isLoggingIn = false; // ★追加: エラー時はフラグ解除
+        });
 }
 
 function logoutUser() {
