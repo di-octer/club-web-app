@@ -392,13 +392,71 @@ function loginWithDiscord() {
     const provider = new firebase.auth.OAuthProvider('oidc.discord');
     provider.addScope('identify');
     auth.signInWithPopup(provider)
-        .then((result) => {
+        .then(async (result) => {
             const user = result.user;
-            db.collection('users').doc(user.uid).set({
-                displayName: user.displayName, email: user.email, photoURL: user.photoURL,
-                lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-            window.location.href = 'pre_home.html';
+            const userRef = db.collection('users').doc(user.uid);
+            
+            try {
+                const doc = await userRef.get();
+                const currentData = doc.exists ? doc.data() : {};
+                
+                // 更新・初期化するデータ
+                const updateData = {
+                    displayName: user.displayName,
+                    email: user.email,
+                    photoURL: user.photoURL,
+                    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                };
+
+                // --- 隠しユーザー情報 (存在しない場合のみ初期値をセット) ---
+                // ※管理者が設定する値などは、既存の値があれば上書きしないようにチェックする
+                
+                // どういった人間かの所感
+                if (currentData.adminMemo === undefined) updateData.adminMemo = "";
+                
+                // 活動への参加率(%)
+                if (currentData.rateActivity === undefined) updateData.rateActivity = 0;
+                
+                // チーム開発の参加意欲(%)
+                if (currentData.rateTeam === undefined) updateData.rateTeam = 0;
+                
+                // カリキュラムへの意欲(%)
+                if (currentData.rateCurriculum === undefined) updateData.rateCurriculum = 0;
+                
+                // 仲のいい人がどれくらいいるか(%)
+                if (currentData.rateFriends === undefined) updateData.rateFriends = 0;
+                
+                // どのグループとよくいるか(複数グループ設定可)
+                if (currentData.groups === undefined) updateData.groups = [];
+                
+                // キータチームでどのアカウントか
+                if (currentData.qiitaId === undefined) updateData.qiitaId = "";
+                
+                // gitのどのアカウントか
+                if (currentData.gitId === undefined) updateData.gitId = "";
+                
+                // ディスコードでどのアカウントか
+                if (currentData.discordId === undefined) updateData.discordId = "";
+                
+                // 登録されている顔のどれか (顔登録有無フラグ)
+                if (currentData.faceRegistered === undefined) updateData.faceRegistered = false;
+                
+                // adminへ入場許可されているか
+                if (currentData.isAdmin === undefined) updateData.isAdmin = false;
+                
+                // 今の何の備品を借りているか
+                if (currentData.borrowedItems === undefined) updateData.borrowedItems = [];
+
+                // Firestoreに保存 (merge: true なので既存の設定値などは消えません)
+                await userRef.set(updateData, { merge: true });
+                
+                window.location.href = 'pre_home.html';
+                
+            } catch (e) {
+                console.error("User Init Error:", e);
+                // エラーでも最低限遷移はさせる
+                window.location.href = 'pre_home.html';
+            }
         })
         .catch((error) => console.error("Login Error:", error));
 }
