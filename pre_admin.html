@@ -144,23 +144,45 @@
             <p style="font-size:0.9em; color:#666;">日付は <b>MM-DD</b> 形式で入力してください。<br>設定年度に基づき自動で年(YYYY)が補完されます。(1~3月は翌年扱い)</p>
             <div class="input-group">
                 <label>設定年度</label>
-                <input type="number" id="acadYear" value="2024">
+                <input type="number" id="acadYear" value="2024" oninput="updateAllAcadDates()">
             </div>
             
-            <details class="settings-details">
+            <details open class="settings-details">
                 <summary>学期期間 (MM-DD)</summary>
                 <div class="details-content">
-                    <label>前期 (開始 ～ 中間 / 終了)</label>
-                    <div style="display:flex; gap:5px; align-items:center;">
-                        <input type="text" id="t1_start" placeholder="04-01" class="date-short"> ～ 
-                        <input type="text" id="t1_mid" placeholder="06-01" class="date-short"> / 
-                        <input type="text" id="t1_end" placeholder="07-31" class="date-short">
+                    <label style="font-weight:bold; color:#007bff;">前期</label>
+                    <div style="margin-left:10px; margin-bottom:10px;">
+                        <label>前半 (開始 ～ 終了)</label>
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="t1_f_start" placeholder="04-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="t1_f_end" placeholder="05-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+                        <label>後半 (開始 ～ 終了)</label>
+                        <div style="display:flex; gap:5px; align-items:center;">
+                            <input type="text" id="t1_b_start" placeholder="06-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="t1_b_end" placeholder="07-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
                     </div>
-                    <label style="margin-top:10px;">後期 (開始 ～ 中間 / 終了)</label>
-                    <div style="display:flex; gap:5px; align-items:center;">
-                        <input type="text" id="t2_start" placeholder="09-20" class="date-short"> ～ 
-                        <input type="text" id="t2_mid" placeholder="11-01" class="date-short"> / 
-                        <input type="text" id="t2_end" placeholder="01-31" class="date-short">
+
+                    <hr style="border:0; border-top:1px dashed #ccc; margin:10px 0;">
+
+                    <label style="font-weight:bold; color:#007bff;">後期</label>
+                    <div style="margin-left:10px;">
+                        <label>前半 (開始 ～ 終了)</label>
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="t2_f_start" placeholder="09-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="t2_f_end" placeholder="11-30" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+                        <label>後半 (開始 ～ 終了)</label>
+                        <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                            <input type="text" id="t2_b_start" placeholder="12-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="t2_b_end" placeholder="01-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+                        <label>冬季休暇 (後期後半内の休み)</label>
+                        <div style="display:flex; gap:5px; align-items:center;">
+                            <input type="text" id="winter_start" placeholder="12-25" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="winter_end" placeholder="01-07" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
                     </div>
                 </div>
             </details>
@@ -168,10 +190,17 @@
             <details class="settings-details">
                 <summary>特殊期間 (MM-DD または MM-DD:MM-DD)</summary>
                 <div class="details-content">
-                    <label>履修登録期間</label> <input type="text" id="p_reg" placeholder="04-01:04-10">
-                    <label>集中補講期間</label> <input type="text" id="p_sup" placeholder="08-01:08-07">
-                    <label>試験期間</label> <input type="text" id="p_exam" placeholder="07-20:07-31">
-                    <label>成績発表日 (MM-DD)</label> <input type="text" id="d_grade" placeholder="08-20">
+                    <label>履修登録期間</label> 
+                    <input type="text" id="p_reg" placeholder="04-01:04-10" class="acad-date">
+                    
+                    <label>集中補講期間</label> 
+                    <input type="text" id="p_sup" placeholder="08-01:08-07" class="acad-date">
+                    
+                    <label>試験期間</label> 
+                    <input type="text" id="p_exam" placeholder="07-20:07-31" class="acad-date">
+                    
+                    <label>成績発表日 (MM-DD)</label> 
+                    <input type="text" id="d_grade" placeholder="08-20" class="date-short acad-date" oninput="enforceAcadYear(this)">
                 </div>
             </details>
             
@@ -184,12 +213,12 @@
                     <div class="input-group">
                         <label>期間 (MM-DD)</label>
                         <div style="display:flex; gap:5px; align-items:center;">
-                            <input type="text" id="fesStart" placeholder="MM-DD" class="date-short"> ～ 
-                            <input type="text" id="fesEnd" placeholder="MM-DD" class="date-short">
+                            <input type="text" id="fesStart" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                            <input type="text" id="fesEnd" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)">
                         </div>
                     </div>
                     <button onclick="addAcadFestival()">リストに追加</button>
-                    <div id="tempFesList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
+                    <div id="tempFesList" class="list-container" style="margin-top:10px; border:1px solid #ccc; padding:5px; height:auto; min-height:50px;"></div>
                 </div>
             </details>
 
@@ -204,10 +233,10 @@
                     </div>
                     <div class="input-group">
                         <label>日付 (MM-DD)</label>
-                        <input type="text" id="exDate" placeholder="MM-DD" class="date-short">
+                        <input type="text" id="exDate" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)">
                     </div>
                     <button onclick="addAcadException()">リストに追加</button>
-                    <div id="tempExList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
+                    <div id="tempExList" class="list-container" style="margin-top:10px; border:1px solid #ccc; padding:5px; height:auto; min-height:50px;"></div>
                 </div>
             </details>
 
