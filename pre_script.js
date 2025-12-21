@@ -2778,3 +2778,32 @@ function v(id) {
     const el = document.getElementById(id);
     return el ? el.value : "";
 }
+
+function previewCalendar() {
+    const ym = document.getElementById('targetMonth').value;
+    if(ym) renderCalendarGrid('adminCalPreview', ym, 'preview');
+}
+
+let displayCalDate = new Date();
+if(document.body.id === 'page-calendar') {
+    window.addEventListener('load', () => {
+        updateUserCalendarTitle();
+        renderUserCalendar();
+    });
+}
+function updateUserCalendarTitle() {
+    const y = displayCalDate.getFullYear();
+    const m = displayCalDate.getMonth() + 1;
+    document.getElementById('userCalTitle').textContent = `${y}年 ${m}月`;
+}
+function renderUserCalendar() {
+    const y = displayCalDate.getFullYear();
+    const m = displayCalDate.getMonth() + 1;
+    const ym = `${y}-${String(m).padStart(2,'0')}`;
+    renderCalendarGrid('userCalGrid', ym, 'user');
+}
+function moveUserCalendar(offset) {
+    displayCalDate.setMonth(displayCalDate.getMonth() + offset);
+    updateUserCalendarTitle();
+    renderUserCalendar();
+}
