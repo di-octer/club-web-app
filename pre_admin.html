@@ -141,42 +141,42 @@
         </div>
 
         <div id="view-acad">
-            <p style="font-size:0.9em; color:#666;">年度を入力すると、日付の「年」は自動計算・固定されます。</p>
+            <p style="font-size:0.9em; color:#666;">日付は <b>MM-DD</b> 形式で入力してください。<br>設定年度に基づき自動で年(YYYY)が補完されます。(1~3月は翌年扱い)</p>
             <div class="input-group">
                 <label>設定年度</label>
-                <input type="number" id="acadYear" value="2024" oninput="updateAllAcadDates()">
+                <input type="number" id="acadYear" value="2024">
             </div>
             <details open class="settings-details">
-                <summary>学期期間</summary>
+                <summary>学期期間 (MM-DD)</summary>
                 <div class="details-content">
-                    <label>前期 (前半/後半)</label>
+                    <label>前期 (開始 ～ 中間 / 終了)</label>
                     <div style="display:flex; gap:5px; align-items:center;">
-                        <input type="date" id="t1_start" class="acad-date" oninput="enforceAcadYear(this)"> ～ 
-                        <input type="date" id="t1_mid" class="acad-date" oninput="enforceAcadYear(this)"> / 
-                        <input type="date" id="t1_end" class="acad-date" oninput="enforceAcadYear(this)">
+                        <input type="text" id="t1_start" placeholder="04-01" class="date-short"> ～ 
+                        <input type="text" id="t1_mid" placeholder="06-01" class="date-short"> / 
+                        <input type="text" id="t1_end" placeholder="07-31" class="date-short">
                     </div>
-                    <label style="margin-top:10px;">後期 (前半/後半)</label>
+                    <label style="margin-top:10px;">後期 (開始 ～ 中間 / 終了)</label>
                     <div style="display:flex; gap:5px; align-items:center;">
-                        <input type="date" id="t2_start" class="acad-date" oninput="enforceAcadYear(this)"> ～ 
-                        <input type="date" id="t2_mid" class="acad-date" oninput="enforceAcadYear(this)"> / 
-                        <input type="date" id="t2_end" class="acad-date" oninput="enforceAcadYear(this)">
+                        <input type="text" id="t2_start" placeholder="09-20" class="date-short"> ～ 
+                        <input type="text" id="t2_mid" placeholder="11-01" class="date-short"> / 
+                        <input type="text" id="t2_end" placeholder="01-31" class="date-short">
                     </div>
                 </div>
             </details>
             <details class="settings-details">
-                <summary>特殊期間 (試験・補講など)</summary>
+                <summary>特殊期間 (MM-DD または MM-DD:MM-DD)</summary>
                 <div class="details-content">
-                    <label>履修登録期間 (YYYY-MM-DD形式で入力)</label> 
-                    <input type="text" id="p_reg" placeholder="YYYY-MM-DD:YYYY-MM-DD">
+                    <label>履修登録期間</label> 
+                    <input type="text" id="p_reg" placeholder="04-01:04-10">
                     
                     <label>集中補講期間</label> 
-                    <input type="text" id="p_sup" placeholder="YYYY-MM-DD:YYYY-MM-DD">
+                    <input type="text" id="p_sup" placeholder="08-01:08-07">
                     
                     <label>試験期間</label> 
-                    <input type="text" id="p_exam" placeholder="YYYY-MM-DD:YYYY-MM-DD">
+                    <input type="text" id="p_exam" placeholder="07-20:07-31">
                     
-                    <label>成績発表日</label> 
-                    <input type="date" id="d_grade" class="acad-date" oninput="enforceAcadYear(this)">
+                    <label>成績発表日 (MM-DD)</label> 
+                    <input type="text" id="d_grade" placeholder="08-20">
                 </div>
             </details>
             <button onclick="saveAcademicConfig()" class="btn-primary" style="width:100%; margin-top:10px;">保存</button>
@@ -185,7 +185,7 @@
         <div id="view-monthly" style="display:none;">
             <div class="input-group">
                 <label>対象年月 <small style="color:#666;">※形式: YYYY-MM</small></label>
-                <input type="month" id="targetMonth" onchange="updateMonthlyBaseYear()">
+                <input type="month" id="targetMonth">
                 <button onclick="loadMonthConfig()">読み込み</button>
             </div>
             
@@ -201,7 +201,7 @@
                 <div class="details-content">
                     <div class="input-group">
                         <label>種別</label>
-                        <select id="evtType">
+                        <select id="evtType" onchange="toggleEventTitleInput()">
                             <option value="general">総会</option>
                             <option value="radio">ラジオ</option>
                             <option value="camp">合宿</option>
@@ -212,16 +212,18 @@
                         </select>
                     </div>
                     <div class="input-group">
-                        <label>期間 (1日の場合は開始のみ)</label>
+                        <label>期間 (MM-DD形式、1日の場合は開始のみ)</label>
                         <div style="display:flex; gap:5px; align-items:center;">
-                            <input type="date" id="evtStart" oninput="enforceMonthlyYear(this)"> ～ 
-                            <input type="date" id="evtEnd" oninput="enforceMonthlyYear(this)">
+                            <input type="text" id="evtStart" placeholder="MM-DD" class="date-short"> ～ 
+                            <input type="text" id="evtEnd" placeholder="MM-DD" class="date-short">
                         </div>
                     </div>
-                    <div class="input-group">
+                    
+                    <div class="input-group" id="evtTitleContainer" style="display:none;">
                         <label>タイトル</label>
-                        <input type="text" id="evtTitle">
+                        <input type="text" id="evtTitle" placeholder="イベント名を入力">
                     </div>
+                    
                     <button onclick="addCalendarEvent()">リストに追加</button>
                     <div id="tempEventList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
                 </div>
@@ -236,7 +238,7 @@
             <button onclick="saveMonthCalendar()" class="btn-primary" style="width:100%; margin-top:15px;">この内容で保存・公開</button>
         </div>
     </div>
-    
+
 </div>
 <script src="pre_script.js"></script>
 </body>

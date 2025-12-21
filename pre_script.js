@@ -1046,20 +1046,16 @@ async function deleteRecommendedArticle(docId) {
 }
 
 function switchTab(tabName, btnElement) {
-    // ボタンのスタイルリセット
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    // コンテンツの非表示
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     
-    // クリックされたボタンをアクティブ化
-    if (btnElement) {
-        btnElement.classList.add('active');
-    }
-    
-    // 対象コンテンツを表示
+    if (btnElement) btnElement.classList.add('active');
     const content = document.getElementById(`tab-${tabName}`);
-    if (content) {
-        content.classList.add('active');
+    if (content) content.classList.add('active');
+
+    // ★追加: カレンダータブを開いたとき、サブタブの初期表示(学年暦)を確実にアクティブにする
+    if (tabName === 'calendar') {
+        switchCalendarSubTab('acad');
     }
 }
 
@@ -1959,8 +1955,41 @@ function renderOtherReportIcons(reports, container) {
 function switchCalendarSubTab(tab) {
     document.getElementById('view-acad').style.display = tab === 'acad' ? 'block' : 'none';
     document.getElementById('view-monthly').style.display = tab === 'monthly' ? 'block' : 'none';
-    document.getElementById('btn-sub-acad').classList.toggle('active', tab === 'acad');
-    document.getElementById('btn-sub-monthly').classList.toggle('active', tab === 'monthly');
+    
+    // 全てのサブタブからactiveを外し、対象に付与
+    document.getElementById('btn-sub-acad').classList.remove('active');
+    document.getElementById('btn-sub-monthly').classList.remove('active');
+    
+    if(tab === 'acad') document.getElementById('btn-sub-acad').classList.add('active');
+    if(tab === 'monthly') document.getElementById('btn-sub-monthly').classList.add('active');
+}
+
+// --- 日付変換ヘルパー (MM-DD -> YYYY-MM-DD) ---
+// inputStr: "MM-DD" or "MM-DD:MM-DD"
+// baseYear: 基準年 (int)
+// isAcademic: 学年暦ルール(1-3月は翌年)を適用するか (boolean)
+function resolveDateYear(inputStr, baseYear, isAcademic) {
+    if (!inputStr) return "";
+    
+    // 期間(コロンスプリット)対応
+    if (inputStr.includes(':')) {
+        const [start, end] = inputStr.split(':');
+        return `${resolveDateYear(start, baseYear, isAcademic)}:${resolveDateYear(end, baseYear, isAcademic)}`;
+    }
+
+    // 単一形式チェック (M-D も許容して 0埋めする)
+    const parts = inputStr.split('-');
+    if (parts.length !== 2) return inputStr; // そのまま返す
+
+    const m = parseInt(parts[0]);
+    const d = parseInt(parts[1]);
+    
+    let targetYear = baseYear;
+    if (isAcademic && m >= 1 && m <= 3) {
+        targetYear = baseYear + 1; // 学年暦ルール: 1~3月は翌年
+    }
+
+    return `${targetYear}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 
 // --- 年の自動補正ロジック (学年暦) ---
@@ -2019,31 +2048,53 @@ function enforceMonthlyYear(el) {
 
 // --- Admin: 学年暦保存 ---
 async function saveAcademicConfig() {
-    const year = document.getElementById('acadYear').value;
-    if(!year) return alert("年度を入力してください");
+    const yearStr = document.getElementById('acadYear').value;
+    if(!yearStr) return alert("年度を入力してください");
+    const year = parseInt(yearStr);
     
+    // 各入力値を変換して保存
     const data = {
-        t1: { start: v('t1_start'), mid: v('t1_mid'), end: v('t1_end') },
-        t2: { start: v('t2_start'), mid: v('t2_mid'), end: v('t2_end') },
-        periods: {
-            reg: v('p_reg'), sup: v('p_sup'), exam: v('p_exam')
+        t1: { 
+            start: resolveDateYear(v('t1_start'), year, true), 
+            mid: resolveDateYear(v('t1_mid'), year, true), 
+            end: resolveDateYear(v('t1_end'), year, true) 
         },
-        gradeDate: v('d_grade'),
+        t2: { 
+            start: resolveDateYear(v('t2_start'), year, true), 
+            mid: resolveDateYear(v('t2_mid'), year, true), 
+            end: resolveDateYear(v('t2_end'), year, true) 
+        },
+        periods: {
+            reg: resolveDateYear(v('p_reg'), year, true), 
+            sup: resolveDateYear(v('p_sup'), year, true), 
+            exam: resolveDateYear(v('p_exam'), year, true)
+        },
+        gradeDate: resolveDateYear(v('d_grade'), year, true),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     
     await db.collection('calendar_meta').doc(`config_${year}`).set(data);
-    alert("学年暦を保存しました");
+    alert(`${year}年度の学年暦を保存しました`);
 }
 function v(id) { return document.getElementById(id).value; }
 
-// --- Admin: 月次設定読み込み・UI生成 ---
-let tempEvents = []; // イベント一時保存
+// --- Admin: イベントタイトル制御 ---
+function toggleEventTitleInput() {
+    const type = document.getElementById('evtType').value;
+    const container = document.getElementById('evtTitleContainer');
+    if (type === 'event') {
+        container.style.display = 'block';
+    } else {
+        container.style.display = 'none';
+    }
+}
+
+// --- Admin: 月次設定読み込み ---
+let tempEvents = [];
 async function loadMonthConfig() {
     const ym = document.getElementById('targetMonth').value; // YYYY-MM
     if(!ym) return;
     
-    // 1. キャンパスごとの活動日設定UI生成
     const cDiv = document.getElementById('campusActivitySettings');
     cDiv.innerHTML = "";
     if(registeredCampuses.length === 0) await loadCampuses();
@@ -2053,32 +2104,22 @@ async function loadMonthConfig() {
         div.style.marginBottom = "15px";
         div.style.borderBottom = "1px solid #eee";
         div.style.paddingBottom = "10px";
-        
         div.innerHTML = `<strong style="display:block; margin-bottom:5px;">${c.name}</strong>`;
-        
-        // ★修正: 曜日を横並びにするコンテナを作成
         const daysContainer = document.createElement('div');
         daysContainer.style.display = "flex";
         daysContainer.style.flexWrap = "wrap";
-        daysContainer.style.gap = "15px"; // 間隔
-        
+        daysContainer.style.gap = "15px";
         ['日','月','火','水','木','金','土'].forEach((w, i) => {
-            daysContainer.innerHTML += `
-                <label style="cursor:pointer; display:flex; align-items:center;">
-                    <input type="checkbox" class="act-chk" data-campus="${c.id}" value="${i}" style="margin-right:4px;"> ${w}
-                </label>`;
+            daysContainer.innerHTML += `<label style="cursor:pointer; display:flex; align-items:center;"><input type="checkbox" class="act-chk" data-campus="${c.id}" value="${i}" style="margin-right:4px;"> ${w}</label>`;
         });
-        
         div.appendChild(daysContainer);
         cDiv.appendChild(div);
     });
 
-    // 2. 既存データ読み込み
     try {
         const doc = await db.collection('calendars').doc(ym).get();
         if(doc.exists) {
             const d = doc.data();
-            // 活動日チェック復元
             if(d.activityDays) {
                 for(const [cid, days] of Object.entries(d.activityDays)) {
                     days.forEach(dayIdx => {
@@ -2087,27 +2128,48 @@ async function loadMonthConfig() {
                     });
                 }
             }
-            // イベント復元
             tempEvents = d.events || [];
-            renderTempEvents();
         } else {
             tempEvents = [];
-            renderTempEvents();
         }
+        renderTempEvents();
     } catch(e) { console.error(e); }
 }
 
 function addCalendarEvent() {
-    const type = v('evtType');
-    const start = v('evtStart');
-    const end = v('evtEnd');
-    const title = v('evtTitle');
-    if(!start || !title) return alert("必須項目がありません");
+    const ym = document.getElementById('targetMonth').value;
+    if(!ym) return alert("対象年月を選択してください");
+    const targetYear = parseInt(ym.split('-')[0]);
+
+    const typeSelect = document.getElementById('evtType');
+    const type = typeSelect.value;
+    const typeLabel = typeSelect.options[typeSelect.selectedIndex].text;
     
-    tempEvents.push({ type, start, end: end || start, title });
+    // タイトル決定 (その他以外は種別名を使う)
+    let title = "";
+    if (type === 'event') {
+        title = document.getElementById('evtTitle').value;
+        if(!title) return alert("イベント名を入力してください");
+    } else {
+        title = typeLabel;
+    }
+
+    // 日付変換 (月次設定は、対象年月の年を使用する = isAcademic:false)
+    const rawStart = v('evtStart');
+    const rawEnd = v('evtEnd');
+    
+    if(!rawStart) return alert("開始日(MM-DD)を入力してください");
+    
+    const start = resolveDateYear(rawStart, targetYear, false);
+    const end = rawEnd ? resolveDateYear(rawEnd, targetYear, false) : start;
+
+    tempEvents.push({ type, start, end, title });
     renderTempEvents();
-    // 入力クリア
+    
+    // クリア
     document.getElementById('evtTitle').value = "";
+    document.getElementById('evtStart').value = "";
+    document.getElementById('evtEnd').value = "";
 }
 
 function renderTempEvents() {
@@ -2118,8 +2180,9 @@ function renderTempEvents() {
         div.style.fontSize = "0.9em";
         div.style.borderBottom = "1px solid #eee";
         div.innerHTML = `
-            <button onclick="tempEvents.splice(${i},1);renderTempEvents()" style="color:red;padding:0;">×</button> 
-            [${evt.type}] ${evt.start}${evt.end!==evt.start ? '~'+evt.end : ''} : ${evt.title}
+            <button onclick="tempEvents.splice(${i},1);renderTempEvents()" style="color:red;padding:0;border:none;background:none;font-weight:bold;margin-right:5px;">×</button> 
+            <span class="evt-badge" style="background-color:#666;">${evt.type}</span> 
+            ${evt.start}${evt.end!==evt.start ? '~'+evt.end : ''} : <b>${evt.title}</b>
         `;
         list.appendChild(div);
     });
@@ -2130,7 +2193,6 @@ async function saveMonthCalendar() {
     const ym = document.getElementById('targetMonth').value;
     if(!ym) return alert("年月を選択してください");
     
-    // 活動日集計
     const activityDays = {};
     document.querySelectorAll('.act-chk:checked').forEach(chk => {
         const cid = chk.dataset.campus;
@@ -2147,17 +2209,13 @@ async function saveMonthCalendar() {
 }
 
 // --- 共通: カレンダー描画ロジック ---
-// targetId: 描画先のDIV ID
-// ym: YYYY-MM
-// mode: 'preview' or 'user'
 async function renderCalendarGrid(targetId, ym, mode) {
     const container = document.getElementById(targetId);
     container.innerHTML = "読み込み中...";
     
     const [year, month] = ym.split('-').map(Number);
-    
-    // データ取得 (UserモードならDBから、Previewなら入力値から)
     let data = {};
+
     if (mode === 'preview') {
         const activityDays = {};
         document.querySelectorAll('.act-chk:checked').forEach(chk => {
@@ -2172,28 +2230,26 @@ async function renderCalendarGrid(targetId, ym, mode) {
             if(doc.exists) {
                 data = doc.data();
                 const d = data.updatedAt.toDate();
-                document.getElementById('userCalUpdated').textContent = `最終更新: ${d.toLocaleString()}`;
+                if(document.getElementById('userCalUpdated')) 
+                    document.getElementById('userCalUpdated').textContent = `最終更新: ${d.toLocaleString()}`;
             }
         } catch(e) { console.error(e); }
     }
 
-    // カレンダー構築
     const firstDay = new Date(year, month - 1, 1).getDay();
     const lastDate = new Date(year, month, 0).getDate();
     
     let html = `<div class="cal-grid">`;
     const weekDays = ['日','月','火','水','木','金','土'];
-    
     weekDays.forEach(w => html += `<div class="cal-day-header">${w}</div>`);
     for(let i=0; i<firstDay; i++) html += `<div class="cal-cell" style="background:#f9f9f9;"></div>`;
     
     for(let d=1; d<=lastDate; d++) {
         const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const dayOfWeek = new Date(year, month-1, d).getDay();
-        
         let badges = "";
         
-        // 1. 活動日判定 (User設定のデフォルトキャンパスがあればそれ優先、なければ全表示)
+        // 活動日
         if (data.activityDays) {
             let isActivity = false;
             let campusNames = [];
@@ -2205,7 +2261,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 }
             }
             if(isActivity) {
-                // 重複排除して表示
                 const uniqueNames = [...new Set(campusNames)];
                 uniqueNames.forEach(n => {
                     badges += `<span class="evt-badge evt-activity">活動: ${n}</span>`;
@@ -2213,7 +2268,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
             }
         }
 
-        // 2. イベント判定
+        // イベント
         if (data.events) {
             data.events.forEach(evt => {
                 if (evt.start <= currentYMD && evt.end >= currentYMD) {
@@ -2224,15 +2279,12 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 }
             });
         }
-
         html += `<div class="cal-cell"><span style="font-weight:bold;">${d}</span>${badges}</div>`;
     }
-    html += `</div>`; // grid end
-    
+    html += `</div>`;
     container.innerHTML = html;
 }
 
-// --- Admin: プレビューボタン ---
 function previewCalendar() {
     const ym = document.getElementById('targetMonth').value;
     if(ym) renderCalendarGrid('adminCalPreview', ym, 'preview');
@@ -2240,28 +2292,23 @@ function previewCalendar() {
 
 // --- User: カレンダー画面用 ---
 let displayCalDate = new Date();
-
-// 初期化時に呼ばれる想定 (bodyId='page-calendar')
 if(document.body.id === 'page-calendar') {
     window.addEventListener('load', () => {
         updateUserCalendarTitle();
         renderUserCalendar();
     });
 }
-
 function updateUserCalendarTitle() {
     const y = displayCalDate.getFullYear();
     const m = displayCalDate.getMonth() + 1;
     document.getElementById('userCalTitle').textContent = `${y}年 ${m}月`;
 }
-
 function renderUserCalendar() {
     const y = displayCalDate.getFullYear();
     const m = displayCalDate.getMonth() + 1;
     const ym = `${y}-${String(m).padStart(2,'0')}`;
     renderCalendarGrid('userCalGrid', ym, 'user');
 }
-
 function moveUserCalendar(offset) {
     displayCalDate.setMonth(displayCalDate.getMonth() + offset);
     updateUserCalendarTitle();
