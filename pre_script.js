@@ -394,6 +394,9 @@ function loginWithDiscord() {
     auth.signInWithPopup(provider)
         .then(async (result) => {
             const user = result.user;
+            // Discordプロファイル情報の取得 (IDやユーザー名用)
+            const profile = result.additionalUserInfo ? result.additionalUserInfo.profile : {};
+            
             const userRef = db.collection('users').doc(user.uid);
             
             try {
@@ -405,56 +408,41 @@ function loginWithDiscord() {
                     displayName: user.displayName,
                     email: user.email,
                     photoURL: user.photoURL,
-                    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                    lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
+                    
+                    // ★追加: Discord情報の更新 (ログインのたびに最新化)
+                    discordId: profile.id || "",
+                    discordName: profile.username || "", // ユーザー名
+                    discordIcon: user.photoURL || ""   // アイコンパス
                 };
 
                 // --- 隠しユーザー情報 (存在しない場合のみ初期値をセット) ---
-                // ※管理者が設定する値などは、既存の値があれば上書きしないようにチェックする
                 
-                // どういった人間かの所感
+                // ★追加: 本名・学籍番号・所属・ロール
+                if (currentData.realName === undefined) updateData.realName = user.displayName; // 初期値は表示名
+                if (currentData.studentId === undefined) updateData.studentId = "";
+                if (currentData.isMember === undefined) updateData.isMember = false; // 所属: 未
+                if (currentData.role === undefined) updateData.role = "仮入部"; // ロール: 仮入部
+
+                // 既存の隠しフィールド
                 if (currentData.adminMemo === undefined) updateData.adminMemo = "";
-                
-                // 活動への参加率(%)
                 if (currentData.rateActivity === undefined) updateData.rateActivity = 0;
-                
-                // チーム開発の参加意欲(%)
                 if (currentData.rateTeam === undefined) updateData.rateTeam = 0;
-                
-                // カリキュラムへの意欲(%)
                 if (currentData.rateCurriculum === undefined) updateData.rateCurriculum = 0;
-                
-                // 仲のいい人がどれくらいいるか(%)
                 if (currentData.rateFriends === undefined) updateData.rateFriends = 0;
-                
-                // どのグループとよくいるか(複数グループ設定可)
                 if (currentData.groups === undefined) updateData.groups = [];
-                
-                // キータチームでどのアカウントか
                 if (currentData.qiitaId === undefined) updateData.qiitaId = "";
-                
-                // gitのどのアカウントか
                 if (currentData.gitId === undefined) updateData.gitId = "";
-                
-                // ディスコードでどのアカウントか
-                if (currentData.discordId === undefined) updateData.discordId = "";
-                
-                // 登録されている顔のどれか (顔登録有無フラグ)
+                // discordId は上で更新済み
                 if (currentData.faceRegistered === undefined) updateData.faceRegistered = false;
-                
-                // adminへ入場許可されているか
                 if (currentData.isAdmin === undefined) updateData.isAdmin = false;
-                
-                // 今の何の備品を借りているか
                 if (currentData.borrowedItems === undefined) updateData.borrowedItems = [];
 
-                // Firestoreに保存 (merge: true なので既存の設定値などは消えません)
                 await userRef.set(updateData, { merge: true });
-                
                 window.location.href = 'pre_home.html';
                 
             } catch (e) {
                 console.error("User Init Error:", e);
-                // エラーでも最低限遷移はさせる
                 window.location.href = 'pre_home.html';
             }
         })
@@ -540,7 +528,6 @@ async function approveRecurring(docId) {
 // ==========================================
 //   (pre_script.js の refreshAllUsers を修正)
 // ==========================================
-
 async function refreshAllUsers() {
     const list = document.getElementById('allUsersList');
     list.innerHTML = "読み込み中...";
@@ -557,19 +544,22 @@ async function refreshAllUsers() {
             div.className = 'item-card';
             div.style.display = 'block';
             
-            // 配列データや未定義値の整形
             const groupsStr = (Array.isArray(u.groups) && u.groups.length > 0) ? u.groups.join(", ") : "なし";
             const itemsStr = (Array.isArray(u.borrowedItems) && u.borrowedItems.length > 0) ? u.borrowedItems.join(", ") : "なし";
 
+            // ★修正: 追加情報（Discord情報、学籍番号、ロール等）を表示
             const hiddenInfo = `
                 <ul style="font-size:0.85em; color:#333; text-align:left; padding-left:20px; line-height:1.8;">
+                    <li><b>基本情報:</b> ${u.realName || u.displayName} / ${u.studentId || "学籍番号未設定"}</li>
+                    <li><b>ステータス:</b> ${u.isMember ? "部員" : "未所属"} / ${u.role || "-"}</li>
+                    <li><b>Discord:</b> ${u.discordName || "-"} (ID: ${u.discordId || "-"})</li>
                     <li>所感: ${u.adminMemo || "未設定"}</li>
                     <li>活動参加率: ${u.rateActivity || 0}%</li>
                     <li>チーム開発意欲: ${u.rateTeam || 0}%</li>
                     <li>カリキュラム意欲: ${u.rateCurriculum || 0}%</li>
                     <li>交友率: ${u.rateFriends || 0}%</li>
                     <li>よくいるグループ: ${groupsStr}</li>
-                    <li>連携: Qiita(${u.qiitaId || "-"}), Git(${u.gitId || "-"}), Discord(${u.discordId || "-"})</li>
+                    <li>連携: Qiita(${u.qiitaId || "-"}), Git(${u.gitId || "-"})</li>
                     <li>顔登録: ${u.faceRegistered ? "済" : "未"}</li>
                     <li>Admin権限: ${u.isAdmin ? "あり" : "なし"}</li>
                     <li>借用備品: ${itemsStr}</li>
