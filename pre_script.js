@@ -2229,7 +2229,12 @@ async function saveAcademicConfig() {
     await db.collection('calendar_meta').doc(`config_${year}`).set(data);
     alert(`${year}年度の学年暦を保存しました`);
 }
-function v(id) { return document.getElementById(id).value; }
+
+// --- 学年暦ヘルパー ---
+function v(id) { 
+    const el = document.getElementById(id);
+    return el ? el.value : "";
+}
 
 
 // ==========================
@@ -2267,50 +2272,71 @@ function removeNoActivityDay(index) {
     renderNoActList();
 }
 
+// 月次設定読み込み (時間設定含む)
 async function loadMonthConfig() {
-    const ym = document.getElementById('targetMonth').value; 
+    const ym = document.getElementById('targetMonth').value;
     if(!ym) return;
     
     await populateCampusSelects();
-
     const cDiv = document.getElementById('campusActivitySettings');
     cDiv.innerHTML = "";
+    
+    // UI生成 (時間入力付き)
     registeredCampuses.forEach(c => {
         const div = document.createElement('div');
         div.style.marginBottom = "15px";
-        div.style.borderBottom = "1px solid #eee";
-        div.style.paddingBottom = "10px";
-        div.innerHTML = `<strong style="display:block; margin-bottom:5px;">${c.name}</strong>`;
-        const daysContainer = document.createElement('div');
-        daysContainer.style.display = "flex"; daysContainer.style.flexWrap = "wrap"; daysContainer.style.gap = "15px";
+        div.innerHTML = `<strong>${c.name}</strong>`;
+        const daysDiv = document.createElement('div');
+        daysDiv.style.display="flex"; daysDiv.style.flexWrap="wrap"; daysDiv.style.gap="10px";
+        
         ['日','月','火','水','木','金','土'].forEach((w, i) => {
-            daysContainer.innerHTML += `<label style="cursor:pointer; display:flex; align-items:center;"><input type="checkbox" class="act-chk" data-campus="${c.id}" value="${i}" style="margin-right:4px;"> ${w}</label>`;
+            daysDiv.innerHTML += `
+                <div style="border:1px solid #eee; padding:5px; border-radius:4px;">
+                    <label><input type="checkbox" class="act-chk" data-cid="${c.id}" value="${i}"> ${w}</label>
+                    <div style="font-size:0.8em;">
+                        <input type="time" class="act-start" data-cid="${c.id}" data-day="${i}" value="17:00">~
+                        <input type="time" class="act-end" data-cid="${c.id}" data-day="${i}" value="19:40">
+                    </div>
+                </div>`;
         });
-        div.appendChild(daysContainer);
+        div.appendChild(daysDiv);
         cDiv.appendChild(div);
     });
 
+    // データ復元
     try {
         const doc = await db.collection('calendars').doc(ym).get();
         if(doc.exists) {
             const d = doc.data();
             if(d.activityDays) {
                 for(const [cid, days] of Object.entries(d.activityDays)) {
-                    days.forEach(dayIdx => {
-                        const chk = cDiv.querySelector(`.act-chk[data-campus="${cid}"][value="${dayIdx}"]`);
-                        if(chk) chk.checked = true;
+                    days.forEach(item => {
+                        // item は { day: 1, start: "17:00", end: "19:40" } 形式
+                        const idx = item.day;
+                        const chk = cDiv.querySelector(`.act-chk[data-cid="${cid}"][value="${idx}"]`);
+                        if(chk) {
+                            chk.checked = true;
+                            const sInput = cDiv.querySelector(`.act-start[data-cid="${cid}"][data-day="${idx}"]`);
+                            const eInput = cDiv.querySelector(`.act-end[data-cid="${cid}"][data-day="${idx}"]`);
+                            if(sInput && item.start) sInput.value = item.start;
+                            if(eInput && item.end) eInput.value = item.end;
+                        }
                     });
                 }
             }
+            // イベント復元
             tempEvents = d.events || [];
             tempNoActivityDays = d.noActivityDays || [];
+            renderTempEvents();
+            renderNoActList();
         } else {
+            // 新規の場合はリセット
             tempEvents = [];
             tempNoActivityDays = [];
+            renderTempEvents();
+            renderNoActList();
         }
-        renderTempEvents();
-        renderNoActList();
-    } catch(e) { console.error(e); }
+    } catch(e){}
 }
 
 function addCalendarEvent() {
@@ -2357,16 +2383,23 @@ function removeCalendarEvent(index) {
 
 async function saveMonthCalendar() {
     const ym = document.getElementById('targetMonth').value;
-    if(!ym) return alert("年月を選択してください");
-    const targetYear = parseInt(ym.split('-')[0]);
+    if(!ym) return alert("年月必須");
     
+    // 対象年を取得 (活動なし日の日付変換用)
+    const targetYear = parseInt(ym.split('-')[0]);
+
     const activityDays = {};
     document.querySelectorAll('.act-chk:checked').forEach(chk => {
-        const cid = chk.dataset.campus;
+        const cid = chk.dataset.cid;
+        const day = parseInt(chk.value);
+        const start = document.querySelector(`.act-start[data-cid="${cid}"][data-day="${day}"]`).value;
+        const end = document.querySelector(`.act-end[data-cid="${cid}"][data-day="${day}"]`).value;
+        
         if(!activityDays[cid]) activityDays[cid] = [];
-        activityDays[cid].push(parseInt(chk.value));
+        activityDays[cid].push({ day, start, end });
     });
 
+    // 活動なし日の日付変換
     const noActivityDays = tempNoActivityDays.map(item => ({
         ...item,
         date: resolveDateYear(item.date, targetYear, false)
@@ -2378,13 +2411,12 @@ async function saveMonthCalendar() {
         noActivityDays: noActivityDays,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    alert("カレンダーを保存・公開しました");
+    alert("保存しました");
 }
 
-// ==========================================
-//   カレンダー・出席履歴ロジック (Admin & User)
-// ==========================================
-
+// ==========================
+//   カレンダー描画 (Grid)
+// ==========================
 // --- カレンダー描画 (User: pre_check.html / Admin: Preview) ---
 async function renderCalendarGrid(targetId, ym, mode) {
     const container = document.getElementById(targetId);
@@ -2670,113 +2702,6 @@ async function updateActivityTimeException() {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     alert("活動時間を変更しました");
-}
-
-// 月次設定読み込み (時間設定含む)
-async function loadMonthConfig() {
-    const ym = document.getElementById('targetMonth').value;
-    if(!ym) return;
-    
-    await populateCampusSelects();
-    const cDiv = document.getElementById('campusActivitySettings');
-    cDiv.innerHTML = "";
-    
-    // UI生成 (時間入力付き)
-    registeredCampuses.forEach(c => {
-        const div = document.createElement('div');
-        div.style.marginBottom = "15px";
-        div.innerHTML = `<strong>${c.name}</strong>`;
-        const daysDiv = document.createElement('div');
-        daysDiv.style.display="flex"; daysDiv.style.flexWrap="wrap"; daysDiv.style.gap="10px";
-        
-        ['日','月','火','水','木','金','土'].forEach((w, i) => {
-            daysDiv.innerHTML += `
-                <div style="border:1px solid #eee; padding:5px; border-radius:4px;">
-                    <label><input type="checkbox" class="act-chk" data-cid="${c.id}" value="${i}"> ${w}</label>
-                    <div style="font-size:0.8em;">
-                        <input type="time" class="act-start" data-cid="${c.id}" data-day="${i}" value="17:00">~
-                        <input type="time" class="act-end" data-cid="${c.id}" data-day="${i}" value="19:40">
-                    </div>
-                </div>`;
-        });
-        div.appendChild(daysDiv);
-        cDiv.appendChild(div);
-    });
-
-    // データ復元
-    try {
-        const doc = await db.collection('calendars').doc(ym).get();
-        if(doc.exists) {
-            const d = doc.data();
-            if(d.activityDays) {
-                for(const [cid, days] of Object.entries(d.activityDays)) {
-                    days.forEach(item => {
-                        // item は { day: 1, start: "17:00", end: "19:40" } 形式
-                        const idx = item.day;
-                        const chk = cDiv.querySelector(`.act-chk[data-cid="${cid}"][value="${idx}"]`);
-                        if(chk) {
-                            chk.checked = true;
-                            const sInput = cDiv.querySelector(`.act-start[data-cid="${cid}"][data-day="${idx}"]`);
-                            const eInput = cDiv.querySelector(`.act-end[data-cid="${cid}"][data-day="${idx}"]`);
-                            if(sInput && item.start) sInput.value = item.start;
-                            if(eInput && item.end) eInput.value = item.end;
-                        }
-                    });
-                }
-            }
-            // イベント復元
-            tempEvents = d.events || [];
-            tempNoActivityDays = d.noActivityDays || [];
-            renderTempEvents();
-            renderNoActList();
-        } else {
-            // 新規の場合はリセット
-            tempEvents = [];
-            tempNoActivityDays = [];
-            renderTempEvents();
-            renderNoActList();
-        }
-    } catch(e){}
-}
-
-// 月次保存 (時間含む)
-async function saveMonthCalendar() {
-    const ym = document.getElementById('targetMonth').value;
-    if(!ym) return alert("年月必須");
-    
-    // 対象年を取得 (活動なし日の日付変換用)
-    const targetYear = parseInt(ym.split('-')[0]);
-
-    const activityDays = {};
-    document.querySelectorAll('.act-chk:checked').forEach(chk => {
-        const cid = chk.dataset.cid;
-        const day = parseInt(chk.value);
-        const start = document.querySelector(`.act-start[data-cid="${cid}"][data-day="${day}"]`).value;
-        const end = document.querySelector(`.act-end[data-cid="${cid}"][data-day="${day}"]`).value;
-        
-        if(!activityDays[cid]) activityDays[cid] = [];
-        activityDays[cid].push({ day, start, end });
-    });
-
-    // 活動なし日の日付変換
-    const noActivityDays = tempNoActivityDays.map(item => ({
-        ...item,
-        date: resolveDateYear(item.date, targetYear, false)
-    }));
-
-    await db.collection('calendars').doc(ym).set({
-        activityDays,
-        events: tempEvents,
-        noActivityDays: noActivityDays,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    alert("保存しました");
-}
-
-// --- 学年暦ヘルパー ---
-function v(id) { 
-    const el = document.getElementById(id);
-    return el ? el.value : "";
 }
 
 function previewCalendar() {
