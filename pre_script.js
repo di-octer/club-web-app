@@ -627,6 +627,15 @@ async function refreshAllUsers() {
     }
 }
 
+function toggleStatusModal() {
+    const modal = document.getElementById('statusDetailModal');
+    const overlay = document.getElementById('modalOverlay');
+    if (!modal || !overlay) return;
+    const isHidden = modal.style.display === 'none' || modal.style.display === '';
+    modal.style.display = isHidden ? 'block' : 'none';
+    overlay.style.display = isHidden ? 'block' : 'none';
+}
+
 async function updateAppbarStatus() {
     const campusEl = document.getElementById('appbarCampus');
     const statusEl = document.getElementById('appbarStatus');
