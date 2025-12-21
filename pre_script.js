@@ -55,7 +55,6 @@ window.onload = async () => {
 
         if (user) {
             console.log("Logged in as:", user.displayName);
-            // ★修正: ログイン処理中(isLoggingIn)の場合はリダイレクトせず、DB保存処理の完了を待つ
             if (isLoginPage && !isLoggingIn) {
                 window.location.href = 'pre_home.html';
             }
@@ -82,6 +81,7 @@ window.onload = async () => {
         await loadModels();
         await loadRegisteredFaces();
         await loadAdminRecommendedArticles();
+        await populateRegUserSelect(); // ★追加: 顔登録用のユーザーリスト取得
         switchAdminSubTab('auth');
         populateInfoLists();
     } else if (bodyId === 'page-check') {
@@ -92,6 +92,29 @@ window.onload = async () => {
         initSettingsPage();
     }
 };
+
+// --- 顔登録: ユーザー選択肢の生成 ---
+async function populateRegUserSelect() {
+    const select = document.getElementById('regUserSelect');
+    if (!select) return;
+    select.innerHTML = '<option value="">読み込み中...</option>';
+    
+    try {
+        const snap = await db.collection('users').orderBy('displayName').get();
+        select.innerHTML = '<option value="">ユーザーを選択してください</option>';
+        snap.forEach(doc => {
+            const u = doc.data();
+            const option = document.createElement('option');
+            option.value = doc.id; // uid
+            // わかりやすく表示名と本名を併記
+            option.text = `${u.displayName} (${u.realName || '-'})`;
+            select.appendChild(option);
+        });
+    } catch(e) {
+        console.error(e);
+        select.innerHTML = '<option value="">読み込みエラー</option>';
+    }
+}
 
 // --- ユーザー設定 ---
 async function loadUserSettings(uid) {
@@ -554,23 +577,33 @@ async function refreshAllUsers() {
             
             const groupsStr = (Array.isArray(u.groups) && u.groups.length > 0) ? u.groups.join(", ") : "なし";
             const itemsStr = (Array.isArray(u.borrowedItems) && u.borrowedItems.length > 0) ? u.borrowedItems.join(", ") : "なし";
+            
+            // 顔登録状態の表示（サムネイルがあれば画像を表示）
+            let faceStatusHtml = "未";
+            if (u.faceRegistered) {
+                if (u.faceThumbnail) {
+                    faceStatusHtml = `済 <br><img src="${u.faceThumbnail}" style="width:60px; height:60px; object-fit:cover; border-radius:4px; margin-top:5px; border:1px solid #ccc;">`;
+                } else {
+                    faceStatusHtml = "済 (画像なし)";
+                }
+            }
 
-            // ★修正: 追加情報（Discord情報、学籍番号、ロール等）を表示
+            // ★修正: 指定された表示順序に変更
             const hiddenInfo = `
-                <ul style="font-size:0.85em; color:#333; text-align:left; padding-left:20px; line-height:1.8;">
-                    <li><b>基本情報:</b> ${u.realName || u.displayName} / ${u.studentId || "学籍番号未設定"}</li>
-                    <li><b>ステータス:</b> ${u.isMember ? "部員" : "未所属"} / ${u.role || "-"}</li>
-                    <li><b>Discord:</b> ${u.discordName || "-"} (ID: ${u.discordId || "-"})</li>
-                    <li>所感: ${u.adminMemo || "未設定"}</li>
-                    <li>活動参加率: ${u.rateActivity || 0}%</li>
-                    <li>チーム開発意欲: ${u.rateTeam || 0}%</li>
-                    <li>カリキュラム意欲: ${u.rateCurriculum || 0}%</li>
-                    <li>交友率: ${u.rateFriends || 0}%</li>
-                    <li>よくいるグループ: ${groupsStr}</li>
-                    <li>連携: Qiita(${u.qiitaId || "-"}), Git(${u.gitId || "-"})</li>
-                    <li>顔登録: ${u.faceRegistered ? "済" : "未"}</li>
-                    <li>Admin権限: ${u.isAdmin ? "あり" : "なし"}</li>
-                    <li>借用備品: ${itemsStr}</li>
+                <ul style="font-size:0.9em; color:#333; text-align:left; padding-left:0; list-style:none; line-height:1.6;">
+                    <li style="margin-bottom:4px;"><b>基本情報:</b> ${u.discordName || u.displayName} / ${u.realName || "未設定"} / ${u.studentId || "学籍番号未設定"}</li>
+                    <li style="margin-bottom:4px;"><b>ステータス:</b> ${u.isMember ? "部員" : "未所属"} / ${u.role || "仮入部"}</li>
+                    <li style="margin-bottom:4px;"><b>Discord:</b> ${u.discordName || "-"} (ID: ${u.discordId || "-"})</li>
+                    <li style="margin-bottom:4px;"><b>連携:</b> Qiita(${u.qiitaId || "-"}), Git(${u.gitId || "-"})</li>
+                    <li style="margin-bottom:4px; display:flex; align-items:flex-start;"><b>顔登録:</b>&nbsp;<div>${faceStatusHtml}</div></li>
+                    <li style="margin-bottom:4px;"><b>所感:</b> ${u.adminMemo || "未設定"}</li>
+                    <li style="margin-bottom:4px;"><b>活動参加率:</b> ${u.rateActivity || 0}%</li>
+                    <li style="margin-bottom:4px;"><b>チーム開発意欲:</b> ${u.rateTeam || 0}%</li>
+                    <li style="margin-bottom:4px;"><b>カリキュラム意欲:</b> ${u.rateCurriculum || 0}%</li>
+                    <li style="margin-bottom:4px;"><b>交友率:</b> ${u.rateFriends || 0}%</li>
+                    <li style="margin-bottom:4px;"><b>よくいるグループ:</b> ${groupsStr}</li>
+                    <li style="margin-bottom:4px;"><b>Admin権限:</b> ${u.isAdmin ? "あり" : "なし"}</li>
+                    <li style="margin-bottom:4px;"><b>借用備品:</b> ${itemsStr}</li>
                 </ul>
             `;
 
@@ -592,15 +625,6 @@ async function refreshAllUsers() {
         console.error(e); 
         list.innerHTML = "読み込みエラー"; 
     }
-}
-
-function toggleStatusModal() {
-    const modal = document.getElementById('statusDetailModal');
-    const overlay = document.getElementById('modalOverlay');
-    if (!modal || !overlay) return;
-    const isHidden = modal.style.display === 'none' || modal.style.display === '';
-    modal.style.display = isHidden ? 'block' : 'none';
-    overlay.style.display = isHidden ? 'block' : 'none';
 }
 
 async function updateAppbarStatus() {
@@ -736,6 +760,9 @@ async function loadHomeNews() {
         section.insertBefore(tabBar, section.firstChild);
     }
 
+    // ★追加: 最大表示数の取得 (デフォルト20)
+    const maxCount = (userSettings && userSettings.newsMaxCount) ? parseInt(userSettings.newsMaxCount) : 20;
+
     const slideRec = document.getElementById('slide-rec');
     if (slideRec) {
         try {
@@ -745,6 +772,9 @@ async function loadHomeNews() {
                 const d = doc.data();
                 items.push({ title: d.title, url: d.url, badge: 'Pick', color: '#ff9800', author: null });
             });
+            // ★追加: 最大数で切り捨て
+            if (items.length > maxCount) items = items.slice(0, maxCount);
+            
             renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", items, 1);
         } catch(e) { slideRec.innerHTML = '<p>読み込みエラー</p>'; }
     }
@@ -760,6 +790,9 @@ async function loadHomeNews() {
                     title: item.title, url: item.url, badge: 'Qiita', color: '#55c500', author: (item.user ? item.user.id : 'unknown')
                 }));
             }
+            // ★追加: 最大数で切り捨て
+            if (items.length > maxCount) items = items.slice(0, maxCount);
+
             renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
         } catch(e) { slideTrend.innerHTML = '<p style="color:red">取得失敗</p>'; }
     }
@@ -1320,18 +1353,28 @@ async function reloadAllData() {
     await loadCampuses(); await loadGpsAreas(); await loadRegisteredFaces(); populateInfoLists();
 }
 
+// --- 顔登録: 開始処理 (修正: ユーザー選択必須) ---
 async function startFaceRegistration() {
-    const name = document.getElementById('regName').value.trim();
-    if(!name) return alert("登録名を入力してください");
+    const select = document.getElementById('regUserSelect');
+    if (!select.value) return alert("ユーザーを選択してください");
+    
+    // 選択されたユーザー名を一時保存
+    const userName = select.options[select.selectedIndex].text;
+    
     regStep = 1; regDescriptors = []; regThumbnail = ""; currentDetection = null; faceStableCount = 0;
+    
     const video = document.getElementById('regVideo');
     const canvas = document.getElementById('regCanvas');
     try {
         await loadModels();
         const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
         regStream = stream; video.srcObject = stream;
-        video.onloadedmetadata = () => { video.play(); document.getElementById('regStatus').textContent = `Step 1/5`; detectFaceLoopManual(video, canvas); };
-    } catch(e) { alert("カメラエラー"); }
+        video.onloadedmetadata = () => { 
+            video.play(); 
+            document.getElementById('regStatus').textContent = `Step 1/5: ${userName}`; 
+            detectFaceLoopManual(video, canvas); 
+        };
+    } catch(e) { alert("カメラエラー: " + e.message); }
 }
 
 async function detectFaceLoopManual(video, canvas) {
@@ -1368,12 +1411,49 @@ function proceedToNextStep() {
     else saveFaceDataManual();
 }
 
+// --- 顔登録: 保存処理 (修正: 紐付け保存) ---
 async function saveFaceDataManual() {
-    const name = document.getElementById('regName').value.trim();
-    await db.collection("faces").add({ label: name, thumbnail: regThumbnail, descriptors: regDescriptors });
-    alert(`登録完了`);
-    reloadAllData();
-    if (regStream) { regStream.getTracks().forEach(t => t.stop()); regStream = null; }
+    const select = document.getElementById('regUserSelect');
+    const uid = select.value;
+    const userName = select.options[select.selectedIndex].text;
+
+    if(!uid) return alert("ユーザーIDが不明です");
+
+    document.getElementById('regStatus').textContent = "保存中...";
+
+    try {
+        // 1. facesコレクションへの保存 (userIdを追加)
+        await db.collection("faces").add({ 
+            label: userName, 
+            userId: uid,
+            thumbnail: regThumbnail, 
+            descriptors: regDescriptors 
+        });
+
+        // 2. usersコレクションの更新 (顔登録フラグとサムネイル)
+        await db.collection("users").doc(uid).update({
+            faceRegistered: true,
+            faceThumbnail: regThumbnail // Base64画像を保存
+        });
+
+        alert(`登録完了: ${userName}`);
+        
+        // リセット
+        if (regStream) { regStream.getTracks().forEach(t => t.stop()); regStream = null; }
+        const ctx = document.getElementById('regCanvas').getContext('2d');
+        ctx.clearRect(0, 0, 1000, 1000);
+        document.getElementById('regStatus').textContent = "完了";
+        document.getElementById('regStartBtn').disabled = false;
+        document.getElementById('regNextBtn').disabled = true;
+        select.value = "";
+
+        // 一覧更新
+        refreshAllUsers();
+
+    } catch(e) {
+        alert("保存エラー: " + e.message);
+        console.error(e);
+    }
 }
 
 function float32ToBase64(float32) {

@@ -104,16 +104,6 @@
         </details>
 
         <details class="settings-details">
-            <summary>顔データ一覧</summary>
-            <div class="details-content">
-                <div style="text-align: right; margin-bottom: 5px;">
-                     <button class="btn-danger" onclick="deleteSelectedItems('faces')" style="font-size:0.8em;">選択削除</button>
-                </div>
-                <div id="faceList" class="list-container"></div>
-            </div>
-        </details>
-
-        <details class="settings-details">
             <summary>ユーザー情報</summary>
             <div class="details-content">
                 <div id="allUsersList" class="list-container"><p>読み込み中...</p></div>
@@ -124,16 +114,21 @@
 
     <div id="tab-face" class="tab-content">
         <h3>新規顔登録 (5段階)</h3>
+        <p style="font-size:0.9em; color:#666;">登録するユーザーを選択してください</p>
+        <div class="input-group">
+            <select id="regUserSelect" style="margin-bottom:10px; padding:10px; font-size:1.1em;">
+                <option value="">ユーザー読み込み中...</option>
+            </select>
+            <button id="regStartBtn" onclick="startFaceRegistration()">開始</button>
+        </div>
+        
         <div class="camera-wrapper">
             <video id="regVideo" autoplay muted playsinline></video>
             <canvas id="regCanvas" class="overlay"></canvas>
         </div>
-        <div class="input-group">
-            <input type="text" id="regName" placeholder="登録名を入力">
-            <button id="regStartBtn" onclick="startFaceRegistration()">開始</button>
-        </div>
-        <button id="regNextBtn" onclick="proceedToNextStep()" disabled style="width:100%; padding:15px; background-color:#ccc; border:none; border-radius:5px; color:white;">撮影・次へ</button>
-        <div id="regStatus">待機中...</div>
+        
+        <button id="regNextBtn" onclick="proceedToNextStep()" disabled style="width:100%; padding:15px; background-color:#ccc; border:none; border-radius:5px; color:white; margin-top:15px;">撮影・次へ</button>
+        <div id="regStatus" style="margin-top:10px;">待機中...</div>
     </div>
 
 </div>
