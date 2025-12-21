@@ -423,43 +423,39 @@ function toBase64(file) {
 //   認証機能 (Discord OIDC)
 // ==========================================
 function loginWithDiscord() {
-    isLoggingIn = true; // ★追加: ログイン処理開始（自動リダイレクトをブロック）
+    isLoggingIn = true;
     const provider = new firebase.auth.OAuthProvider('oidc.discord');
     provider.addScope('identify');
     auth.signInWithPopup(provider)
         .then(async (result) => {
             const user = result.user;
-            // Discordプロファイル情報の取得 (IDやユーザー名用)
             const profile = result.additionalUserInfo ? result.additionalUserInfo.profile : {};
-            
             const userRef = db.collection('users').doc(user.uid);
             
             try {
                 const doc = await userRef.get();
                 const currentData = doc.exists ? doc.data() : {};
                 
-                // 更新・初期化するデータ
                 const updateData = {
                     displayName: user.displayName,
                     email: user.email,
                     photoURL: user.photoURL,
                     lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-                    
-                    // ★追加: Discord情報の更新 (ログインのたびに最新化)
                     discordId: profile.id || "",
-                    discordName: profile.username || "", // ユーザー名
-                    discordIcon: user.photoURL || ""   // アイコンパス
+                    discordName: profile.username || "",
+                    discordIcon: user.photoURL || ""
                 };
 
-                // --- 隠しユーザー情報 (存在しない場合のみ初期値をセット) ---
-                
-                // ★追加: 本名・学籍番号・所属・ロール
-                if (currentData.realName === undefined) updateData.realName = user.displayName; // 初期値は表示名
+                // --- 隠しユーザー情報 ---
+                if (currentData.realName === undefined) updateData.realName = user.displayName;
                 if (currentData.studentId === undefined) updateData.studentId = "";
-                if (currentData.isMember === undefined) updateData.isMember = false; // 所属: 未
-                if (currentData.role === undefined) updateData.role = "仮入部"; // ロール: 仮入部
+                // ★追加: 回生 (初期値: 1)
+                if (currentData.grade === undefined) updateData.grade = 1;
+                
+                if (currentData.isMember === undefined) updateData.isMember = false;
+                if (currentData.role === undefined) updateData.role = "仮入部";
 
-                // 既存の隠しフィールド
+                // その他のパラメータ (変更なし)
                 if (currentData.adminMemo === undefined) updateData.adminMemo = "";
                 if (currentData.rateActivity === undefined) updateData.rateActivity = 0;
                 if (currentData.rateTeam === undefined) updateData.rateTeam = 0;
@@ -468,14 +464,12 @@ function loginWithDiscord() {
                 if (currentData.groups === undefined) updateData.groups = [];
                 if (currentData.qiitaId === undefined) updateData.qiitaId = "";
                 if (currentData.gitId === undefined) updateData.gitId = "";
-                // discordId は上で更新済み
                 if (currentData.faceRegistered === undefined) updateData.faceRegistered = false;
                 if (currentData.isAdmin === undefined) updateData.isAdmin = false;
                 if (currentData.borrowedItems === undefined) updateData.borrowedItems = [];
 
                 await userRef.set(updateData, { merge: true });
                 window.location.href = 'pre_home.html';
-                
             } catch (e) {
                 console.error("User Init Error:", e);
                 window.location.href = 'pre_home.html';
@@ -483,7 +477,7 @@ function loginWithDiscord() {
         })
         .catch((error) => {
             console.error("Login Error:", error);
-            isLoggingIn = false; // ★追加: エラー時はフラグ解除
+            isLoggingIn = false;
         });
 }
 
@@ -630,14 +624,13 @@ async function approveRecurring(docId) {
 }
 
 // ==========================================
-//   (pre_script.js の refreshAllUsers を修正)
+//   管理者機能: ユーザー一覧 - 修正
 // ==========================================
 async function refreshAllUsers() {
     const list = document.getElementById('allUsersList');
     list.innerHTML = "読み込み中...";
     try {
         const snap = await db.collection('users').get();
-        
         list.innerHTML = "";
         snap.forEach(doc => {
             const u = doc.data();
@@ -660,9 +653,10 @@ async function refreshAllUsers() {
                 }
             }
 
+            // ★修正: 表示順序と回生の追加
             const hiddenInfo = `
                 <ul style="font-size:0.9em; color:#333; text-align:left; padding-left:0; list-style:none; line-height:1.6;">
-                    <li style="margin-bottom:4px;"><b>基本情報:</b> ${u.discordName || u.displayName} / ${u.realName || "未設定"} / ${u.studentId || "学籍番号未設定"}</li>
+                    <li style="margin-bottom:4px;"><b>基本情報:</b> ${u.discordName || u.displayName} / ${u.realName || "未設定"} / ${u.grade ? u.grade+"回生" : "回生未設定"} / ${u.studentId || "学籍番号未設定"}</li>
                     <li style="margin-bottom:4px;"><b>ステータス:</b> ${u.isMember ? "部員" : "未所属"} / ${u.role || "仮入部"}</li>
                     <li style="margin-bottom:4px;"><b>Discord:</b> ${u.discordName || "-"} (ID: ${u.discordId || "-"})</li>
                     <li style="margin-bottom:4px;"><b>連携:</b> Qiita(${u.qiitaId || "-"}), Git(${u.gitId || "-"})</li>
@@ -692,10 +686,7 @@ async function refreshAllUsers() {
             `;
             list.appendChild(div);
         });
-    } catch(e) { 
-        console.error(e); 
-        list.innerHTML = "読み込みエラー"; 
-    }
+    } catch(e) { console.error(e); list.innerHTML = "読み込みエラー"; }
 }
 
 function toggleStatusModal() {
@@ -1710,60 +1701,42 @@ async function checkRequestStatus() {
     } else { alert('まだです'); }
 }
 
-// 履歴確認（完全版）
+// ==========================================
+//   出席確認 (ロジック修正)
+// ==========================================
 async function checkAttendance() {
     if (!currentUser) return;
-    const name = currentUser.displayName; // Authの名前を使用
+    const name = currentUser.displayName;
     
-    // 画面表示
     const resultEl = document.getElementById('resultArea');
     if(resultEl) resultEl.style.display = 'block';
     
     try {
-        // 1. 出席ログ取得
-        const logSnap = await db.collection('attendance_logs')
-            .where('userName', '==', name)
-            .orderBy('timestamp', 'desc')
-            .get();
-            
+        const logSnap = await db.collection('attendance_logs').where('userName', '==', name).orderBy('timestamp', 'desc').get();
         checkHistoryDates = [];
-        logSnap.forEach(doc => {
-            checkHistoryDates.push(doc.data().timestamp.toDate());
-        });
+        logSnap.forEach(doc => { checkHistoryDates.push(doc.data().timestamp.toDate()); });
 
-        // 2. 届出取得
-        const reportSnap = await db.collection('absence_reports')
-            .where('userName', '==', name)
-            .orderBy('timestamp', 'desc')
-            .get();
-            
+        const reportSnap = await db.collection('absence_reports').where('userName', '==', name).orderBy('timestamp', 'desc').get();
         checkReportRanges = [];
         reportSnap.forEach(doc => {
             const d = doc.data();
             if(d.startDate) {
                 let s = d.startDate.toDate();
                 let e = d.endDate ? d.endDate.toDate() : s;
-                
+                // ★修正: 終了日の時刻を23:59:59に設定し、日付比較を確実にする
                 checkReportRanges.push({
                     status: d.status, 
                     type: d.type,
-                    start: new Date(s.getFullYear(), s.getMonth(), s.getDate()),
-                    end: new Date(e.getFullYear(), e.getMonth(), e.getDate())
+                    start: new Date(s.getFullYear(), s.getMonth(), s.getDate(), 0, 0, 0),
+                    end: new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59)
                 });
             }
         });
 
-        // 3. ★追加: 定期欠席データ取得
-        const recSnap = await db.collection('recurring_absence_applications')
-            .where('userId', '==', currentUser.uid)
-            .where('status', '==', 'approved')
-            .get();
-        
+        const recSnap = await db.collection('recurring_absence_applications').where('userId', '==', currentUser.uid).where('status', '==', 'approved').get();
         checkRecurringData = [];
         recSnap.forEach(doc => {
             const d = doc.data();
-            // 保存形式: "月:All|水:1,2|金:5"
-            // これを解析しやすい形に変換
             if (d.data) {
                 const parts = d.data.split('|');
                 parts.forEach(part => {
@@ -1773,22 +1746,15 @@ async function checkAttendance() {
             }
         });
         
-        // 今日の状態更新 & カレンダー描画
         updateTodayStatus();
         checkDisplayDate = new Date();
         renderCalendar();
-        
-    } catch(e) {
-        console.error(e);
-        if(e.code === 'failed-precondition') {
-            console.log("Firestoreインデックスが必要です。コンソールのリンクから作成してください。");
-        }
-    }
+    } catch(e) { console.error(e); }
 }
 
 function updateTodayStatus() {
     const today = new Date();
-    // A. 出席済みか
+    // A. 出席済みか (年月日のみで比較)
     const isAttended = checkHistoryDates.some(d => 
         d.getFullYear() === today.getFullYear() && 
         d.getMonth() === today.getMonth() && 
@@ -1798,10 +1764,11 @@ function updateTodayStatus() {
     // B. 承認済み欠席(定期・届出)があるか
     let isApprovedAbsent = false;
     
-    // B-1. 届出
+    // B-1. 届出 (現在時刻が範囲内か)
+    const todayTime = today.getTime();
     const todayReport = checkReportRanges.find(range => 
-        today.getTime() >= range.start.getTime() && 
-        today.getTime() <= range.end.getTime() &&
+        todayTime >= range.start.getTime() && 
+        todayTime <= range.end.getTime() &&
         range.status === 'approved' &&
         range.type === 'absence'
     );
@@ -1982,4 +1949,253 @@ function renderOtherReportIcons(reports, container) {
         icon.textContent = pendingCount.toString();
         container.appendChild(icon);
     }
+}
+
+// ==========================================
+//   カレンダー機能 (Admin & User)
+// ==========================================
+
+// --- Admin: 設定タブ切り替え ---
+function switchCalendarSubTab(tab) {
+    document.getElementById('view-acad').style.display = tab === 'acad' ? 'block' : 'none';
+    document.getElementById('view-monthly').style.display = tab === 'monthly' ? 'block' : 'none';
+    document.getElementById('btn-sub-acad').classList.toggle('active', tab === 'acad');
+    document.getElementById('btn-sub-monthly').classList.toggle('active', tab === 'monthly');
+}
+
+// --- Admin: 学年暦保存 ---
+async function saveAcademicConfig() {
+    const year = document.getElementById('acadYear').value;
+    if(!year) return alert("年度を入力してください");
+    
+    const data = {
+        t1: { start: v('t1_start'), mid: v('t1_mid'), end: v('t1_end') },
+        t2: { start: v('t2_start'), mid: v('t2_mid'), end: v('t2_end') },
+        periods: {
+            reg: v('p_reg'), sup: v('p_sup'), exam: v('p_exam')
+        },
+        gradeDate: v('d_grade'),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    
+    await db.collection('calendar_meta').doc(`config_${year}`).set(data);
+    alert("学年暦を保存しました");
+}
+function v(id) { return document.getElementById(id).value; }
+
+// --- Admin: 月次設定読み込み・UI生成 ---
+let tempEvents = []; // イベント一時保存
+async function loadMonthConfig() {
+    const ym = document.getElementById('targetMonth').value; // YYYY-MM
+    if(!ym) return;
+    
+    // 1. キャンパスごとの活動日設定UI生成
+    const cDiv = document.getElementById('campusActivitySettings');
+    cDiv.innerHTML = "";
+    if(registeredCampuses.length === 0) await loadCampuses();
+    
+    registeredCampuses.forEach(c => {
+        const div = document.createElement('div');
+        div.style.marginBottom = "10px";
+        div.innerHTML = `<strong>${c.name}</strong><br>`;
+        ['日','月','火','水','木','金','土'].forEach((w, i) => {
+            div.innerHTML += `<label style="margin-right:5px;"><input type="checkbox" class="act-chk" data-campus="${c.id}" value="${i}"> ${w}</label>`;
+        });
+        cDiv.appendChild(div);
+    });
+
+    // 2. 既存データ読み込み
+    try {
+        const doc = await db.collection('calendars').doc(ym).get();
+        if(doc.exists) {
+            const d = doc.data();
+            // 活動日チェック復元
+            if(d.activityDays) {
+                for(const [cid, days] of Object.entries(d.activityDays)) {
+                    days.forEach(dayIdx => {
+                        const chk = cDiv.querySelector(`.act-chk[data-campus="${cid}"][value="${dayIdx}"]`);
+                        if(chk) chk.checked = true;
+                    });
+                }
+            }
+            // イベント復元
+            tempEvents = d.events || [];
+            renderTempEvents();
+        } else {
+            tempEvents = [];
+            renderTempEvents();
+        }
+    } catch(e) { console.error(e); }
+}
+
+function addCalendarEvent() {
+    const type = v('evtType');
+    const start = v('evtStart');
+    const end = v('evtEnd');
+    const title = v('evtTitle');
+    if(!start || !title) return alert("必須項目がありません");
+    
+    tempEvents.push({ type, start, end: end || start, title });
+    renderTempEvents();
+    // 入力クリア
+    document.getElementById('evtTitle').value = "";
+}
+
+function renderTempEvents() {
+    const list = document.getElementById('tempEventList');
+    list.innerHTML = "";
+    tempEvents.forEach((evt, i) => {
+        const div = document.createElement('div');
+        div.style.fontSize = "0.9em";
+        div.style.borderBottom = "1px solid #eee";
+        div.innerHTML = `
+            <button onclick="tempEvents.splice(${i},1);renderTempEvents()" style="color:red;padding:0;">×</button> 
+            [${evt.type}] ${evt.start}${evt.end!==evt.start ? '~'+evt.end : ''} : ${evt.title}
+        `;
+        list.appendChild(div);
+    });
+}
+
+// --- Admin: 保存 ---
+async function saveMonthCalendar() {
+    const ym = document.getElementById('targetMonth').value;
+    if(!ym) return alert("年月を選択してください");
+    
+    // 活動日集計
+    const activityDays = {};
+    document.querySelectorAll('.act-chk:checked').forEach(chk => {
+        const cid = chk.dataset.campus;
+        if(!activityDays[cid]) activityDays[cid] = [];
+        activityDays[cid].push(parseInt(chk.value));
+    });
+
+    await db.collection('calendars').doc(ym).set({
+        activityDays,
+        events: tempEvents,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    alert("カレンダーを保存・公開しました");
+}
+
+// --- 共通: カレンダー描画ロジック ---
+// targetId: 描画先のDIV ID
+// ym: YYYY-MM
+// mode: 'preview' or 'user'
+async function renderCalendarGrid(targetId, ym, mode) {
+    const container = document.getElementById(targetId);
+    container.innerHTML = "読み込み中...";
+    
+    const [year, month] = ym.split('-').map(Number);
+    
+    // データ取得 (UserモードならDBから、Previewなら入力値から)
+    let data = {};
+    if (mode === 'preview') {
+        const activityDays = {};
+        document.querySelectorAll('.act-chk:checked').forEach(chk => {
+            const cid = chk.dataset.campus;
+            if(!activityDays[cid]) activityDays[cid] = [];
+            activityDays[cid].push(parseInt(chk.value));
+        });
+        data = { activityDays, events: tempEvents };
+    } else {
+        try {
+            const doc = await db.collection('calendars').doc(ym).get();
+            if(doc.exists) {
+                data = doc.data();
+                const d = data.updatedAt.toDate();
+                document.getElementById('userCalUpdated').textContent = `最終更新: ${d.toLocaleString()}`;
+            }
+        } catch(e) { console.error(e); }
+    }
+
+    // カレンダー構築
+    const firstDay = new Date(year, month - 1, 1).getDay();
+    const lastDate = new Date(year, month, 0).getDate();
+    
+    let html = `<div class="cal-grid">`;
+    const weekDays = ['日','月','火','水','木','金','土'];
+    
+    weekDays.forEach(w => html += `<div class="cal-day-header">${w}</div>`);
+    for(let i=0; i<firstDay; i++) html += `<div class="cal-cell" style="background:#f9f9f9;"></div>`;
+    
+    for(let d=1; d<=lastDate; d++) {
+        const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const dayOfWeek = new Date(year, month-1, d).getDay();
+        
+        let badges = "";
+        
+        // 1. 活動日判定 (User設定のデフォルトキャンパスがあればそれ優先、なければ全表示)
+        // ここでは簡易的に全キャンパスの活動日を表示
+        if (data.activityDays) {
+            let isActivity = false;
+            let campusNames = [];
+            for(const [cid, days] of Object.entries(data.activityDays)) {
+                if(days.includes(dayOfWeek)) {
+                    isActivity = true;
+                    const cName = registeredCampuses.find(c => c.id === cid)?.name || cid;
+                    campusNames.push(cName);
+                }
+            }
+            if(isActivity) {
+                // 重複排除して表示
+                const uniqueNames = [...new Set(campusNames)];
+                uniqueNames.forEach(n => {
+                    badges += `<span class="evt-badge evt-activity">活動: ${n}</span>`;
+                });
+            }
+        }
+
+        // 2. イベント判定
+        if (data.events) {
+            data.events.forEach(evt => {
+                if (evt.start <= currentYMD && evt.end >= currentYMD) {
+                    let cls = 'evt-event';
+                    if(evt.type === 'camp') cls = 'evt-camp';
+                    if(evt.type.startsWith('dev')) cls = 'evt-dev';
+                    badges += `<span class="evt-badge ${cls}">${evt.title}</span>`;
+                }
+            });
+        }
+
+        html += `<div class="cal-cell"><span style="font-weight:bold;">${d}</span>${badges}</div>`;
+    }
+    html += `</div>`; // grid end
+    
+    container.innerHTML = html;
+}
+
+// --- Admin: プレビューボタン ---
+function previewCalendar() {
+    const ym = document.getElementById('targetMonth').value;
+    if(ym) renderCalendarGrid('adminCalPreview', ym, 'preview');
+}
+
+// --- User: カレンダー画面用 ---
+let displayCalDate = new Date();
+
+// 初期化時に呼ばれる想定 (bodyId='page-calendar')
+if(document.body.id === 'page-calendar') {
+    window.addEventListener('load', () => {
+        updateUserCalendarTitle();
+        renderUserCalendar();
+    });
+}
+
+function updateUserCalendarTitle() {
+    const y = displayCalDate.getFullYear();
+    const m = displayCalDate.getMonth() + 1;
+    document.getElementById('userCalTitle').textContent = `${y}年 ${m}月`;
+}
+
+function renderUserCalendar() {
+    const y = displayCalDate.getFullYear();
+    const m = displayCalDate.getMonth() + 1;
+    const ym = `${y}-${String(m).padStart(2,'0')}`;
+    renderCalendarGrid('userCalGrid', ym, 'user');
+}
+
+function moveUserCalendar(offset) {
+    displayCalDate.setMonth(displayCalDate.getMonth() + offset);
+    updateUserCalendarTitle();
+    renderUserCalendar();
 }

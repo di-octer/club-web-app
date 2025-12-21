@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>活動カレンダー | 統合アプリ</title>
+    <link rel="stylesheet" href="pre_style.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <style>
+        .calendar-wrapper { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+        .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .cal-title { font-size: 1.5em; font-weight: bold; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background: #ddd; border: 1px solid #ddd; }
+        .cal-cell { min-height: 80px; background: white; padding: 5px; text-align: left; font-size: 0.9em; position: relative; }
+        .cal-day-header { background: #f0f0f0; text-align: center; font-weight: bold; padding: 5px 0; }
+        /* イベントバッジ */
+        .evt-badge { display: block; padding: 2px 4px; border-radius: 4px; color: white; font-size: 0.75em; margin-bottom: 2px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+        .evt-activity { background-color: #28a745; } /* 活動日 */
+        .evt-event { background-color: #ff9800; } /* イベント */
+        .evt-camp { background-color: #9c27b0; } /* 合宿 */
+        .evt-dev { background-color: #2196f3; } /* 開発期間 */
+        .evt-test { background-color: #f44336; } /* 試験など */
+        .updated-at { font-size: 0.8em; color: #666; text-align: right; margin-top: 10px; }
+    </style>
+</head>
+<body id="page-calendar">
+
+<header class="appbar-fixed">
+    <div class="appbar-side">
+        <a href="pre_home.html" class="icon-btn">🏠</a>
+    </div>
+    <div class="appbar-center">活動カレンダー</div>
+    <div class="appbar-side"></div>
+</header>
+
+<main class="content" style="padding-top: 80px;">
+    <div class="calendar-wrapper">
+        <div class="cal-header">
+            <button onclick="moveUserCalendar(-1)">＜ 前月</button>
+            <span id="userCalTitle" class="cal-title">2024年 1月</span>
+            <button onclick="moveUserCalendar(1)">次月 ＞</button>
+        </div>
+
+        <div id="userCalGrid" class="cal-grid"></div>
+        <div id="userCalUpdated" class="updated-at"></div>
+        
+        <div style="margin-top:20px; font-size:0.8em; text-align:left; color:#666;">
+            <span style="display:inline-block; width:10px; height:10px; background:#28a745; margin-right:5px;"></span>活動日
+            <span style="display:inline-block; width:10px; height:10px; background:#ff9800; margin-left:10px; margin-right:5px;"></span>イベント
+            <span style="display:inline-block; width:10px; height:10px; background:#f44336; margin-left:10px; margin-right:5px;"></span>試験・休日
+        </div>
+    </div>
+</main>
+
+<script src="pre_script.js"></script>
+</body>
+</html>

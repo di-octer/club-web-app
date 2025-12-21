@@ -72,7 +72,9 @@ button:disabled { background-color: #ccc; cursor: default; }
 .status-card { padding: 15px; border-radius: 8px; margin-bottom: 20px; color: white; font-weight: bold; font-size: 1.1em; }
 .status-ok { background-color: #28a745; }
 .status-no { background-color: #6c757d; }
-.status-absent { background-color: #800080; }
+/* ★追加: 欠席承認時のステータス */
+.status-absent { background-color: #800080; } 
+
 .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background-color: #ddd; border: 1px solid #ddd; }
 .day-cell { height: 60px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; font-size: 0.9em; }
 .today-circle { outline: 3px solid #007bff; outline-offset: -3px; font-weight: bold; color: #007bff; }
@@ -80,8 +82,6 @@ button:disabled { background-color: #ccc; cursor: default; }
 
 /* 管理者・設定用 */
 .settings-details { margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; text-align: left; }
-
-/* ★修正: summaryをblock表示にし、内部要素（JSで作るflexbox）にレイアウトを任せる。これにより縦書きバグを解消 */
 .settings-details summary { 
     background: #f8f9fa; 
     padding: 12px 15px; 
@@ -89,19 +89,14 @@ button:disabled { background-color: #ccc; cursor: default; }
     font-weight: bold; 
     border-bottom: 1px solid #eee; 
     list-style: none; 
-    display: block; /* 変更: flex -> block */
+    display: block; 
 }
 .settings-details summary::-webkit-details-marker { display: none; }
 .details-content { padding: 15px; background: #fff; }
 .list-container { text-align: left; max-height: 400px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 6px; background-color: #fafafa; }
 .item-card { border: 1px solid #eee; padding: 12px; margin-bottom: 10px; border-radius: 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-
-/* リストアイテム */
 .list-item-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
-
-/* ★修正: gapを5pxに縮小 */
 .checkbox-wrapper { display: flex; align-items: center; gap: 5px; }
-
 .tag-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px dashed #ccc; border-radius: 8px; min-height: 40px; }
 .tag-badge { background: #e9ecef; border-radius: 20px; padding: 4px 12px; font-size: 0.85em; display: flex; align-items: center; }
 .modal { position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }

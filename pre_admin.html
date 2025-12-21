@@ -19,6 +19,7 @@
         <button class="tab-btn active" onclick="switchTab('status', this)">ステータス</button>
         <button class="tab-btn" onclick="switchTab('info', this)">登録情報</button>
         <button class="tab-btn" onclick="switchTab('face', this)">顔登録</button>
+        <button class="tab-btn" onclick="switchTab('calendar', this)">カレンダー設定</button>
     </div>
 
     <div id="tab-status" class="tab-content active">
@@ -129,6 +130,99 @@
         
         <button id="regNextBtn" onclick="proceedToNextStep()" disabled style="width:100%; padding:15px; background-color:#ccc; border:none; border-radius:5px; color:white; margin-top:15px;">撮影・次へ</button>
         <div id="regStatus" style="margin-top:10px;">待機中...</div>
+    </div>
+
+    <div id="tab-calendar" class="tab-content">
+        <h3>カレンダー・学年暦設定</h3>
+        
+        <div style="display: flex; flex-wrap: wrap; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; overflow: hidden;">
+            <button id="btn-sub-acad" class="sub-tab active" onclick="switchCalendarSubTab('acad')">学年暦設定</button>
+            <button id="btn-sub-monthly" class="sub-tab" onclick="switchCalendarSubTab('monthly')">月次作成</button>
+        </div>
+
+        <div id="view-acad">
+            <p style="font-size:0.9em; color:#666;">年度ごとの期間を設定します (例: 2024)</p>
+            <div class="input-group">
+                <label>設定年度</label>
+                <input type="number" id="acadYear" value="2024">
+            </div>
+            <details open class="settings-details">
+                <summary>学期期間</summary>
+                <div class="details-content">
+                    <label>前期 (前半/後半)</label>
+                    <div style="display:flex; gap:5px;">
+                        <input type="date" id="t1_start"> ～ <input type="date" id="t1_mid"> / <input type="date" id="t1_end">
+                    </div>
+                    <label>後期 (前半/後半)</label>
+                    <div style="display:flex; gap:5px;">
+                        <input type="date" id="t2_start"> ～ <input type="date" id="t2_mid"> / <input type="date" id="t2_end">
+                    </div>
+                </div>
+            </details>
+            <details class="settings-details">
+                <summary>特殊期間 (試験・補講など)</summary>
+                <div class="details-content">
+                    <label>履修登録期間</label> <input type="text" id="p_reg" placeholder="YYYY-MM-DD:YYYY-MM-DD">
+                    <label>集中補講期間</label> <input type="text" id="p_sup" placeholder="YYYY-MM-DD:YYYY-MM-DD">
+                    <label>試験期間</label> <input type="text" id="p_exam" placeholder="YYYY-MM-DD:YYYY-MM-DD">
+                    <label>成績発表日</label> <input type="date" id="d_grade">
+                </div>
+            </details>
+            <button onclick="saveAcademicConfig()" class="btn-primary" style="width:100%; margin-top:10px;">保存</button>
+        </div>
+
+        <div id="view-monthly" style="display:none;">
+            <div class="input-group">
+                <label>対象年月</label>
+                <input type="month" id="targetMonth">
+                <button onclick="loadMonthConfig()">読み込み</button>
+            </div>
+            
+            <details class="settings-details">
+                <summary>活動日設定 (曜日)</summary>
+                <div class="details-content">
+                    <div id="campusActivitySettings"></div>
+                </div>
+            </details>
+
+            <details class="settings-details" open>
+                <summary>イベント・スケジュール</summary>
+                <div class="details-content">
+                    <div class="input-group">
+                        <label>種別</label>
+                        <select id="evtType">
+                            <option value="general">総会</option>
+                            <option value="radio">ラジオ</option>
+                            <option value="camp">合宿</option>
+                            <option value="dev_basic">基礎班開発</option>
+                            <option value="dev_adv">発展班開発</option>
+                            <option value="trial">仮入部</option>
+                            <option value="event">その他イベント</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>期間 (1日の場合は開始のみ)</label>
+                        <div style="display:flex; gap:5px;">
+                            <input type="date" id="evtStart"> ～ <input type="date" id="evtEnd">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>タイトル</label>
+                        <input type="text" id="evtTitle">
+                    </div>
+                    <button onclick="addCalendarEvent()">リストに追加</button>
+                    <div id="tempEventList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
+                </div>
+            </details>
+
+            <button onclick="previewCalendar()" style="margin-top:15px; background:#ff9800; color:white;">プレビュー更新</button>
+            
+            <div id="adminCalPreview" class="calendar-wrapper" style="margin-top:10px; border:2px dashed #ccc;">
+                <p style="text-align:center; padding:20px;">プレビューエリア</p>
+            </div>
+
+            <button onclick="saveMonthCalendar()" class="btn-primary" style="width:100%; margin-top:15px;">この内容で保存・公開</button>
+        </div>
     </div>
 
 </div>
