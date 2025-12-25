@@ -179,7 +179,7 @@ button:disabled { background-color: #ccc; cursor: default; }
 .cal-badge {
     font-size: 9px; /* 小さめ */
     line-height: 13px;
-    width: 100em; /* 横8文字分固定 */
+    width: 104px; /* 横8文字分固定 */
     max-width: 95%; /* セルからはみ出さない */
     height: 13px; /* 縦1文字固定 */
     
