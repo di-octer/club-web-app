@@ -2329,14 +2329,14 @@ async function renderCalendarGrid(targetId, ym, mode) {
         if(adoc.exists) acadData = adoc.data();
     } catch(e){}
 
-    // 3. ユーザーデータセット (Userモード時)
+    // 3. ユーザーデータセット
     if (mode === 'user' && currentUser) {
-        userLogs = checkHistoryDates; // 全期間のログが入っている
+        userLogs = checkHistoryDates;
         userReports = checkReportRanges;
         userRecurringData = userRecurring;
     }
 
-    // 最終更新日時
+    // 更新日時
     const updateEl = document.getElementById('userCalUpdated');
     if (updateEl) {
         if(monthData.updatedAt) updateEl.textContent = `管理者最終更新: ${monthData.updatedAt.toDate().toLocaleString()}`;
@@ -2364,12 +2364,14 @@ async function renderCalendarGrid(targetId, ym, mode) {
         let cellClass = "cal-cell";
         let icons = "";
         
-        // --- 1. バッジ生成 (7行固定) ---
-        let badges = [null, null, null, null, null, null, null]; // 0~6行目
+        // バッジ用配列 (0~6行目)
+        // [0]: 期間・休日
+        // [1]: 活動日(分割バー) または 総会/合宿
+        // [2]~[6]: その他イベント
+        let badges = [null, null, null, null, null, null, null]; 
 
-        // 行1: 期間・休日
+        // --- 行1: 期間・休日 ---
         if (acadData) {
-            // 学期 (1Q~4Q)
             const setQ = (p, label, colorCls) => {
                 if(p.start === currentYMD) badges[0] = { text: `${label}初日`, cls: `${colorCls} border-blue` };
                 else if(p.end === currentYMD) badges[0] = { text: `${label}最終日`, cls: `${colorCls} border-red` };
@@ -2379,7 +2381,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
             if(acadData.t2_front) setQ(acadData.t2_front, '3Q', 'badge-q-post');
             if(acadData.t2_back) setQ(acadData.t2_back, '4Q', 'badge-q-post');
 
-            // 特殊期間
             if(acadData.periods) {
                 if(isWithin(currentYMD, acadData.periods.reg1) || isWithin(currentYMD, acadData.periods.reg2)) badges[0] = { text: '履修登録', cls: 'badge-red' };
                 if(isWithin(currentYMD, acadData.periods.sup1) || isWithin(currentYMD, acadData.periods.sup2)) badges[0] = { text: '集中補講', cls: 'badge-red' };
@@ -2390,7 +2391,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
             });
             if(acadData.winter && isWithin(currentYMD, acadData.winter)) badges[0] = { text: '冬季休暇', cls: 'badge-gray' };
             
-            // 休日・例外
             const holidayName = getJapaneseHolidayName(dateObj);
             if (acadData.exceptions) {
                 const ex = acadData.exceptions.find(e => e.date === currentYMD);
@@ -2398,45 +2398,23 @@ async function renderCalendarGrid(targetId, ym, mode) {
                     if (ex.type === 'school_day') badges[0] = { text: '授業実施日', cls: 'badge-red' };
                     else badges[0] = { text: '特別休日', cls: 'badge-gray' };
                 } else if (holidayName) {
-                    badges[0] = { text: '通常休日', cls: 'badge-gray' }; // 授業実施でない祝日
+                    badges[0] = { text: '通常休日', cls: 'badge-gray' }; 
                 }
             } else if (holidayName) {
                 badges[0] = { text: '通常休日', cls: 'badge-gray' };
             }
         }
 
-        // 行2: 活動日(キャンパス) / 総会 / 合宿
-        if (monthData.activityDays) {
-            // 自動追加期間内 かつ 除外期間でない場合のみ表示
-            let isTerm = isTermPeriodFunc(currentYMD, acadData);
-            let isExcl = isExcludedFunc(currentYMD, acadData);
-            
-            if (isTerm && !isExcl) {
-                // 活動日判定 (各キャンパス)
-                for (const cid in monthData.activityDays) {
-                    // ブロックチェック
-                    const isBlocked = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === cid || !n.cid));
-                    if (!isBlocked && monthData.activityDays[cid].some(s => s.day === dayOfWeek)) {
-                        badges[1] = { text: `活動日(${getCampusName(cid)})`, cls: getCampusBadgeClass(cid) };
-                    }
-                }
-            }
-            // 活動なし日は「追加期間で除外期間なら非表示」なので処理不要
-            
-            // 明示的な活動なし日 (ブロック設定) はバッジとして表示するか要件次第だが、
-            // 「活動無日(キャンパス名)」の指定があるのでここで表示
-            if (monthData.noActivityDays) {
-                monthData.noActivityDays.forEach(n => {
-                    if (n.date === currentYMD) badges[1] = { text: `活動無(${getCampusName(n.cid)})`, cls: getCampusBadgeClass(n.cid) };
-                });
-            }
-        }
-        // 総会・合宿
+        // --- 行2: 活動日 (キャンパス分割バー) または 総会/合宿 ---
+        // 優先度: 総会/合宿 > 活動日分割バー
+        let eventOverride = null;
         if (monthData.events) {
             monthData.events.forEach(evt => {
                 if (isWithin(currentYMD, evt)) {
-                    if (evt.type === 'general') badges[1] = { text: '総会日', cls: 'badge-teal-yellow' };
-                    if (evt.type === 'camp') badges[1] = { text: '合宿', cls: 'badge-camp' };
+                    if (evt.type === 'general') eventOverride = { text: '総会日', cls: 'badge-teal-yellow' };
+                    if (evt.type === 'camp') eventOverride = { text: '合宿', cls: 'badge-camp' };
+                    
+                    // 他のイベントは行3以降
                     if (evt.type === 'radio') badges[2] = { text: 'ラジオ日', cls: 'badge-radio' };
                     if (evt.type === 'dev_basic') badges[3] = { text: '基礎班開発', cls: 'badge-dev-basic' };
                     if (evt.type === 'dev_adv') badges[4] = { text: '発展班開発', cls: 'badge-dev-adv' };
@@ -2445,6 +2423,52 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 }
             });
         }
+
+        if (eventOverride) {
+            // 総会などがあればそれを表示
+            badges[1] = eventOverride;
+        } else if (registeredCampuses.length > 0 && monthData.activityDays) {
+            // ★活動日分割バー生成
+            let splitHtml = "";
+            let isTerm = isTermPeriodFunc(currentYMD, acadData);
+            let isExcl = isExcludedFunc(currentYMD, acadData);
+
+            // キャンパスごとに状態を判定
+            registeredCampuses.forEach(c => {
+                let status = "none"; // none | active | no_act
+                
+                // 1. 活動日設定があるか
+                let hasSetting = monthData.activityDays[c.id] && monthData.activityDays[c.id].some(s => s.day === dayOfWeek);
+                
+                // 2. ブロックされているか (活動無)
+                let isBlocked = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === c.id || !n.cid));
+
+                if (isBlocked) {
+                    // 明示的にブロック -> 「無」
+                    status = "no_act";
+                } else if (hasSetting && isTerm && !isExcl) {
+                    // 設定あり + 期間内 + 除外でない -> 「活動日」
+                    status = "active";
+                }
+
+                // HTML生成
+                let cls = getCampusBadgeClass(c.id); // 色クラス
+                if (status === "active") {
+                    // 活動日: 文字なし
+                    splitHtml += `<div class="cal-badge-split ${cls}"></div>`;
+                } else if (status === "no_act") {
+                    // 活動無: 文字「無」
+                    splitHtml += `<div class="cal-badge-split ${cls}">無</div>`;
+                } else {
+                    // なし: 透明
+                    splitHtml += `<div class="cal-badge-split"></div>`;
+                }
+            });
+            
+            // 特別なオブジェクトとしてバッジ配列に格納 (type: split)
+            badges[1] = { type: 'split', html: splitHtml };
+        }
+
         // 成績発表 (行6)
         if (acadData && acadData.periods) {
             if (isWithin(currentYMD, acadData.periods.grade1) || isWithin(currentYMD, acadData.periods.grade2)) {
@@ -2452,26 +2476,28 @@ async function renderCalendarGrid(targetId, ym, mode) {
             }
         }
 
-        // バッジHTML生成
+        // --- バッジHTML組み立て ---
         let badgeHtml = `<div class="badge-container">`;
         for(let r=0; r<7; r++) {
-            // 空でもdivを出力して高さを確保
             if (badges[r]) {
-                badgeHtml += `<div class="badge-row"><div class="cal-badge ${badges[r].cls}">${badges[r].text}</div></div>`;
+                if (badges[r].type === 'split') {
+                    // 分割バー
+                    badgeHtml += `<div class="badge-row-split">${badges[r].html}</div>`;
+                } else {
+                    // 通常バッジ
+                    badgeHtml += `<div class="badge-row"><div class="cal-badge ${badges[r].cls}">${badges[r].text}</div></div>`;
+                }
             } else {
-                badgeHtml += `<div class="badge-row"></div>`;
+                badgeHtml += `<div class="badge-row"></div>`; // 空行
             }
         }
         badgeHtml += `</div>`;
 
 
-        // --- 2. アイコン表示ロジック ---
-        
-        // 条件チェック
+        // --- アイコン表示 (条件判定) ---
         let isTerm = isTermPeriodFunc(currentYMD, acadData);
         let isExcl = isExcludedFunc(currentYMD, acadData);
         
-        // 活動日か (Userのキャンパス or 全キャンパス)
         let isUserActivityDay = false;
         let userCampus = (userSettings && userSettings.defaultCampusId) ? userSettings.defaultCampusId : null;
         
@@ -2487,13 +2513,10 @@ async function renderCalendarGrid(targetId, ym, mode) {
             }
         }
 
-        // アイコン表示フラグ
         const shouldShowIcons = isTerm && !isExcl && isUserActivityDay;
 
         if (mode === 'user') {
-            // ★修正: 日付比較を年・月・日で厳密に行う
             const log = userLogs.find(l => l.getFullYear() === year && l.getMonth() + 1 === month && l.getDate() === d);
-            
             const reports = userReports.filter(r => dateObj >= r.start && dateObj <= r.end);
             const approvedAbsence = reports.find(r => r.type === 'absence' && r.status === 'approved');
             
@@ -2505,28 +2528,19 @@ async function renderCalendarGrid(targetId, ym, mode) {
 
             let isToday = (year === tY && month === (tM + 1) && d === tD);
 
-            // 優先順位
-            // 1. 出席 (緑)
             if (log) {
                 cellClass += " active-area-approved"; 
                 icons += createIcon('#28a745', '出席');
                 if (isToday) { todayStatus = { text: "今日の出席：完了 ✅", class: "status-card status-ok" }; }
-            }
-            // 2. 承認済欠席 (紫アイコン, 緑背景)
-            else if (approvedAbsence) {
+            } else if (approvedAbsence) {
                 cellClass += " active-area-approved";
                 icons += createIcon('#800080', '欠席(承認済)');
                 if (isToday) { todayStatus = { text: "今日の出席：欠席(届出済) ☔", class: "status-card status-absent" }; }
-            }
-            // 3. 定期欠席 (赤紫) - 条件合致時のみ
-            else if (recurringStatus === 'absent') {
+            } else if (recurringStatus === 'absent') {
                 icons += createIcon('#C71585', '定期欠席');
                 if (isToday) { todayStatus = { text: "今日の出席：定期欠席 ☔", class: "status-card status-absent" }; }
-            }
-            // その他
-            else {
+            } else {
                 if (recurringStatus === 'late_early') icons += createIcon('#8A2BE2', '定期遅刻/早退');
-                
                 let pendingCnt = 0;
                 reports.forEach(r => {
                     if (r.status === 'pending') pendingCnt++;
@@ -2540,14 +2554,12 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 });
                 if (pendingCnt > 0) icons += createIcon('gray', String(pendingCnt), true);
                 
-                // 遅刻状態チェック
                 if (isToday && isLateAuth) { 
                     todayStatus = { text: "今日の出席：遅刻状態 ⚠️", class: "status-card status-late-state" };
                 }
             }
         }
 
-        // 今日の枠線
         let todayStyle = (year === tY && month === (tM + 1) && d === tD) ? "today-circle" : "";
 
         html += `
@@ -2557,11 +2569,9 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 <div class="icon-container">${icons}</div>
             </div>`;
     }
-    
     html += `</div>`;
     container.innerHTML = html;
 
-    // 今日のステータス更新
     if (document.getElementById('todayStatus')) {
         const el = document.getElementById('todayStatus');
         el.textContent = todayStatus.text;

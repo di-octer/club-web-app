@@ -7,11 +7,11 @@ body {
     margin: 0;
     padding: 0;
     text-align: center;
-    padding-bottom: 50px; /* 下部余白 */
+    padding-bottom: 50px;
 }
 
 .container, .admin-container, .user-container {
-    max-width: 800px; /* カレンダーが見やすいように少し広げる */
+    max-width: 800px;
     margin: 20px auto;
     background: white;
     padding: 20px;
@@ -19,7 +19,7 @@ body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
 }
 
-/* --- ヘッダー (Appbar) --- */
+/* --- ヘッダー (Appbar) 修正版 --- */
 .appbar-fixed {
     position: fixed;
     top: 0;
@@ -30,14 +30,33 @@ body {
     color: white;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: space-between; /* 両端揃え */
     padding: 0 10px;
-    box-sizing: border-box;
+    box-sizing: border-box; /* パディングを含めた幅計算 */
     z-index: 1000;
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
-.appbar-side { width: 40px; }
-.appbar-center { flex-grow: 1; text-align: center; font-weight: bold; font-size: 1.2em; }
+
+/* 両サイドの幅を固定し、縮小しないようにする */
+.appbar-side { 
+    width: 44px; 
+    flex-shrink: 0; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+}
+
+/* 中央は残りの幅を埋める */
+.appbar-center { 
+    flex-grow: 1; 
+    text-align: center; 
+    font-weight: bold; 
+    font-size: 1.2em; 
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .icon-btn { color: white; text-decoration: none; font-size: 1.5em; cursor: pointer; }
 
 .content { padding: 20px; max-width: 800px; margin: 0 auto; }
@@ -70,21 +89,18 @@ body {
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
-/* タブバー */
 .tab-bar { display: flex; border-bottom: 1px solid #ccc; margin-bottom: 20px; background: #fff; }
 .tab-btn { flex: 1; padding: 12px; border: none; background: #f8f9fa; cursor: pointer; font-weight: bold; color: #666; }
 .tab-btn.active { background: #fff; border-bottom: 3px solid #007bff; color: #007bff; }
 
-/* 管理者サブタブ */
 .sub-tab { padding: 8px 15px; border: none; background: #eee; cursor: pointer; margin: 0; flex: 1; border-right: 1px solid #ddd; }
 .sub-tab:last-child { border-right: none; }
 .sub-tab.active { background: #007bff; color: white; }
 
-/* フォーム・入力 */
 .input-group { margin: 15px 0; text-align: left; }
 .input-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
 input, select, textarea { width: 100%; box-sizing: border-box; padding: 12px; border: 1px solid #ccc; border-radius: 6px; margin-top: 5px; font-size: 1em; }
-.date-short { width: auto; display: inline-block; } /* MM-DD入力用 */
+.date-short { width: auto; display: inline-block; }
 
 button { padding: 12px 24px; background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: opacity 0.2s; }
 button:hover { opacity: 0.9; }
@@ -97,14 +113,12 @@ button:disabled { background-color: #ccc; cursor: default; }
    カメラ・顔認証
    ========================================= */
 .camera-wrapper { position: relative; width: 100%; max-width: 400px; margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-video { width: 100%; display: block; transform: scaleX(-1); } /* 鏡像表示 */
+video { width: 100%; display: block; transform: scaleX(-1); }
 .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
 
-/* ステップ表示 */
 .step-content { display: none; }
 .step-content.active { display: block; }
 
-/* モーダル */
 .modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
 .modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 8px; }
 .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
@@ -125,15 +139,7 @@ video { width: 100%; display: block; transform: scaleX(-1); } /* 鏡像表示 */
    リスト・詳細表示
    ========================================= */
 .settings-details { margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; text-align: left; }
-.settings-details summary { 
-    background: #f8f9fa; 
-    padding: 12px 15px; 
-    cursor: pointer; 
-    font-weight: bold; 
-    border-bottom: 1px solid #eee; 
-    list-style: none; 
-    display: block; 
-}
+.settings-details summary { background: #f8f9fa; padding: 12px 15px; cursor: pointer; font-weight: bold; border-bottom: 1px solid #eee; list-style: none; display: block; }
 .settings-details summary::-webkit-details-marker { display: none; }
 .details-content { padding: 15px; background: #fff; }
 
@@ -144,149 +150,92 @@ video { width: 100%; display: block; transform: scaleX(-1); } /* 鏡像表示 */
    ステータス・カレンダー
    ========================================= */
 .status-card { padding: 15px; border-radius: 8px; margin-bottom: 20px; color: white; font-weight: bold; font-size: 1.1em; }
-.status-ok { background-color: #28a745; } /* 緑: 出席 */
-.status-no { background-color: #6c757d; } /* 灰: 未 */
-.status-late-state { background-color: #ADFF2F; color: black; } /* 黄緑: 遅刻状態 */
-.status-absent { background-color: #800080; } /* 紫: 承認済欠席・定期欠席 */
+.status-ok { background-color: #28a745; }
+.status-no { background-color: #6c757d; }
+.status-late-state { background-color: #ADFF2F; color: black; }
+.status-absent { background-color: #800080; }
 
 .updated-at { font-size: 0.8em; color: #666; text-align: right; margin-top: 10px; }
 
-/* --- カレンダー全体レイアウト (横スクロール対応) --- */
-.calendar-wrapper {
-    width: 100%;
-    overflow-x: auto; /* 横にはみ出した場合にスクロール */
-    -webkit-overflow-scrolling: touch; /* iOSでのスクロール慣性 */
-    padding-bottom: 10px; /* スクロールバー用余白 */
-}
-
-.calendar-grid {
-    display: grid;
-    /* 最小幅9emを確保しつつ、余白があれば広がる。7列固定 */
+/* --- カレンダー全体レイアウト --- */
+.calendar-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 10px; }
+.calendar-grid { 
+    display: grid; 
     grid-template-columns: repeat(7, minmax(9em, 1fr)); 
-    gap: 1px;
-    background-color: #ddd;
-    border: 1px solid #ddd;
-    /* 内容に合わせて幅を確保 (100%以上になりうる) */
+    gap: 1px; 
+    background-color: #ddd; 
+    border: 1px solid #ddd; 
     min-width: 100%; 
-    box-sizing: border-box;
+    box-sizing: border-box; 
 }
-
-.cal-day-header {
-    background: #f0f0f0;
-    text-align: center;
-    font-weight: bold;
-    padding: 5px 0;
-    font-size: 0.9em;
-}
-
-.cal-cell {
-    background: #fff;
-    /* バッジ7行(約100px) + 日付 + アイコン分の高さを確保 */
+.cal-day-header { background: #f0f0f0; text-align: center; font-weight: bold; padding: 5px 0; font-size: 0.9em; }
+.cal-cell { 
+    background: #fff; 
     min-height: 140px; 
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: stretch;
-    position: relative;
-    padding: 2px;
-    box-sizing: border-box;
-    overflow: hidden; 
+    display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; 
+    position: relative; padding: 2px; box-sizing: border-box; overflow: hidden; 
 }
 
-/* --- 背景色バリエーション --- */
-.active-area { background-color: #e8f5e9; } /* 出席 (薄い緑) */
-.active-area-approved { background-color: #c8e6c9; } /* 承認済み (濃い緑) */
+/* --- 背景色 --- */
+.active-area { background-color: #e8f5e9; }
+.active-area-approved { background-color: #c8e6c9; }
 .today-circle { outline: 2px solid #007bff; z-index: 10; position: relative; }
 
-/* --- バッジシステム (7行固定) --- */
-.badge-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    margin-bottom: 4px;
-    width: 100%;
-    flex-grow: 0;
-}
+/* --- バッジシステム --- */
+.badge-container { display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px; width: 100%; flex-grow: 0; }
+.badge-row { height: 13px; width: 100%; display: flex; justify-content: center; align-items: center; }
 
-.badge-row {
-    height: 13px; /* 縦1行分の高さを強制確保 */
+/* ★追加: 分割バッジコンテナ (キャンパス数で等分) */
+.badge-row-split {
+    height: 13px;
     width: 100%;
     display: flex;
     justify-content: center;
     align-items: center;
+    gap: 0; /* 隙間なし */
 }
-
-.cal-badge {
+/* 分割バッジ本体 */
+.cal-badge-split {
+    flex: 1; /* 等分 */
+    height: 100%;
     font-size: 9px;
     line-height: 13px;
-    
-    /* 横8文字固定 (9px * 8文字 ≈ 72px + padding/border) */
-    width: 8em; 
-    max-width: 100%; /* セル幅を超えない */
-    height: 13px;
-    
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: clip; /* はみ出し切り捨て */
-    
     text-align: center;
-    border-radius: 2px;
-    border: 1px solid transparent; /* 縁取り用スペース */
-    box-sizing: border-box;
-    padding: 0;
     font-weight: bold;
     color: black;
-    margin: 0 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    box-sizing: border-box;
+    border: 1px solid transparent;
 }
 
-/* --- バッジ配色 --- */
-/* 学期 (1Q/2Q:水色, 3Q/4Q:黄緑, 初日:縁青, 最終日:縁赤) */
+/* 通常バッジ */
+.cal-badge { 
+    font-size: 9px; line-height: 13px; width: 8em; max-width: 100%; height: 13px; 
+    white-space: nowrap; overflow: hidden; text-overflow: clip; text-align: center; 
+    border-radius: 2px; border: 1px solid transparent; box-sizing: border-box; 
+    padding: 0; font-weight: bold; color: black; margin: 0 auto; 
+}
+
+/* --- 配色 --- */
 .badge-q-pre { background-color: #e0ffff; }
 .badge-q-post { background-color: #ccffcc; }
 .border-blue { border-color: #0000ff; }
 .border-red { border-color: #ff0000; }
-
-/* 文化祭・活動日 (背景ベージュ + キャンパス色縁) */
 .badge-beige { background-color: #f5f5dc; }
 .border-c1 { border-color: green; }
 .border-c2 { border-color: blue; }
 .border-c3 { border-color: red; }
 .border-cy { border-color: #00bcd4; }
 .border-cm { border-color: #e91e63; }
-
-/* 休暇・休日 (背景灰 + 縁黒) */
 .badge-gray { background-color: #d3d3d3; border-color: black; }
-
-/* 重要日程 (背景赤 + 縁灰) */
-/* 履修登録・試験・集中補講・成績発表日・授業実施日 */
 .badge-red { background-color: #ffcccc; border-color: gray; }
-
-/* 総会 (背景緑青 + 縁黄 + 白文字) */
 .badge-teal-yellow { background-color: #008080; color: white !important; border-color: yellow; }
-
-/* ラジオ (背景白 + 縁緑青 + 文字緑青) */
 .badge-radio { background-color: white; border-color: #008080; color: #008080 !important; }
-
-/* 合宿 (背景緑青 + 縁青 + 文字白) */
 .badge-camp { background-color: #008080; border-color: blue; color: white !important; }
-
-/* 開発 (基礎:薄青/青縁, 発展:薄緑/緑縁) */
 .badge-dev-basic { background-color: #e6f2ff; border-color: blue; }
 .badge-dev-adv { background-color: #e6ffe6; border-color: green; }
-
-/* 仮入部 (背景薄黄 + 縁黄) */
 .badge-trial { background-color: #ffffe0; border-color: gold; }
-
-/* イベント (デフォルト: オレンジ + 白文字) */
 .badge-event { background-color: #ffa500; color: white; }
 
-
-/* --- アイコンコンテナ --- */
-.icon-container {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 2px;
-    margin-top: auto; /* 下部に寄せる */
-    min-height: 16px; /* アイコンがない日も高さを確保する場合 */
-}
+.icon-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; margin-top: auto; min-height: 16px; }
