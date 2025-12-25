@@ -124,7 +124,7 @@ button:disabled { background-color: #ccc; cursor: default; }
 /* --- カレンダー全体レイアウト --- */
 .calendar-grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr); /* 確実に7列にする */
+    grid-template-columns: repeat(7, 1fr); /* 7列固定 */
     gap: 1px;
     background-color: #ddd;
     border: 1px solid #ddd;
@@ -142,7 +142,7 @@ button:disabled { background-color: #ccc; cursor: default; }
 
 .cal-cell {
     background: #fff;
-    min-height: 120px; /* バッジ7行分確保するため高さを広げる */
+    min-height: 140px; /* バッジ7行(約100px) + 日付 + アイコン分の高さを確保 */
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
@@ -150,11 +150,12 @@ button:disabled { background-color: #ccc; cursor: default; }
     position: relative;
     padding: 2px;
     box-sizing: border-box;
+    overflow: hidden; /* はみ出し防止 */
 }
 
 /* --- 背景色バリエーション --- */
-.active-area { background-color: #e8f5e9; } /* 薄い緑 (通常出席) */
-.active-area-approved { background-color: #c8e6c9; } /* 濃い緑 (承認済み) */
+.active-area { background-color: #e8f5e9; } 
+.active-area-approved { background-color: #c8e6c9; }
 .today-circle { outline: 2px solid #007bff; z-index: 10; }
 
 /* --- バッジシステム (7行固定) --- */
@@ -164,10 +165,11 @@ button:disabled { background-color: #ccc; cursor: default; }
     gap: 1px;
     margin-bottom: 4px;
     width: 100%;
+    flex-grow: 0; /* 高さが伸びないように */
 }
 
 .badge-row {
-    height: 14px; /* 縦1文字分程度の高さ固定 */
+    height: 13px; /* 縦1行分の高さを強制確保 */
     width: 100%;
     display: flex;
     justify-content: center;
@@ -175,65 +177,46 @@ button:disabled { background-color: #ccc; cursor: default; }
 }
 
 .cal-badge {
-    font-size: 8px; /* 小さく表示 */
-    line-height: 1;
+    font-size: 9px; /* 小さめ */
+    line-height: 13px;
+    width: 8em; /* 横8文字分固定 */
+    max-width: 95%; /* セルからはみ出さない */
+    height: 13px; /* 縦1文字固定 */
+    
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: clip;
-    width: 95%; /* セル幅いっぱい */
+    text-overflow: clip; /* はみ出しは切り捨て */
+    
     text-align: center;
     border-radius: 2px;
     border: 1px solid transparent;
     box-sizing: border-box;
-    padding: 1px 0;
+    padding: 0;
     font-weight: bold;
-    color: black; /* デフォルト文字色 */
+    color: black;
+    margin: 0 auto; /* 中央配置 */
 }
 
-/* --- バッジ配色 --- */
-/* 1Q/2Q (水色) */
+/* --- バッジ配色 (変更なし) --- */
 .badge-q-pre { background-color: #e0ffff; }
-/* 3Q/4Q (黄緑) */
 .badge-q-post { background-color: #ccffcc; }
-/* 初日 (縁青) */
 .border-blue { border-color: #0000ff; }
-/* 最終日 (縁赤) */
 .border-red { border-color: #ff0000; }
-
-/* 文化祭・活動日 (ベージュ) */
 .badge-beige { background-color: #f5f5dc; }
-/* キャンパス縁色 (C1緑, C2青, C3赤...) */
 .border-c1 { border-color: green; }
 .border-c2 { border-color: blue; }
 .border-c3 { border-color: red; }
-.border-cy { border-color: #00bcd4; } /* Cyan */
-.border-cm { border-color: #e91e63; } /* Magenta */
-
-/* 休暇・休日 (灰/黒縁) */
+.border-cy { border-color: #00bcd4; }
+.border-cm { border-color: #e91e63; }
 .badge-gray { background-color: #d3d3d3; border-color: black; }
-
-/* 重要日程 (赤/灰縁) */
 .badge-red { background-color: #ffcccc; border-color: gray; }
-
-/* 総会 (緑青/黄縁) */
 .badge-teal-yellow { background-color: #008080; color: white !important; border-color: yellow; }
-
-/* ラジオ (白/緑青縁/緑青文字) */
 .badge-radio { background-color: white; border-color: #008080; color: #008080 !important; }
-
-/* 合宿 (緑青/青縁/白文字) */
 .badge-camp { background-color: #008080; border-color: blue; color: white !important; }
-
-/* 開発 (薄青/青縁, 薄緑/緑縁) */
 .badge-dev-basic { background-color: #e6f2ff; border-color: blue; }
 .badge-dev-adv { background-color: #e6ffe6; border-color: green; }
-
-/* 仮入部 (薄黄/黄縁) */
 .badge-trial { background-color: #ffffe0; border-color: gold; }
-
-/* イベント (デフォルト) */
 .badge-event { background-color: #ffa500; color: white; }
-
 
 /* --- アイコンコンテナ --- */
 .icon-container {
@@ -241,5 +224,6 @@ button:disabled { background-color: #ccc; cursor: default; }
     flex-wrap: wrap;
     justify-content: center;
     gap: 2px;
-    margin-top: auto; /* 下部に寄せる */
+    margin-top: auto;
+    min-height: 16px; /* アイコン領域も最低限確保 */
 }
