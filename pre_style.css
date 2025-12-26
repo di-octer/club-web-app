@@ -202,8 +202,21 @@ video { width: 100%; display: block; transform: scaleX(-1); }
 .today-circle { outline: 2px solid #007bff; z-index: 10; position: relative; }
 
 /* バッジシステム */
-.badge-container { display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px; width: 100%; flex-grow: 0; }
-.badge-row { height: 13px; width: 100%; display: flex; justify-content: center; align-items: center; }
+.badge-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-bottom: 4px;
+    width: 100%;
+    flex-grow: 0;
+}
+.badge-row {
+    height: 13px; /* 縦1行分の高さを強制確保 */
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
 
 /* 分割バッジコンテナ */
 .badge-row-split { height: 13px; width: 100%; display: flex; justify-content: center; align-items: center; gap: 0; }
@@ -214,14 +227,28 @@ video { width: 100%; display: block; transform: scaleX(-1); }
 }
 
 /* 通常バッジ */
-.cal-badge { 
-    font-size: 9px;
-    line-height: 13px; 
-    width: 5em; /* 5文字固定に変更 */
-    max-width: 100%; height: 13px; 
-    white-space: nowrap; overflow: hidden; text-overflow: clip; text-align: center; 
-    border-radius: 2px; border: 1px solid transparent; box-sizing: border-box; 
-    padding: 0; font-weight: bold; color: black; margin: 0 auto; 
+.cal-badge {
+    /* 固定pxではなく相対サイズに変更してズーム追従性を向上 */
+    font-size: 0.75em; 
+    line-height: 13px;
+    
+    /* 横幅をグリッド幅に合わせて広げる (5文字固定を廃止) */
+    width: 98%; 
+    max-width: 100%;
+    height: 13px;
+    
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip; /* はみ出しは切り捨て */
+    
+    text-align: center;
+    border-radius: 2px;
+    border: 1px solid transparent;
+    box-sizing: border-box;
+    padding: 0 1px; /* わずかにパディング */
+    font-weight: bold;
+    color: black;
+    margin: 0 auto; /* 中央配置 */
 }
 
 /* --- 配色 --- */
