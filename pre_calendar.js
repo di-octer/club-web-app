@@ -63,13 +63,10 @@ async function renderCalendarGrid(targetId, ym, mode) {
     const today = new Date();
     const tY = today.getFullYear(), tM = today.getMonth(), tD = today.getDate();
     
-    // ※今日のステータス生成ロジックは分離したのでここでは行わない
-
     for(let d=1; d<=lastDate; d++) {
         const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const dateObj = new Date(year, month-1, d);
         const dayOfWeek = dateObj.getDay();
-        const weekDays = ['日','月','火','水','木','金','土'];
         const dayStr = weekDays[dayOfWeek];
 
         let cellClass = "cal-cell";
@@ -94,7 +91,8 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 if(isWithin(currentYMD, acadData.periods.exam1) || isWithin(currentYMD, acadData.periods.exam2)) badges[0] = { text: '試験', cls: 'badge-red' };
             }
             if(acadData.festivals) acadData.festivals.forEach(f => {
-                if(isWithin(currentYMD, f)) badges[0] = { text: `文化祭(${getCampusName(f.cid)})`, cls: getCampusBadgeClass(f.cid) };
+                // ★変更点: キャンパス名削除
+                if(isWithin(currentYMD, f)) badges[0] = { text: `文化祭`, cls: getCampusBadgeClass(f.cid) };
             });
             if(acadData.winter && isWithin(currentYMD, acadData.winter)) badges[0] = { text: '冬季休暇', cls: 'badge-gray' };
             
@@ -128,6 +126,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
         if (eventOverride) {
             badges[1] = eventOverride;
         } else if (registeredCampuses.length > 0 && monthData.activityDays) {
+            // 活動日分割バー
             let splitHtml = "";
             let isTerm = isTermPeriodFunc(currentYMD, acadData);
             let isExcl = isExcludedFunc(currentYMD, acadData);
@@ -154,6 +153,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
             }
         }
 
+        // バッジHTML組み立て
         let badgeHtml = `<div class="badge-container">`;
         for(let r=0; r<7; r++) {
             if (badges[r]) {
@@ -164,9 +164,10 @@ async function renderCalendarGrid(targetId, ym, mode) {
         badgeHtml += `</div>`;
 
 
-        // --- アイコン表示 (条件判定) ---
+        // --- アイコン・ステータス判定 ---
         let isTerm = isTermPeriodFunc(currentYMD, acadData);
         let isExcl = isExcludedFunc(currentYMD, acadData);
+        
         let isUserActivityDay = false;
         let userCampus = (userSettings && userSettings.defaultCampusId) ? userSettings.defaultCampusId : null;
         
@@ -181,8 +182,10 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 }
             }
         }
+        
         const shouldShowIcons = isTerm && !isExcl && isUserActivityDay;
 
+        // --- セル内アイコン表示 ---
         if (mode === 'user') {
             const log = userLogs.find(l => l.getFullYear() === year && l.getMonth() + 1 === month && l.getDate() === d);
             const reports = userReports.filter(r => dateObj >= r.start && dateObj <= r.end);
@@ -214,7 +217,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
             }
         }
 
-        // 今日の枠線
         let isToday = (year === tY && month === (tM + 1) && d === tD);
         let todayStyle = isToday ? "today-circle" : "";
 

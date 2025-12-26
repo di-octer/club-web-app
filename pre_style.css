@@ -181,7 +181,7 @@ video { width: 100%; display: block; transform: scaleX(-1); }
 .calendar-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 10px; }
 .calendar-grid { 
     display: grid; 
-    grid-template-columns: repeat(7, minmax(9em, 1fr)); 
+    grid-template-columns: repeat(7, minmax(6em, 1fr)); /* 最小6文字分に縮小 */
     gap: 1px; 
     background-color: #ddd; 
     border: 1px solid #ddd; 
@@ -215,7 +215,10 @@ video { width: 100%; display: block; transform: scaleX(-1); }
 
 /* 通常バッジ */
 .cal-badge { 
-    font-size: 9px; line-height: 13px; width: 8em; max-width: 100%; height: 13px; 
+    font-size: 9px;
+    line-height: 13px; 
+    width: 5em; /* 5文字固定に変更 */
+    max-width: 100%; height: 13px; 
     white-space: nowrap; overflow: hidden; text-overflow: clip; text-align: center; 
     border-radius: 2px; border: 1px solid transparent; box-sizing: border-box; 
     padding: 0; font-weight: bold; color: black; margin: 0 auto; 
