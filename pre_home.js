@@ -7,11 +7,8 @@ async function loadHomeNews() {
     const section = document.getElementById('news-section');
     if (!section) return;
 
-    // 1. HTML構造の復元 (タブバーとスライドトラックがない場合)
     if (!document.getElementById('news-tab-bar')) {
-        section.innerHTML = ''; // クリアして再構築
-        
-        // タブバー
+        section.innerHTML = '';
         const tabBar = document.createElement('div');
         tabBar.id = 'news-tab-bar';
         tabBar.style.cssText = "display:flex; margin-bottom:10px; border-radius:5px; overflow:hidden;";
@@ -21,19 +18,12 @@ async function loadHomeNews() {
         `;
         section.appendChild(tabBar);
 
-        // トラックとスライド
         const track = document.createElement('div');
         track.id = 'newsTrack';
         track.className = 'news-track';
         track.style.cssText = "display:flex; transition:transform 0.4s ease; width:200%;";
-        
-        // スワイプイベント
         track.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
-        track.addEventListener('touchend', e => {
-            touchEndX = e.changedTouches[0].screenX;
-            handleSwipe();
-        });
-
+        track.addEventListener('touchend', e => { touchEndX = e.changedTouches[0].screenX; handleSwipe(); });
         track.innerHTML = `
             <div id="slide-rec" class="news-slide" style="width:50%; padding:0 10px; box-sizing:border-box;"></div>
             <div id="slide-trend" class="news-slide" style="width:50%; padding:0 10px; box-sizing:border-box;"></div>
@@ -41,8 +31,6 @@ async function loadHomeNews() {
         section.appendChild(track);
     }
 
-    // 2. データ読み込み & レンダリング
-    // ★設定: 最大表示数 (デフォルト20)
     const maxCount = (userSettings && userSettings.newsMaxCount) ? parseInt(userSettings.newsMaxCount) : 20;
 
     // A. 管理者おすすめ
@@ -56,28 +44,47 @@ async function loadHomeNews() {
                 const d = doc.data();
                 items.push({ title: d.title, url: d.url, badge: 'Pick', color: '#ff9800', author: null });
             });
-            // 最大数でカット
             if (items.length > maxCount) items = items.slice(0, maxCount);
             renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", items, 1);
         } catch(e) { slideRec.innerHTML = '<p>読み込みエラー</p>'; }
     }
 
-    // B. Qiitaトレンド
+    // B. Qiitaトレンド (キャッシュ対応)
     const slideTrend = document.getElementById('slide-trend');
     if (slideTrend) {
         slideTrend.innerHTML = '<p>読み込み中...</p>';
-        try {
-            const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=20&query=stocks:>20';
-            const data = await fetchWithProxy(targetUrl);
-            let items = [];
-            if (data && Array.isArray(data)) {
-                items = data.map(item => ({
-                    title: item.title, url: item.url, badge: 'Qiita', color: '#55c500', author: (item.user ? item.user.id : 'unknown')
-                }));
-            }
+        
+        // キャッシュチェック (有効期限: 1時間)
+        const cacheKey = 'qiita_trends_cache';
+        const cacheTimeKey = 'qiita_trends_timestamp';
+        const cachedData = localStorage.getItem(cacheKey);
+        const cachedTime = localStorage.getItem(cacheTimeKey);
+        const now = new Date().getTime();
+
+        if (cachedData && cachedTime && (now - parseInt(cachedTime) < 3600000)) {
+            // キャッシュ有効
+            console.log("Using cached Qiita trends");
+            let items = JSON.parse(cachedData);
             if (items.length > maxCount) items = items.slice(0, maxCount);
             renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
-        } catch(e) { slideTrend.innerHTML = '<p style="color:red">取得失敗</p>'; }
+        } else {
+            // 新規取得
+            try {
+                const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=20&query=stocks:>20';
+                const data = await fetchWithProxy(targetUrl);
+                let items = [];
+                if (data && Array.isArray(data)) {
+                    items = data.map(item => ({
+                        title: item.title, url: item.url, badge: 'Qiita', color: '#55c500', author: (item.user ? item.user.id : 'unknown')
+                    }));
+                    // キャッシュ保存
+                    localStorage.setItem(cacheKey, JSON.stringify(items));
+                    localStorage.setItem(cacheTimeKey, now.toString());
+                }
+                if (items.length > maxCount) items = items.slice(0, maxCount);
+                renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
+            } catch(e) { slideTrend.innerHTML = '<p style="color:red">取得失敗: 混雑中</p>'; }
+        }
     }
 }
 

@@ -63,8 +63,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
     const today = new Date();
     const tY = today.getFullYear(), tM = today.getMonth(), tD = today.getDate();
     
-    // 今日のステータス表示用 (キャンパスリスト)
-    let todayStatusHTML = "";
+    // ※今日のステータス生成ロジックは分離したのでここでは行わない
 
     for(let d=1; d<=lastDate; d++) {
         const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -76,7 +75,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
         let cellClass = "cal-cell";
         let icons = "";
         
-        // バッジ用配列 (0~6行目)
         let badges = [null, null, null, null, null, null, null]; 
 
         // --- 行1: 期間・休日 ---
@@ -130,7 +128,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
         if (eventOverride) {
             badges[1] = eventOverride;
         } else if (registeredCampuses.length > 0 && monthData.activityDays) {
-            // 活動日分割バー
             let splitHtml = "";
             let isTerm = isTermPeriodFunc(currentYMD, acadData);
             let isExcl = isExcludedFunc(currentYMD, acadData);
@@ -157,7 +154,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
             }
         }
 
-        // バッジHTML組み立て
         let badgeHtml = `<div class="badge-container">`;
         for(let r=0; r<7; r++) {
             if (badges[r]) {
@@ -168,70 +164,25 @@ async function renderCalendarGrid(targetId, ym, mode) {
         badgeHtml += `</div>`;
 
 
-        // --- アイコン・ステータス判定 ---
-        let isToday = (year === tY && month === (tM + 1) && d === tD);
-        
+        // --- アイコン表示 (条件判定) ---
         let isTerm = isTermPeriodFunc(currentYMD, acadData);
         let isExcl = isExcludedFunc(currentYMD, acadData);
-        
-        // ユーザーにとっての活動日か？
         let isUserActivityDay = false;
         let userCampus = (userSettings && userSettings.defaultCampusId) ? userSettings.defaultCampusId : null;
         
         if (monthData.activityDays) {
             if (userCampus) {
-                // 指定キャンパスあり
                 if (monthData.activityDays[userCampus] && monthData.activityDays[userCampus].some(s => s.day === dayOfWeek)) isUserActivityDay = true;
                 if (monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === userCampus || !n.cid))) isUserActivityDay = false;
             } else {
-                // キャンパス未設定: いずれかで活動日ならTrue
                 for(const k in monthData.activityDays) {
                     let blocked = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === k || !n.cid));
                     if (!blocked && monthData.activityDays[k].some(s => s.day === dayOfWeek)) isUserActivityDay = true;
                 }
             }
         }
-        
-        // ★厳密なアイコン表示フラグ
         const shouldShowIcons = isTerm && !isExcl && isUserActivityDay;
 
-        // --- 今日のステータス生成 (キャンパス毎) ---
-        if (isToday && mode === 'user') {
-            todayStatusHTML = "";
-            registeredCampuses.forEach(c => {
-                let c_isAct = false;
-                let c_hasSet = monthData.activityDays[c.id] && monthData.activityDays[c.id].some(s => s.day === dayOfWeek);
-                let c_block = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === c.id || !n.cid));
-                
-                // キャンパスごとの活動日条件
-                if (isTerm && !isExcl && c_hasSet && !c_block) c_isAct = true;
-
-                if (!c_isAct) {
-                    todayStatusHTML += `<div>${c.name}: 無し</div>`;
-                } else {
-                    // 出席状況判定
-                    let statusStr = "未";
-                    
-                    // 日付一致判定
-                    const log = userLogs.find(l => l.getFullYear() === year && l.getMonth() + 1 === month && l.getDate() === d);
-                    const reports = userReports.filter(r => dateObj >= r.start && dateObj <= r.end);
-                    const approvedAbsence = reports.find(r => r.type === 'absence' && r.status === 'approved');
-                    
-                    let recStatus = null;
-                    const rec = userRecurringData.find(r => r.day === dayStr);
-                    if (rec) recStatus = (rec.periods === 'All') ? 'absent' : 'late_early';
-
-                    if (log) statusStr = "出席 ✅";
-                    else if (approvedAbsence) statusStr = "欠席(届出済)";
-                    else if (recStatus === 'absent') statusStr = "定期欠席";
-                    else if (isLateAuth) statusStr = "遅刻状態";
-                    
-                    todayStatusHTML += `<div>${c.name}: ${statusStr}</div>`;
-                }
-            });
-        }
-
-        // --- セル内アイコン表示 ---
         if (mode === 'user') {
             const log = userLogs.find(l => l.getFullYear() === year && l.getMonth() + 1 === month && l.getDate() === d);
             const reports = userReports.filter(r => dateObj >= r.start && dateObj <= r.end);
@@ -263,6 +214,8 @@ async function renderCalendarGrid(targetId, ym, mode) {
             }
         }
 
+        // 今日の枠線
+        let isToday = (year === tY && month === (tM + 1) && d === tD);
         let todayStyle = isToday ? "today-circle" : "";
 
         html += `
@@ -274,34 +227,110 @@ async function renderCalendarGrid(targetId, ym, mode) {
     }
     html += `</div>`;
     container.innerHTML = html;
+}
 
-    // 今日のステータス表示更新 (Userモードのみ)
-    if (document.getElementById('todayStatus') && mode === 'user') {
-        const el = document.getElementById('todayStatus');
-        if (todayStatusHTML) {
-            el.innerHTML = todayStatusHTML;
-            el.className = "status-card";
-            el.style.backgroundColor = "#555"; 
-        } else {
-            el.innerHTML = "今日のデータ読み込み中...";
-        }
+async function updateTodayCampusStatus() {
+    const el = document.getElementById('todayStatus');
+    if (!el || !currentUser) return;
+    el.innerHTML = '読み込み中...';
+    
+    // 今日の日付を取得
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth() + 1;
+    const d = today.getDate();
+    const ym = `${y}-${String(m).padStart(2,'0')}`;
+    const dayOfWeek = today.getDay();
+    const dayStr = ['日','月','火','水','木','金','土'][dayOfWeek];
+    const ymd = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+    try {
+        // 1. 今月のカレンダー設定を取得
+        let monthData = {};
+        const cDoc = await db.collection('calendars').doc(ym).get();
+        if(cDoc.exists) monthData = cDoc.data();
+
+        // 2. 学年暦データを取得 (活動期間判定用)
+        let acadData = {};
+        const acadYear = (m >= 1 && m <= 3) ? y - 1 : y;
+        const aDoc = await db.collection('calendar_meta').doc(`config_${acadYear}`).get();
+        if(aDoc.exists) acadData = aDoc.data();
+
+        // 3. 今日の情報を判定
+        let html = '<div class="status-list">';
+        let isTerm = isTermPeriodFunc(ymd, acadData);
+        let isExcl = isExcludedFunc(ymd, acadData);
+
+        registeredCampuses.forEach(c => {
+            let statusText = "活動なし";
+            let statusClass = "no-act"; // デフォルト: 活動なし
+
+            // 活動判定
+            let hasSetting = monthData.activityDays && monthData.activityDays[c.id] && monthData.activityDays[c.id].some(s => s.day === dayOfWeek);
+            let isBlocked = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === ymd && (n.cid === c.id || !n.cid));
+            
+            let isActivityDay = isTerm && !isExcl && hasSetting && !isBlocked;
+
+            if (isActivityDay) {
+                // 活動あり -> 出席状況判定
+                // (出席ログなどは checkAttendance で取得済みのグローバル変数を使用)
+                statusText = "未";
+                statusClass = "active-late"; // 未/遅刻系
+
+                // A. 出席ログ (年・月・日一致)
+                const log = checkHistoryDates.find(l => l.getFullYear()===y && l.getMonth()+1===m && l.getDate()===d);
+                
+                // B. 届出 (期間内)
+                const approvedAbsence = checkReportRanges.find(r => today >= r.start && today <= r.end && r.type === 'absence' && r.status === 'approved');
+                
+                // C. 定期 (曜日一致)
+                let recStatus = null;
+                const rec = checkRecurringData.find(r => r.day === dayStr);
+                if (rec) recStatus = (rec.periods === 'All') ? 'absent' : 'late_early';
+
+                if (log) {
+                    statusText = "出席 ✅";
+                    statusClass = "active-ok";
+                } else if (approvedAbsence) {
+                    statusText = "欠席(届出済)";
+                    statusClass = "active-abs";
+                } else if (recStatus === 'absent') {
+                    statusText = "定期欠席";
+                    statusClass = "active-abs";
+                } else if (isLateAuth) {
+                    statusText = "遅刻状態";
+                    statusClass = "active-late";
+                }
+            }
+
+            html += `<div class="status-row ${statusClass}">
+                <span>${c.name}</span>
+                <span>${statusText}</span>
+            </div>`;
+        });
+        html += '</div>';
+        
+        el.innerHTML = html;
+        el.className = ""; // status-cardクラスなどは内部のdivで制御
+        el.style.backgroundColor = "transparent";
+        el.style.padding = "0";
+
+    } catch(e) {
+        console.error(e);
+        el.innerHTML = "ステータス取得エラー";
     }
 }
 
 async function checkAttendance() {
     if (!currentUser) return;
     const name = currentUser.displayName;
-    
     const resultEl = document.getElementById('resultArea');
     if(resultEl) resultEl.style.display = 'block';
-    
     try {
-        // 1. 出席ログ
         const logSnap = await db.collection('attendance_logs').where('userName', '==', name).get();
         checkHistoryDates = [];
         logSnap.forEach(doc => checkHistoryDates.push(doc.data().timestamp.toDate()));
 
-        // 2. 届出
         const reportSnap = await db.collection('absence_reports').where('userName', '==', name).get();
         checkReportRanges = [];
         reportSnap.forEach(doc => {
@@ -312,8 +341,7 @@ async function checkAttendance() {
             }
         });
 
-        // 3. 定期データ (キャッシュ)
-        userRecurring = [];
+        checkRecurringData = [];
         const recSnap = await db.collection('recurring_absence_applications')
             .where('userId', '==', currentUser.uid)
             .where('status', '==', 'approved').get();
@@ -322,13 +350,16 @@ async function checkAttendance() {
             if(val.data && typeof val.data === 'string') {
                 val.data.split('|').forEach(p => {
                     const [day, periods] = p.split(':');
-                    userRecurring.push({day, periods});
+                    checkRecurringData.push({day, periods});
                 });
             }
         });
         
         checkDisplayDate = new Date();
         renderCalendar();
+        
+        // ★独立させた今日のステータス更新を呼び出し
+        updateTodayCampusStatus();
         
     } catch(e) { console.error(e); }
 }

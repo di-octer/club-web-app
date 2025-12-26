@@ -24,25 +24,25 @@ body {
     position: fixed;
     top: 0;
     left: 0;
-    width: 100%; /* 画面幅いっぱい */
+    width: 100%;
     height: 60px;
     background-color: #007bff;
     color: white;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px; /* 両端の余白を少し広げる */
-    box-sizing: border-box; /* パディングを含めて幅100%にする */
+    padding: 0 16px;
+    box-sizing: border-box;
     z-index: 1000;
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
-.appbar-side { 
-    width: 44px; 
+.appbar-side {
+    min-width: 44px;
     flex-shrink: 0; 
     display: flex; 
     align-items: center; 
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 .appbar-side:last-child {
@@ -51,15 +51,14 @@ body {
 
 /* 中央は残りの幅を埋める */
 .appbar-center { 
-    flex-grow: 1;
-    min-width: 0;
+    flex: 1; 
     text-align: center; 
     font-weight: bold; 
     font-size: 1.2em; 
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    padding: 0 8px; /* アイコンとの被り防止 */
+    padding: 0 8px;
 }
 
 .icon-btn { color: white; text-decoration: none; font-size: 1.5em; cursor: pointer; }
@@ -156,21 +155,25 @@ video { width: 100%; display: block; transform: scaleX(-1); }
 /* =========================================
    ステータス・カレンダー
    ========================================= */
-.status-card { 
-    padding: 15px; 
-    border-radius: 8px; 
-    margin-bottom: 20px; 
-    color: white; 
-    font-weight: bold; 
-    font-size: 1em;
-    text-align: left; /* 複数行対応のため左寄せ */
-    line-height: 1.6;
+.status-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
-.status-card div { margin-bottom: 4px; }
-.status-ok { background-color: #28a745; }
-.status-no { background-color: #6c757d; }
-.status-late-state { background-color: #ADFF2F; color: black; }
-.status-absent { background-color: #800080; }
+.status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    border-radius: 8px;
+    background-color: #f8f9fa; /* デフォルト背景 */
+    border: 1px solid #eee;
+    font-weight: bold;
+}
+.status-row.active-ok { background-color: #d4edda; color: #155724; border-color: #c3e6cb; } /* 出席 */
+.status-row.active-abs { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; } /* 欠席 */
+.status-row.active-late { background-color: #fff3cd; color: #856404; border-color: #ffeeba; } /* 遅刻/未 */
+.status-row.no-act { background-color: #e2e3e5; color: #383d41; border-color: #d6d8db; opacity: 0.7; } /* 活動なし */
 
 .updated-at { font-size: 0.8em; color: #666; text-align: right; margin-top: 10px; }
 
