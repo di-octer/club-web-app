@@ -74,19 +74,41 @@ async function renderCalendarGrid(targetId, ym, mode) {
         let cellClass = "cal-cell";
         let icons = "";
         
-        // ★修正: バッジは5行固定
-        // [0]: 期間・休日
-        // [1]: 活動日 / 総会 / 合宿
+        // ★修正: バッジは4行固定
+        // [0]: 休日・期間・成績発表 (休日優先確認 -> 期間上書き -> 成績発表分割)
+        // [1]: 仮入部 / 総会 / 合宿 / 活動日
         // [2]: 基礎班 / 発展班 (分割可)
-        // [3]: 成績発表 / 仮入部
-        // [4]: ラジオ / イベント (分割可)
-        let badges = [null, null, null, null, null]; 
+        // [3]: ラジオ / イベント (分割可)
+        let badges = [null, null, null, null]; 
 
-        // --- Row 0: 期間・休日 ---
+        // イベント情報の整理
+        let dayEvents = [];
+        if (monthData.events) {
+            dayEvents = monthData.events.filter(e => isWithin(currentYMD, e));
+        }
+
+        // --- Row 0: 休日・期間・成績発表 ---
+        let b0 = null;
+
         if (acadData) {
+            // 1. まず休日判定 (後で期間によって上書きされる可能性あり)
+            const holidayName = getJapaneseHolidayName(dateObj);
+            if (acadData.exceptions) {
+                const ex = acadData.exceptions.find(e => e.date === currentYMD);
+                if (ex) {
+                    if (ex.type === 'school_day') b0 = { text: '授業実施日', cls: 'badge-red' };
+                    else b0 = { text: '特別休日', cls: 'badge-gray' };
+                } else if (holidayName) {
+                    b0 = { text: '通常休日', cls: 'badge-gray' };
+                }
+            } else if (holidayName) {
+                b0 = { text: '通常休日', cls: 'badge-gray' };
+            }
+
+            // 2. 期間判定 (休日より優先して表示したい場合上書き)
             const setQ = (p, label, colorCls) => {
-                if(p.start === currentYMD) badges[0] = { text: `${label}初日`, cls: `${colorCls} border-blue` };
-                else if(p.end === currentYMD) badges[0] = { text: `${label}最終日`, cls: `${colorCls} border-red` };
+                if(p.start === currentYMD) b0 = { text: `${label}初日`, cls: `${colorCls} border-blue` };
+                else if(p.end === currentYMD) b0 = { text: `${label}最終日`, cls: `${colorCls} border-red` };
             };
             if(acadData.t1_front) setQ(acadData.t1_front, '1Q', 'badge-q-pre');
             if(acadData.t1_back) setQ(acadData.t1_back, '2Q', 'badge-q-pre');
@@ -94,39 +116,51 @@ async function renderCalendarGrid(targetId, ym, mode) {
             if(acadData.t2_back) setQ(acadData.t2_back, '4Q', 'badge-q-post');
 
             if(acadData.periods) {
-                if(isWithin(currentYMD, acadData.periods.reg1) || isWithin(currentYMD, acadData.periods.reg2)) badges[0] = { text: '履修登録', cls: 'badge-red' };
-                if(isWithin(currentYMD, acadData.periods.sup1) || isWithin(currentYMD, acadData.periods.sup2)) badges[0] = { text: '集中補講', cls: 'badge-red' };
-                if(isWithin(currentYMD, acadData.periods.exam1) || isWithin(currentYMD, acadData.periods.exam2)) badges[0] = { text: '試験', cls: 'badge-red' };
+                if(isWithin(currentYMD, acadData.periods.reg1) || isWithin(currentYMD, acadData.periods.reg2)) b0 = { text: '履修登録', cls: 'badge-red' };
+                if(isWithin(currentYMD, acadData.periods.sup1) || isWithin(currentYMD, acadData.periods.sup2)) b0 = { text: '集中補講', cls: 'badge-red' };
+                if(isWithin(currentYMD, acadData.periods.exam1) || isWithin(currentYMD, acadData.periods.exam2)) b0 = { text: '試験', cls: 'badge-red' };
             }
             if(acadData.festivals) acadData.festivals.forEach(f => {
-                if(isWithin(currentYMD, f)) badges[0] = { text: `文化祭`, cls: getCampusBadgeClass(f.cid) };
+                if(isWithin(currentYMD, f)) b0 = { text: `文化祭`, cls: getCampusBadgeClass(f.cid) };
             });
-            if(acadData.winter && isWithin(currentYMD, acadData.winter)) badges[0] = { text: '冬季休暇', cls: 'badge-gray' };
-            
-            const holidayName = getJapaneseHolidayName(dateObj);
-            if (acadData.exceptions) {
-                const ex = acadData.exceptions.find(e => e.date === currentYMD);
-                if (ex) {
-                    if (ex.type === 'school_day') badges[0] = { text: '授業実施日', cls: 'badge-red' };
-                    else badges[0] = { text: '特別休日', cls: 'badge-gray' };
-                } else if (holidayName) badges[0] = { text: '通常休日', cls: 'badge-gray' }; 
-            } else if (holidayName) badges[0] = { text: '通常休日', cls: 'badge-gray' };
+            if(acadData.winter && isWithin(currentYMD, acadData.winter)) b0 = { text: '冬季休暇', cls: 'badge-gray' };
         }
 
-        // --- イベント情報の整理 ---
-        let dayEvents = [];
-        if (monthData.events) {
-            dayEvents = monthData.events.filter(e => isWithin(currentYMD, e));
+        // 3. 成績発表判定 (あれば分割表示)
+        let isGradeDay = false;
+        if (acadData && acadData.periods) {
+            if (isWithin(currentYMD, acadData.periods.grade1) || isWithin(currentYMD, acadData.periods.grade2)) isGradeDay = true;
         }
 
-        // --- Row 1: 活動日 / 総会 / 合宿 ---
-        // 優先度: 総会/合宿 > 活動日分割バー
+        if (isGradeDay) {
+            if (b0) {
+                // 既存バッジがある場合 -> 分割表示
+                // ※b0の内容と「成績発表日」を分割
+                let splitHtml = `
+                    <div class="cal-badge-split ${b0.cls}">${b0.text}</div>
+                    <div class="cal-badge-split badge-red">成績発表日</div>
+                `;
+                badges[0] = { type: 'split', html: splitHtml };
+            } else {
+                // ない場合 -> 単独表示
+                badges[0] = { text: '成績発表日', cls: 'badge-red' };
+            }
+        } else {
+            // 成績発表がない場合、b0をそのまま使用
+            badges[0] = b0;
+        }
+
+
+        // --- Row 1: 仮入部 / 総会 / 合宿 / 活動日 ---
         let r1_override = null;
+        const trialEvt = dayEvents.find(e => e.type === 'trial');
         const generalEvt = dayEvents.find(e => e.type === 'general');
         const campEvt = dayEvents.find(e => e.type === 'camp');
         
+        // 優先度高: 総会 > 合宿 > 仮入部
         if (generalEvt) r1_override = { text: '総会日', cls: 'badge-teal-yellow' };
         else if (campEvt) r1_override = { text: '合宿', cls: 'badge-camp' };
+        else if (trialEvt) r1_override = { text: '仮入部実施', cls: 'badge-trial' };
 
         if (r1_override) {
             badges[1] = r1_override;
@@ -157,7 +191,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
         const advEvt = dayEvents.find(e => e.type === 'dev_adv');
 
         if (basicEvt && advEvt) {
-            // 両方 -> 分割
             let html2 = `
                 <div class="cal-badge-split badge-dev-basic">基礎班開発</div>
                 <div class="cal-badge-split badge-dev-adv">発展班開発</div>
@@ -169,41 +202,26 @@ async function renderCalendarGrid(targetId, ym, mode) {
             badges[2] = { text: '発展班開発', cls: 'badge-dev-adv' };
         }
 
-        // --- Row 3: 成績発表 / 仮入部 ---
-        // 成績発表優先
-        let gradePeriod = false;
-        if (acadData && acadData.periods) {
-            if (isWithin(currentYMD, acadData.periods.grade1) || isWithin(currentYMD, acadData.periods.grade2)) gradePeriod = true;
-        }
-        const trialEvt = dayEvents.find(e => e.type === 'trial');
-
-        if (gradePeriod) {
-            badges[3] = { text: '成績発表日', cls: 'badge-red' };
-        } else if (trialEvt) {
-            badges[3] = { text: '仮入部実施', cls: 'badge-trial' };
-        }
-
-        // --- Row 4: ラジオ / イベント (分割 or 占有) ---
+        // --- Row 3: ラジオ / イベント (分割 or 占有) ---
         const radioEvt = dayEvents.find(e => e.type === 'radio');
         const otherEvt = dayEvents.find(e => e.type === 'event');
 
         if (radioEvt && otherEvt) {
-            // 両方 -> 分割
-            let html4 = `
+            let html3 = `
                 <div class="cal-badge-split badge-radio">ラジオ日</div>
                 <div class="cal-badge-split badge-event">${otherEvt.title}</div>
             `;
-            badges[4] = { type: 'split', html: html4 };
+            badges[3] = { type: 'split', html: html3 };
         } else if (radioEvt) {
-            badges[4] = { text: 'ラジオ日', cls: 'badge-radio' };
+            badges[3] = { text: 'ラジオ日', cls: 'badge-radio' };
         } else if (otherEvt) {
-            badges[4] = { text: otherEvt.title, cls: 'badge-event' };
+            badges[3] = { text: otherEvt.title, cls: 'badge-event' };
         }
 
 
         // --- バッジHTML生成 ---
         let badgeHtml = `<div class="badge-container">`;
-        for(let r=0; r<5; r++) { // 5行ループ
+        for(let r=0; r<4; r++) { // 4行ループ
             if (badges[r]) {
                 if (badges[r].type === 'split') {
                     badgeHtml += `<div class="badge-row-split">${badges[r].html}</div>`;
