@@ -18,6 +18,7 @@ let registeredCampuses = [];
 let registeredGpsAreas = [];
 let registeredFaces = [];
 let isLoggingIn = false;
+let isLateAuth = false;
 
 window.onload = async () => {
     const path = window.location.pathname;

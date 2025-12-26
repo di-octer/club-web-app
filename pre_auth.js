@@ -2,7 +2,6 @@ let currentStream = null;
 let isAuthCompleted = false; 
 let isDetectingLoop = false;
 let myRequestId = null;
-let isLateAuth = false;
 let lastDetectedDesc = null;
 let missedFrameCount = 0;
 

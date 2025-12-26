@@ -3,7 +3,6 @@ let checkHistoryDates = [];
 let checkReportRanges = [];
 let checkRecurringData = [];
 let displayCalDate = new Date();
-let isLateAuth = false;
 
 async function renderCalendarGrid(targetId, ym, mode) {
     const container = document.getElementById(targetId);
