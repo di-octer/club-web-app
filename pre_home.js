@@ -206,14 +206,27 @@ function handleSwipe() {
 
 async function fetchWithProxy(targetUrl) {
     const proxies = [
-        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+        // 1. AllOrigins (比較的安定)
+        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        // 2. CodeTabs (バックアップ)
+        (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
     ];
+
     for (const proxyFunc of proxies) {
         try {
-            const res = await fetch(proxyFunc(targetUrl));
+            const controller = new AbortController();
+            // ★修正: タイムアウトを2秒に短縮 (サクサク諦める)
+            const timeoutId = setTimeout(() => controller.abort(), 2000); 
+            
+            const res = await fetch(proxyFunc(targetUrl), { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
             if (!res.ok) throw new Error(`Status ${res.status}`);
             return await res.json();
-        } catch (e) { }
+        } catch (e) { 
+            // 次のプロキシへ
+        }
     }
+    // 全部ダメならnullを返す
+    return null;
 }

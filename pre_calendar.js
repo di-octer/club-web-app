@@ -44,7 +44,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
     if (mode === 'user' && currentUser) {
         userLogs = checkHistoryDates;
         userReports = checkReportRanges;
-        userRecurringData = userRecurring;
+        userRecurringData = checkRecurringData;
     }
 
     // 更新日時
