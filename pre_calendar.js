@@ -15,7 +15,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
     let userReports = [];
     let userRecurringData = [];
 
-    // ★修正: 曜日配列をここで定義
     const weekDays = ['日','月','火','水','木','金','土'];
 
     // 1. 月次データ取得
@@ -47,7 +46,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
     if (mode === 'user' && currentUser) {
         userLogs = checkHistoryDates;
         userReports = checkReportRanges;
-        // ★修正: 変数名を checkRecurringData に変更
         userRecurringData = checkRecurringData;
     }
 
@@ -71,13 +69,20 @@ async function renderCalendarGrid(targetId, ym, mode) {
         const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const dateObj = new Date(year, month-1, d);
         const dayOfWeek = dateObj.getDay();
-        const dayStr = weekDays[dayOfWeek]; // ★これで参照エラー解消
+        const dayStr = weekDays[dayOfWeek];
 
         let cellClass = "cal-cell";
         let icons = "";
-        let badges = [null, null, null, null, null, null, null]; 
+        
+        // ★修正: バッジは5行固定
+        // [0]: 期間・休日
+        // [1]: 活動日 / 総会 / 合宿
+        // [2]: 基礎班 / 発展班 (分割可)
+        // [3]: 成績発表 / 仮入部
+        // [4]: ラジオ / イベント (分割可)
+        let badges = [null, null, null, null, null]; 
 
-        // --- 行1: 期間・休日 ---
+        // --- Row 0: 期間・休日 ---
         if (acadData) {
             const setQ = (p, label, colorCls) => {
                 if(p.start === currentYMD) badges[0] = { text: `${label}初日`, cls: `${colorCls} border-blue` };
@@ -108,25 +113,25 @@ async function renderCalendarGrid(targetId, ym, mode) {
             } else if (holidayName) badges[0] = { text: '通常休日', cls: 'badge-gray' };
         }
 
-        // --- 行2: 活動日 (キャンパス分割バー) または 総会/合宿 ---
-        let eventOverride = null;
+        // --- イベント情報の整理 ---
+        let dayEvents = [];
         if (monthData.events) {
-            monthData.events.forEach(evt => {
-                if (isWithin(currentYMD, evt)) {
-                    if (evt.type === 'general') eventOverride = { text: '総会日', cls: 'badge-teal-yellow' };
-                    if (evt.type === 'camp') eventOverride = { text: '合宿', cls: 'badge-camp' };
-                    if (evt.type === 'radio') badges[2] = { text: 'ラジオ日', cls: 'badge-radio' };
-                    if (evt.type === 'dev_basic') badges[3] = { text: '基礎班開発', cls: 'badge-dev-basic' };
-                    if (evt.type === 'dev_adv') badges[4] = { text: '発展班開発', cls: 'badge-dev-adv' };
-                    if (evt.type === 'trial') badges[5] = { text: '仮入部実施', cls: 'badge-trial' };
-                    if (evt.type === 'event') badges[6] = { text: evt.title, cls: 'badge-event' };
-                }
-            });
+            dayEvents = monthData.events.filter(e => isWithin(currentYMD, e));
         }
 
-        if (eventOverride) {
-            badges[1] = eventOverride;
+        // --- Row 1: 活動日 / 総会 / 合宿 ---
+        // 優先度: 総会/合宿 > 活動日分割バー
+        let r1_override = null;
+        const generalEvt = dayEvents.find(e => e.type === 'general');
+        const campEvt = dayEvents.find(e => e.type === 'camp');
+        
+        if (generalEvt) r1_override = { text: '総会日', cls: 'badge-teal-yellow' };
+        else if (campEvt) r1_override = { text: '合宿', cls: 'badge-camp' };
+
+        if (r1_override) {
+            badges[1] = r1_override;
         } else if (registeredCampuses.length > 0 && monthData.activityDays) {
+            // 活動日分割バー生成
             let splitHtml = "";
             let isTerm = isTermPeriodFunc(currentYMD, acadData);
             let isExcl = isExcludedFunc(currentYMD, acadData);
@@ -147,21 +152,70 @@ async function renderCalendarGrid(targetId, ym, mode) {
             badges[1] = { type: 'split', html: splitHtml };
         }
 
-        if (acadData && acadData.periods) {
-            if (isWithin(currentYMD, acadData.periods.grade1) || isWithin(currentYMD, acadData.periods.grade2)) {
-                badges[5] = { text: '成績発表日', cls: 'badge-red' };
-            }
+        // --- Row 2: 基礎班 / 発展班 (分割 or 占有) ---
+        const basicEvt = dayEvents.find(e => e.type === 'dev_basic');
+        const advEvt = dayEvents.find(e => e.type === 'dev_adv');
+
+        if (basicEvt && advEvt) {
+            // 両方 -> 分割
+            let html2 = `
+                <div class="cal-badge-split badge-dev-basic">基礎班開発</div>
+                <div class="cal-badge-split badge-dev-adv">発展班開発</div>
+            `;
+            badges[2] = { type: 'split', html: html2 };
+        } else if (basicEvt) {
+            badges[2] = { text: '基礎班開発', cls: 'badge-dev-basic' };
+        } else if (advEvt) {
+            badges[2] = { text: '発展班開発', cls: 'badge-dev-adv' };
         }
 
-        // バッジHTML組み立て
+        // --- Row 3: 成績発表 / 仮入部 ---
+        // 成績発表優先
+        let gradePeriod = false;
+        if (acadData && acadData.periods) {
+            if (isWithin(currentYMD, acadData.periods.grade1) || isWithin(currentYMD, acadData.periods.grade2)) gradePeriod = true;
+        }
+        const trialEvt = dayEvents.find(e => e.type === 'trial');
+
+        if (gradePeriod) {
+            badges[3] = { text: '成績発表日', cls: 'badge-red' };
+        } else if (trialEvt) {
+            badges[3] = { text: '仮入部実施', cls: 'badge-trial' };
+        }
+
+        // --- Row 4: ラジオ / イベント (分割 or 占有) ---
+        const radioEvt = dayEvents.find(e => e.type === 'radio');
+        const otherEvt = dayEvents.find(e => e.type === 'event');
+
+        if (radioEvt && otherEvt) {
+            // 両方 -> 分割
+            let html4 = `
+                <div class="cal-badge-split badge-radio">ラジオ日</div>
+                <div class="cal-badge-split badge-event">${otherEvt.title}</div>
+            `;
+            badges[4] = { type: 'split', html: html4 };
+        } else if (radioEvt) {
+            badges[4] = { text: 'ラジオ日', cls: 'badge-radio' };
+        } else if (otherEvt) {
+            badges[4] = { text: otherEvt.title, cls: 'badge-event' };
+        }
+
+
+        // --- バッジHTML生成 ---
         let badgeHtml = `<div class="badge-container">`;
-        for(let r=0; r<7; r++) {
+        for(let r=0; r<5; r++) { // 5行ループ
             if (badges[r]) {
-                if (badges[r].type === 'split') badgeHtml += `<div class="badge-row-split">${badges[r].html}</div>`;
-                else badgeHtml += `<div class="badge-row"><div class="cal-badge ${badges[r].cls}">${badges[r].text}</div></div>`;
-            } else badgeHtml += `<div class="badge-row"></div>`;
+                if (badges[r].type === 'split') {
+                    badgeHtml += `<div class="badge-row-split">${badges[r].html}</div>`;
+                } else {
+                    badgeHtml += `<div class="badge-row"><div class="cal-badge ${badges[r].cls}">${badges[r].text}</div></div>`;
+                }
+            } else {
+                badgeHtml += `<div class="badge-row"></div>`;
+            }
         }
         badgeHtml += `</div>`;
+
 
         // --- アイコン・ステータス判定 ---
         let isTerm = isTermPeriodFunc(currentYMD, acadData);

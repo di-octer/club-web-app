@@ -189,11 +189,18 @@ video { width: 100%; display: block; transform: scaleX(-1); }
     box-sizing: border-box; 
 }
 .cal-day-header { background: #f0f0f0; text-align: center; font-weight: bold; padding: 5px 0; font-size: 0.9em; }
-.cal-cell { 
-    background: #fff; 
-    min-height: 140px; 
-    display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; 
-    position: relative; padding: 2px; box-sizing: border-box; overflow: hidden; 
+.cal-cell {
+    background: #fff;
+    /* バッジ5行(約65px) + 日付 + アイコン分の高さを確保 (140px -> 110px) */
+    min-height: 110px; 
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    position: relative;
+    padding: 2px;
+    box-sizing: border-box;
+    overflow: hidden; 
 }
 
 /* 背景色 */
