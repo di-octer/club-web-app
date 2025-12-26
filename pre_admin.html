@@ -68,9 +68,9 @@
             </details>
 
             <details class="settings-details">
-                <summary>活動時間変更 (特定日)</summary>
+                <summary>活動時間変更 / 活動なし設定</summary>
                 <div class="details-content">
-                    <p style="font-size:0.9em; color:#666;">今日以降の日付に対して、活動時間の例外を設定します。</p>
+                    <p style="font-size:0.9em; color:#666;">特定の日付に対し、時間の変更または「活動なし」を設定します。</p>
                     <div class="input-group">
                         <select id="exTimeCampus"><option value="">キャンパスを選択</option></select>
                     </div>
@@ -78,13 +78,21 @@
                         <label>日付</label>
                         <input type="date" id="exTimeDate">
                     </div>
-                    <div class="input-group">
+                    
+                    <div style="margin: 10px 0;">
+                        <label style="display:flex; align-items:center; cursor:pointer;">
+                            <input type="checkbox" id="exTimeCancel" onchange="document.getElementById('exTimeRange').style.display=this.checked?'none':'block'"> 
+                            この日は活動なしにする
+                        </label>
+                    </div>
+
+                    <div class="input-group" id="exTimeRange">
                         <label>時間 (開始 ～ 終了)</label>
                         <div style="display:flex; gap:5px; align-items:center;">
                             <input type="time" id="exTimeStart"> ～ <input type="time" id="exTimeEnd">
                         </div>
                     </div>
-                    <button onclick="updateActivityTimeException()" class="btn-primary">保存</button>
+                    <button onclick="updateActivityTimeException()" class="btn-primary">設定を保存</button>
                 </div>
             </details>
 

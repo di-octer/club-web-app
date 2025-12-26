@@ -832,25 +832,50 @@ function getDistance(lat1, lon1, lat2, lon2) {
 // ==========================================
 async function loadHomeNews() {
     const section = document.getElementById('news-section');
-    if (section && !document.getElementById('news-tab-bar')) {
+    if (!section) return;
+
+    // 1. HTML構造の復元 (タブバーとスライドトラックがない場合)
+    if (!document.getElementById('news-tab-bar')) {
+        section.innerHTML = ''; // クリアして再構築
+        
+        // タブバー
         const tabBar = document.createElement('div');
         tabBar.id = 'news-tab-bar';
-        tabBar.style.display = 'flex';
-        tabBar.style.marginBottom = '10px';
-        tabBar.style.borderRadius = '5px';
-        tabBar.style.overflow = 'hidden';
+        tabBar.style.cssText = "display:flex; margin-bottom:10px; border-radius:5px; overflow:hidden;";
         tabBar.innerHTML = `
             <button id="tab-news-0" onclick="switchNewsSlide(0)" style="flex:1; padding:12px; border:none; background:#007bff; color:white; font-weight:bold; cursor:pointer;">管理者おすすめ</button>
             <button id="tab-news-1" onclick="switchNewsSlide(1)" style="flex:1; padding:12px; border:none; background:#eee; color:#333; cursor:pointer;">Qiitaトレンド</button>
         `;
-        section.insertBefore(tabBar, section.firstChild);
+        section.appendChild(tabBar);
+
+        // トラックとスライド
+        const track = document.createElement('div');
+        track.id = 'newsTrack';
+        track.className = 'news-track';
+        track.style.cssText = "display:flex; transition:transform 0.4s ease; width:200%;";
+        
+        // スワイプイベント
+        track.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
+        track.addEventListener('touchend', e => {
+            touchEndX = e.changedTouches[0].screenX;
+            handleSwipe();
+        });
+
+        track.innerHTML = `
+            <div id="slide-rec" class="news-slide" style="width:50%; padding:0 10px; box-sizing:border-box;"></div>
+            <div id="slide-trend" class="news-slide" style="width:50%; padding:0 10px; box-sizing:border-box;"></div>
+        `;
+        section.appendChild(track);
     }
 
-    // ★追加: 最大表示数の取得 (デフォルト20)
+    // 2. データ読み込み & レンダリング
+    // ★設定: 最大表示数 (デフォルト20)
     const maxCount = (userSettings && userSettings.newsMaxCount) ? parseInt(userSettings.newsMaxCount) : 20;
 
+    // A. 管理者おすすめ
     const slideRec = document.getElementById('slide-rec');
     if (slideRec) {
+        slideRec.innerHTML = '<p>読み込み中...</p>';
         try {
             const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
             let items = [];
@@ -858,41 +883,33 @@ async function loadHomeNews() {
                 const d = doc.data();
                 items.push({ title: d.title, url: d.url, badge: 'Pick', color: '#ff9800', author: null });
             });
-            // ★追加: 最大数で切り捨て
+            // 最大数でカット
             if (items.length > maxCount) items = items.slice(0, maxCount);
-            
             renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", items, 1);
         } catch(e) { slideRec.innerHTML = '<p>読み込みエラー</p>'; }
     }
 
+    // B. Qiitaトレンド
     const slideTrend = document.getElementById('slide-trend');
     if (slideTrend) {
+        slideTrend.innerHTML = '<p>読み込み中...</p>';
         try {
             const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=20&query=stocks:>20';
             const data = await fetchWithProxy(targetUrl);
             let items = [];
-            if (data && data.length > 0) {
+            if (data && Array.isArray(data)) {
                 items = data.map(item => ({
                     title: item.title, url: item.url, badge: 'Qiita', color: '#55c500', author: (item.user ? item.user.id : 'unknown')
                 }));
             }
-            // ★追加: 最大数で切り捨て
             if (items.length > maxCount) items = items.slice(0, maxCount);
-
             renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
         } catch(e) { slideTrend.innerHTML = '<p style="color:red">取得失敗</p>'; }
     }
 }
-
 function handleSwipe() {
-    if (touchEndX < touchStartX - 50) {
-        // 左スワイプ -> 次へ
-        if (currentNewsSlide === 0) switchNewsSlide(1);
-    }
-    if (touchEndX > touchStartX + 50) {
-        // 右スワイプ -> 前へ
-        if (currentNewsSlide === 1) switchNewsSlide(0);
-    }
+    if (touchEndX < touchStartX - 50) { if (currentNewsSlide === 0) switchNewsSlide(1); }
+    if (touchEndX > touchStartX + 50) { if (currentNewsSlide === 1) switchNewsSlide(0); }
 }
 
 async function fetchWithProxy(targetUrl) {
@@ -911,9 +928,10 @@ async function fetchWithProxy(targetUrl) {
 
 function switchNewsSlide(index) {
     const track = document.getElementById('newsTrack');
+    if(!track) return;
     currentNewsSlide = index;
-    const translateVal = index === 0 ? '0%' : '-50%';
-    track.style.transform = `translateX(${translateVal})`;
+    track.style.transform = index === 0 ? 'translateX(0%)' : 'translateX(-50%)';
+    
     const tab0 = document.getElementById('tab-news-0');
     const tab1 = document.getElementById('tab-news-1');
     if(tab0 && tab1) {
@@ -929,68 +947,75 @@ function switchNewsSlide(index) {
 
 function renderNewsSlide(container, title, navText, items, nextIndex) {
     container.innerHTML = '';
+    
+    // ヘッダー (ナビゲーション付き)
     const header = document.createElement('div');
     header.className = 'news-header';
-    
     let leftNav = '', rightNav = '';
     if (nextIndex === 1) { 
+         leftNav = `<span class="nav-hint" onclick="switchNewsSlide(1)">⬅ Qiita</span>`;
          rightNav = `<span class="nav-hint" onclick="switchNewsSlide(${nextIndex})">${navText}</span>`;
-         leftNav = `<span class="nav-hint" onclick="switchNewsSlide(1)">⬅ Qiitaトレンド</span>`;
     } else { 
          leftNav = `<span class="nav-hint" onclick="switchNewsSlide(${nextIndex})">${navText}</span>`;
-         rightNav = `<span class="nav-hint" onclick="switchNewsSlide(0)">管理者おすすめ ➡</span>`;
+         rightNav = `<span class="nav-hint" onclick="switchNewsSlide(0)">Rec ➡</span>`;
     }
-
     header.innerHTML = `
-        <div style="width:30%; text-align:left;">${leftNav}</div>
-        <h3 style="width:40%; text-align:center;">${title}</h3>
-        <div style="width:30%; text-align:right;">${rightNav}</div>
+        <div style="flex:1; text-align:left;">${leftNav}</div>
+        <h3 style="flex:2; text-align:center; margin:0; font-size:1.1em;">${title}</h3>
+        <div style="flex:1; text-align:right;">${rightNav}</div>
     `;
     container.appendChild(header);
 
     if (items.length === 0) { container.innerHTML += '<p>記事がありません</p>'; return; }
 
     const listId = `list-${Math.random().toString(36).substr(2, 9)}`;
-    const count = (userSettings && userSettings.newsDefaultCount) ? parseInt(userSettings.newsDefaultCount) : 5;
+    // ★設定: デフォルト表示数 (トグルを閉じている時の数)
+    const defaultCount = (userSettings && userSettings.newsDefaultCount) ? parseInt(userSettings.newsDefaultCount) : 5;
     
-    if (items.length > count) {
+    // 上部トグルボタン
+    if (items.length > defaultCount) {
         const topToggle = document.createElement('button');
         topToggle.className = 'toggle-btn';
         topToggle.textContent = "🔽 もっと見る (全表示)";
-        topToggle.onclick = () => toggleNewsItems(listId, topToggle, count);
+        topToggle.onclick = () => toggleNewsItems(listId, topToggle, defaultCount);
         container.appendChild(topToggle);
     }
 
     const listDiv = document.createElement('div');
     listDiv.id = listId;
-    listDiv.className = 'news-list';
-
+    
     items.forEach((item, index) => {
         const div = createNewsItem(item.title, item.url, item.badge, item.color, item.author);
-        if (index >= count) div.classList.add('hidden-item');
+        // デフォルト数を超えたら非表示クラスを付与
+        if (index >= defaultCount) div.classList.add('hidden-item');
         listDiv.appendChild(div);
     });
     container.appendChild(listDiv);
 
-    if (items.length > count) {
+    // 下部トグルボタン
+    if (items.length > defaultCount) {
         const bottomToggle = document.createElement('button');
         bottomToggle.className = 'toggle-btn';
         bottomToggle.textContent = "🔽 もっと見る (全表示)";
-        bottomToggle.onclick = () => toggleNewsItems(listId, bottomToggle, count);
+        bottomToggle.onclick = () => toggleNewsItems(listId, bottomToggle, defaultCount); // 修正: ボタン自身を渡す
         container.appendChild(bottomToggle);
     }
 }
 
 function toggleNewsItems(listId, btn, count) {
     const list = document.getElementById(listId);
-    const isExpanded = !list.children[count].classList.contains('hidden-item');
+    // count番目の要素が隠れているかチェックして、現在の状態（開閉）を判定
+    const isClosed = list.children[count] && list.children[count].classList.contains('hidden-item');
 
-    if (isExpanded) {
-        Array.from(list.children).forEach((child, i) => { if (i >= count) child.classList.add('hidden-item'); });
-        updateToggleButtons(list.parentElement, "🔽 もっと見る");
-    } else {
+    if (isClosed) {
+        // 開く処理: hidden-item を削除
         Array.from(list.children).forEach(child => child.classList.remove('hidden-item'));
+        // ボタンのテキスト更新 (親コンテナ内の全トグルボタンを更新)
         updateToggleButtons(list.parentElement, "🔼 閉じる");
+    } else {
+        // 閉じる処理: count番目以降に hidden-item を付与
+        Array.from(list.children).forEach((child, i) => { if (i >= count) child.classList.add('hidden-item'); });
+        updateToggleButtons(list.parentElement, "🔽 もっと見る (全表示)");
     }
 }
 
@@ -1004,8 +1029,8 @@ function createNewsItem(title, url, badgeText, badgeColor, author = null) {
     div.className = 'news-item';
     div.innerHTML = `
         <div style="background:${badgeColor}; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-right:8px; height:fit-content; flex-shrink:0;">${badgeText}</div>
-        <div>
-            <a href="${url}" target="_blank" style="text-decoration:none; color:#333; font-weight:bold; display:block;">${title}</a>
+        <div style="flex:1; overflow:hidden;">
+            <a href="${url}" target="_blank" style="text-decoration:none; color:#333; font-weight:bold; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${title}</a>
             ${author ? `<div style="font-size:0.8em; color:#888;">by @${author}</div>` : ''}
         </div>
     `;
@@ -1595,7 +1620,7 @@ async function startUserAuthFlow() {
     
     if (!navigator.geolocation) return alert("位置情報不可");
     
-    // 1. まず位置情報を取得し、最寄りキャンパスを特定
+    // 1. 位置情報で最寄りキャンパス特定
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
@@ -1603,7 +1628,6 @@ async function startUserAuthFlow() {
         let nearestCampus = null;
         let minDiv = Infinity;
         
-        // 最寄りキャンパス判定
         registeredCampuses.forEach(c => {
             const d = getDistance(lat, lon, c.lat, c.lon);
             if(d < minDiv) { minDiv = d; nearestCampus = c; }
@@ -1638,11 +1662,10 @@ async function startUserAuthFlow() {
 
     }, (err) => {
         alert("位置情報の取得に失敗しました: " + err.message);
-        // 位置情報が取れない場合は認証不可とする
     });
 }
 
-// 日時・全キャンパスから活動状態を判定
+// 日時・特定キャンパスから活動状態を判定
 // return: { status: 'ok'|'late'|'out' }
 async function checkActivityTimeStatus(date, campusId) {
     const ymd = formatDate(date);
@@ -1655,7 +1678,7 @@ async function checkActivityTimeStatus(date, campusId) {
     let isActivity = false;
 
     try {
-        // 1. 活動例外 (Activity Exceptions) をチェック (優先度高)
+        // 1. 活動例外 (Activity Exceptions)
         const exId = `${ymd}_${campusId}`;
         const exDoc = await db.collection('activity_exceptions').doc(exId).get();
         
@@ -1663,23 +1686,23 @@ async function checkActivityTimeStatus(date, campusId) {
             const d = exDoc.data();
             startTime = d.start;
             endTime = d.end;
-            isActivity = true; // 例外設定がある＝活動あり
+            isActivity = true;
         } else {
-            // 2. 月次カレンダー (Calendars) をチェック
+            // 2. 月次カレンダー
             const calDoc = await db.collection('calendars').doc(ym).get();
             if (calDoc.exists) {
                 const calData = calDoc.data();
                 
-                // A. 活動なし日 (ブロックルーチン) チェック
-                // cidが一致、またはcidなし(全キャンパス)の場合にブロック
+                // ブロックチェック
                 const isBlocked = calData.noActivityDays && calData.noActivityDays.some(n => n.date === ymd && (n.cid === campusId || !n.cid));
                 
                 if (!isBlocked) {
-                    // B. 曜日設定チェック
+                    // 曜日設定
                     if (calData.activityDays && calData.activityDays[campusId]) {
                         const setting = calData.activityDays[campusId].find(s => s.day === day);
                         if (setting) {
                             isActivity = true;
+                            // 設定があれば上書き
                             if (setting.start) startTime = setting.start;
                             if (setting.end) endTime = setting.end;
                         }
@@ -1699,7 +1722,7 @@ async function checkActivityTimeStatus(date, campusId) {
 
     if (nowMins < startMins || nowMins > endMins) return { status: 'out' };
     
-    // 遅刻判定 (開始30分後)
+    // 遅刻判定 (30分後)
     if (nowMins > startMins + 30) return { status: 'late' };
 
     return { status: 'ok' };
@@ -2339,8 +2362,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
     // 更新日時
     const updateEl = document.getElementById('userCalUpdated');
     if (updateEl) {
-        if(monthData.updatedAt) updateEl.textContent = `管理者最終更新: ${monthData.updatedAt.toDate().toLocaleString()}`;
-        else updateEl.textContent = "";
+        updateEl.textContent = monthData.updatedAt ? `管理者最終更新: ${monthData.updatedAt.toDate().toLocaleString()}` : "";
     }
 
     // グリッド生成
@@ -2352,7 +2374,9 @@ async function renderCalendarGrid(targetId, ym, mode) {
 
     const today = new Date();
     const tY = today.getFullYear(), tM = today.getMonth(), tD = today.getDate();
-    let todayStatus = { text: "今日の出席：未 ☁️", class: "status-card status-no" };
+    
+    // 今日のステータス表示用 (キャンパスリスト)
+    let todayStatusHTML = "";
 
     for(let d=1; d<=lastDate; d++) {
         const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -2365,9 +2389,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
         let icons = "";
         
         // バッジ用配列 (0~6行目)
-        // [0]: 期間・休日
-        // [1]: 活動日(分割バー) または 総会/合宿
-        // [2]~[6]: その他イベント
         let badges = [null, null, null, null, null, null, null]; 
 
         // --- 行1: 期間・休日 ---
@@ -2397,16 +2418,11 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 if (ex) {
                     if (ex.type === 'school_day') badges[0] = { text: '授業実施日', cls: 'badge-red' };
                     else badges[0] = { text: '特別休日', cls: 'badge-gray' };
-                } else if (holidayName) {
-                    badges[0] = { text: '通常休日', cls: 'badge-gray' }; 
-                }
-            } else if (holidayName) {
-                badges[0] = { text: '通常休日', cls: 'badge-gray' };
-            }
+                } else if (holidayName) badges[0] = { text: '通常休日', cls: 'badge-gray' }; 
+            } else if (holidayName) badges[0] = { text: '通常休日', cls: 'badge-gray' };
         }
 
         // --- 行2: 活動日 (キャンパス分割バー) または 総会/合宿 ---
-        // 優先度: 総会/合宿 > 活動日分割バー
         let eventOverride = null;
         if (monthData.events) {
             monthData.events.forEach(evt => {
@@ -2414,7 +2430,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
                     if (evt.type === 'general') eventOverride = { text: '総会日', cls: 'badge-teal-yellow' };
                     if (evt.type === 'camp') eventOverride = { text: '合宿', cls: 'badge-camp' };
                     
-                    // 他のイベントは行3以降
                     if (evt.type === 'radio') badges[2] = { text: 'ラジオ日', cls: 'badge-radio' };
                     if (evt.type === 'dev_basic') badges[3] = { text: '基礎班開発', cls: 'badge-dev-basic' };
                     if (evt.type === 'dev_adv') badges[4] = { text: '発展班開発', cls: 'badge-dev-adv' };
@@ -2425,96 +2440,110 @@ async function renderCalendarGrid(targetId, ym, mode) {
         }
 
         if (eventOverride) {
-            // 総会などがあればそれを表示
             badges[1] = eventOverride;
         } else if (registeredCampuses.length > 0 && monthData.activityDays) {
-            // ★活動日分割バー生成
+            // 活動日分割バー
             let splitHtml = "";
             let isTerm = isTermPeriodFunc(currentYMD, acadData);
             let isExcl = isExcludedFunc(currentYMD, acadData);
 
-            // キャンパスごとに状態を判定
             registeredCampuses.forEach(c => {
-                let status = "none"; // none | active | no_act
-                
-                // 1. 活動日設定があるか
+                let status = "none"; 
                 let hasSetting = monthData.activityDays[c.id] && monthData.activityDays[c.id].some(s => s.day === dayOfWeek);
-                
-                // 2. ブロックされているか (活動無)
                 let isBlocked = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === c.id || !n.cid));
 
-                if (isBlocked) {
-                    // 明示的にブロック -> 「無」
-                    status = "no_act";
-                } else if (hasSetting && isTerm && !isExcl) {
-                    // 設定あり + 期間内 + 除外でない -> 「活動日」
-                    status = "active";
-                }
+                if (isBlocked) status = "no_act";
+                else if (hasSetting && isTerm && !isExcl) status = "active";
 
-                // HTML生成
-                let cls = getCampusBadgeClass(c.id); // 色クラス
-                if (status === "active") {
-                    // 活動日: 文字なし
-                    splitHtml += `<div class="cal-badge-split ${cls}"></div>`;
-                } else if (status === "no_act") {
-                    // 活動無: 文字「無」
-                    splitHtml += `<div class="cal-badge-split ${cls}">無</div>`;
-                } else {
-                    // なし: 透明
-                    splitHtml += `<div class="cal-badge-split"></div>`;
-                }
+                let cls = getCampusBadgeClass(c.id);
+                if (status === "active") splitHtml += `<div class="cal-badge-split ${cls}"></div>`;
+                else if (status === "no_act") splitHtml += `<div class="cal-badge-split ${cls}">無</div>`;
+                else splitHtml += `<div class="cal-badge-split"></div>`;
             });
-            
-            // 特別なオブジェクトとしてバッジ配列に格納 (type: split)
             badges[1] = { type: 'split', html: splitHtml };
         }
 
-        // 成績発表 (行6)
         if (acadData && acadData.periods) {
             if (isWithin(currentYMD, acadData.periods.grade1) || isWithin(currentYMD, acadData.periods.grade2)) {
                 badges[5] = { text: '成績発表日', cls: 'badge-red' };
             }
         }
 
-        // --- バッジHTML組み立て ---
+        // バッジHTML組み立て
         let badgeHtml = `<div class="badge-container">`;
         for(let r=0; r<7; r++) {
             if (badges[r]) {
-                if (badges[r].type === 'split') {
-                    // 分割バー
-                    badgeHtml += `<div class="badge-row-split">${badges[r].html}</div>`;
-                } else {
-                    // 通常バッジ
-                    badgeHtml += `<div class="badge-row"><div class="cal-badge ${badges[r].cls}">${badges[r].text}</div></div>`;
-                }
-            } else {
-                badgeHtml += `<div class="badge-row"></div>`; // 空行
-            }
+                if (badges[r].type === 'split') badgeHtml += `<div class="badge-row-split">${badges[r].html}</div>`;
+                else badgeHtml += `<div class="badge-row"><div class="cal-badge ${badges[r].cls}">${badges[r].text}</div></div>`;
+            } else badgeHtml += `<div class="badge-row"></div>`;
         }
         badgeHtml += `</div>`;
 
 
-        // --- アイコン表示 (条件判定) ---
+        // --- アイコン・ステータス判定 ---
+        let isToday = (year === tY && month === (tM + 1) && d === tD);
+        
         let isTerm = isTermPeriodFunc(currentYMD, acadData);
         let isExcl = isExcludedFunc(currentYMD, acadData);
         
+        // ユーザーにとっての活動日か？
         let isUserActivityDay = false;
         let userCampus = (userSettings && userSettings.defaultCampusId) ? userSettings.defaultCampusId : null;
         
         if (monthData.activityDays) {
             if (userCampus) {
+                // 指定キャンパスあり
                 if (monthData.activityDays[userCampus] && monthData.activityDays[userCampus].some(s => s.day === dayOfWeek)) isUserActivityDay = true;
                 if (monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === userCampus || !n.cid))) isUserActivityDay = false;
             } else {
+                // キャンパス未設定: いずれかで活動日ならTrue
                 for(const k in monthData.activityDays) {
                     let blocked = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === k || !n.cid));
                     if (!blocked && monthData.activityDays[k].some(s => s.day === dayOfWeek)) isUserActivityDay = true;
                 }
             }
         }
-
+        
+        // ★厳密なアイコン表示フラグ
         const shouldShowIcons = isTerm && !isExcl && isUserActivityDay;
 
+        // --- 今日のステータス生成 (キャンパス毎) ---
+        if (isToday && mode === 'user') {
+            todayStatusHTML = "";
+            registeredCampuses.forEach(c => {
+                let c_isAct = false;
+                let c_hasSet = monthData.activityDays[c.id] && monthData.activityDays[c.id].some(s => s.day === dayOfWeek);
+                let c_block = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === currentYMD && (n.cid === c.id || !n.cid));
+                
+                // キャンパスごとの活動日条件
+                if (isTerm && !isExcl && c_hasSet && !c_block) c_isAct = true;
+
+                if (!c_isAct) {
+                    todayStatusHTML += `<div>${c.name}: 無し</div>`;
+                } else {
+                    // 出席状況判定
+                    let statusStr = "未";
+                    
+                    // 日付一致判定
+                    const log = userLogs.find(l => l.getFullYear() === year && l.getMonth() + 1 === month && l.getDate() === d);
+                    const reports = userReports.filter(r => dateObj >= r.start && dateObj <= r.end);
+                    const approvedAbsence = reports.find(r => r.type === 'absence' && r.status === 'approved');
+                    
+                    let recStatus = null;
+                    const rec = userRecurringData.find(r => r.day === dayStr);
+                    if (rec) recStatus = (rec.periods === 'All') ? 'absent' : 'late_early';
+
+                    if (log) statusStr = "出席 ✅";
+                    else if (approvedAbsence) statusStr = "欠席(届出済)";
+                    else if (recStatus === 'absent') statusStr = "定期欠席";
+                    else if (isLateAuth) statusStr = "遅刻状態";
+                    
+                    todayStatusHTML += `<div>${c.name}: ${statusStr}</div>`;
+                }
+            });
+        }
+
+        // --- セル内アイコン表示 ---
         if (mode === 'user') {
             const log = userLogs.find(l => l.getFullYear() === year && l.getMonth() + 1 === month && l.getDate() === d);
             const reports = userReports.filter(r => dateObj >= r.start && dateObj <= r.end);
@@ -2526,41 +2555,27 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 if (rec) recurringStatus = (rec.periods === 'All') ? 'absent' : 'late_early';
             }
 
-            let isToday = (year === tY && month === (tM + 1) && d === tD);
-
             if (log) {
-                cellClass += " active-area-approved"; 
-                icons += createIcon('#28a745', '出席');
-                if (isToday) { todayStatus = { text: "今日の出席：完了 ✅", class: "status-card status-ok" }; }
+                cellClass += " active-area-approved"; icons += createIcon('#28a745', '出席');
             } else if (approvedAbsence) {
-                cellClass += " active-area-approved";
-                icons += createIcon('#800080', '欠席(承認済)');
-                if (isToday) { todayStatus = { text: "今日の出席：欠席(届出済) ☔", class: "status-card status-absent" }; }
+                cellClass += " active-area-approved"; icons += createIcon('#800080', '欠席(承認済)');
             } else if (recurringStatus === 'absent') {
                 icons += createIcon('#C71585', '定期欠席');
-                if (isToday) { todayStatus = { text: "今日の出席：定期欠席 ☔", class: "status-card status-absent" }; }
             } else {
                 if (recurringStatus === 'late_early') icons += createIcon('#8A2BE2', '定期遅刻/早退');
                 let pendingCnt = 0;
                 reports.forEach(r => {
                     if (r.status === 'pending') pendingCnt++;
                     else if (r.status !== 'approved') {
-                        let c = '#666';
-                        if (r.status === 'approved') c = '#007bff';
-                        if (r.status === 'confirm') c = '#ffc107';
-                        if (r.status === 'rejected') c = '#dc3545';
+                        let c = '#666'; if (r.status === 'approved') c = '#007bff'; if (r.status === 'confirm') c = '#ffc107'; if (r.status === 'rejected') c = '#dc3545';
                         icons += createIcon(c, r.type);
                     }
                 });
                 if (pendingCnt > 0) icons += createIcon('gray', String(pendingCnt), true);
-                
-                if (isToday && isLateAuth) { 
-                    todayStatus = { text: "今日の出席：遅刻状態 ⚠️", class: "status-card status-late-state" };
-                }
             }
         }
 
-        let todayStyle = (year === tY && month === (tM + 1) && d === tD) ? "today-circle" : "";
+        let todayStyle = isToday ? "today-circle" : "";
 
         html += `
             <div class="${cellClass} ${todayStyle}">
@@ -2572,10 +2587,16 @@ async function renderCalendarGrid(targetId, ym, mode) {
     html += `</div>`;
     container.innerHTML = html;
 
-    if (document.getElementById('todayStatus')) {
+    // 今日のステータス表示更新 (Userモードのみ)
+    if (document.getElementById('todayStatus') && mode === 'user') {
         const el = document.getElementById('todayStatus');
-        el.textContent = todayStatus.text;
-        el.className = todayStatus.class;
+        if (todayStatusHTML) {
+            el.innerHTML = todayStatusHTML;
+            el.className = "status-card";
+            el.style.backgroundColor = "#555"; 
+        } else {
+            el.innerHTML = "今日のデータ読み込み中...";
+        }
     }
 }
 
@@ -2739,19 +2760,50 @@ function setValRange(idBase, valObj) {
 }
 
 // 活動時間変更 (例外設定)
+// 活動時間変更 (例外設定 or 活動なし設定)
 async function updateActivityTimeException() {
     const cid = document.getElementById('exTimeCampus').value;
-    const date = document.getElementById('exTimeDate').value;
-    const start = document.getElementById('exTimeStart').value;
-    const end = document.getElementById('exTimeEnd').value;
-    if(!cid || !date || !start || !end) return alert("全項目必須です");
+    const date = document.getElementById('exTimeDate').value; // YYYY-MM-DD
+    // HTMLに追加されたチェックボックスを取得
+    const isCancel = document.getElementById('exTimeCancel') && document.getElementById('exTimeCancel').checked;
+    
+    if(!cid || !date) return alert("キャンパスと日付は必須です");
 
-    const id = `${date}_${cid}`;
-    await db.collection('activity_exceptions').doc(id).set({
-        cid, date, start, end,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    alert("活動時間を変更しました");
+    if (isCancel) {
+        // 「活動なし」にする -> カレンダーデータの noActivityDays に追加
+        const ym = date.substring(0, 7); // YYYY-MM
+        try {
+            const calRef = db.collection('calendars').doc(ym);
+            const doc = await calRef.get();
+            let noAct = [];
+            if(doc.exists && doc.data().noActivityDays) {
+                noAct = doc.data().noActivityDays;
+            }
+            
+            // 重複チェック
+            if (!noAct.some(n => n.date === date && n.cid === cid)) {
+                const cName = registeredCampuses.find(c => c.id === cid)?.name || cid;
+                noAct.push({ cid, date, cName }); 
+                await calRef.set({ noActivityDays: noAct }, { merge: true });
+                alert(`${date} を活動なし日に設定しました`);
+            } else {
+                alert("すでに設定済みです");
+            }
+        } catch(e) { console.error(e); alert("エラーが発生しました"); }
+        
+    } else {
+        // 時間変更 -> activity_exceptions に書き込み
+        const start = document.getElementById('exTimeStart').value;
+        const end = document.getElementById('exTimeEnd').value;
+        if(!start || !end) return alert("時間を入力してください");
+
+        const id = `${date}_${cid}`;
+        await db.collection('activity_exceptions').doc(id).set({
+            cid, date, start, end,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        alert("活動時間を変更しました");
+    }
 }
 
 function previewCalendar() {

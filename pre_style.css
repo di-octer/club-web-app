@@ -24,20 +24,19 @@ body {
     position: fixed;
     top: 0;
     left: 0;
-    width: 100%;
+    width: 100%; /* 画面幅いっぱい */
     height: 60px;
     background-color: #007bff;
     color: white;
     display: flex;
     align-items: center;
-    justify-content: space-between; /* 両端揃え */
-    padding: 0 10px;
-    box-sizing: border-box; /* パディングを含めた幅計算 */
+    justify-content: space-between;
+    padding: 0 12px; /* 両端の余白を少し広げる */
+    box-sizing: border-box; /* パディングを含めて幅100%にする */
     z-index: 1000;
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
-/* 両サイドの幅を固定し、縮小しないようにする */
 .appbar-side { 
     width: 44px; 
     flex-shrink: 0; 
@@ -46,15 +45,21 @@ body {
     justify-content: center;
 }
 
+.appbar-side:last-child {
+    justify-content: flex-end;
+}
+
 /* 中央は残りの幅を埋める */
 .appbar-center { 
-    flex-grow: 1; 
+    flex-grow: 1;
+    min-width: 0;
     text-align: center; 
     font-weight: bold; 
     font-size: 1.2em; 
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    padding: 0 8px; /* アイコンとの被り防止 */
 }
 
 .icon-btn { color: white; text-decoration: none; font-size: 1.5em; cursor: pointer; }
@@ -134,6 +139,8 @@ video { width: 100%; display: block; transform: scaleX(-1); }
 .nav-hint { font-size: 0.85em; color: #007bff; cursor: pointer; font-weight: bold; white-space: nowrap; }
 .news-item { padding: 12px 0; border-bottom: 1px solid #eee; text-align: left; display: flex; align-items: flex-start; }
 .news-item a { text-decoration: none; color: #333; font-weight: bold; line-height: 1.4; }
+.toggle-btn { display: block; width: 100%; padding: 8px; background: #f0f0f0; border: none; border-radius: 6px; color: #666; font-size: 0.9em; cursor: pointer; margin: 10px 0; font-weight: bold; }
+.hidden-item { display: none !important; }
 
 /* =========================================
    リスト・詳細表示
@@ -149,7 +156,17 @@ video { width: 100%; display: block; transform: scaleX(-1); }
 /* =========================================
    ステータス・カレンダー
    ========================================= */
-.status-card { padding: 15px; border-radius: 8px; margin-bottom: 20px; color: white; font-weight: bold; font-size: 1.1em; }
+.status-card { 
+    padding: 15px; 
+    border-radius: 8px; 
+    margin-bottom: 20px; 
+    color: white; 
+    font-weight: bold; 
+    font-size: 1em;
+    text-align: left; /* 複数行対応のため左寄せ */
+    line-height: 1.6;
+}
+.status-card div { margin-bottom: 4px; }
 .status-ok { background-color: #28a745; }
 .status-no { background-color: #6c757d; }
 .status-late-state { background-color: #ADFF2F; color: black; }
@@ -176,37 +193,21 @@ video { width: 100%; display: block; transform: scaleX(-1); }
     position: relative; padding: 2px; box-sizing: border-box; overflow: hidden; 
 }
 
-/* --- 背景色 --- */
+/* 背景色 */
 .active-area { background-color: #e8f5e9; }
 .active-area-approved { background-color: #c8e6c9; }
 .today-circle { outline: 2px solid #007bff; z-index: 10; position: relative; }
 
-/* --- バッジシステム --- */
+/* バッジシステム */
 .badge-container { display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px; width: 100%; flex-grow: 0; }
 .badge-row { height: 13px; width: 100%; display: flex; justify-content: center; align-items: center; }
 
-/* ★追加: 分割バッジコンテナ (キャンパス数で等分) */
-.badge-row-split {
-    height: 13px;
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 0; /* 隙間なし */
-}
-/* 分割バッジ本体 */
+/* 分割バッジコンテナ */
+.badge-row-split { height: 13px; width: 100%; display: flex; justify-content: center; align-items: center; gap: 0; }
 .cal-badge-split {
-    flex: 1; /* 等分 */
-    height: 100%;
-    font-size: 9px;
-    line-height: 13px;
-    text-align: center;
-    font-weight: bold;
-    color: black;
-    white-space: nowrap;
-    overflow: hidden;
-    box-sizing: border-box;
-    border: 1px solid transparent;
+    flex: 1; height: 100%; font-size: 9px; line-height: 13px; text-align: center; 
+    font-weight: bold; color: black; white-space: nowrap; overflow: hidden; 
+    box-sizing: border-box; border: 1px solid transparent;
 }
 
 /* 通常バッジ */
