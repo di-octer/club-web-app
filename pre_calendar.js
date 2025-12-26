@@ -15,6 +15,9 @@ async function renderCalendarGrid(targetId, ym, mode) {
     let userReports = [];
     let userRecurringData = [];
 
+    // ★修正: 曜日配列をここで定義
+    const weekDays = ['日','月','火','水','木','金','土'];
+
     // 1. 月次データ取得
     if (mode === 'preview') {
         const activityDays = {};
@@ -44,6 +47,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
     if (mode === 'user' && currentUser) {
         userLogs = checkHistoryDates;
         userReports = checkReportRanges;
+        // ★修正: 変数名を checkRecurringData に変更
         userRecurringData = checkRecurringData;
     }
 
@@ -57,7 +61,7 @@ async function renderCalendarGrid(targetId, ym, mode) {
     const firstDay = new Date(year, month - 1, 1).getDay();
     const lastDate = new Date(year, month, 0).getDate();
     let html = `<div class="calendar-grid">`;
-    ['日','月','火','水','木','金','土'].forEach(w => html += `<div class="cal-day-header">${w}</div>`);
+    weekDays.forEach(w => html += `<div class="cal-day-header">${w}</div>`);
     for(let i=0; i<firstDay; i++) html += `<div class="cal-cell" style="background:#f9f9f9;"></div>`;
 
     const today = new Date();
@@ -67,11 +71,10 @@ async function renderCalendarGrid(targetId, ym, mode) {
         const currentYMD = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const dateObj = new Date(year, month-1, d);
         const dayOfWeek = dateObj.getDay();
-        const dayStr = weekDays[dayOfWeek];
+        const dayStr = weekDays[dayOfWeek]; // ★これで参照エラー解消
 
         let cellClass = "cal-cell";
         let icons = "";
-        
         let badges = [null, null, null, null, null, null, null]; 
 
         // --- 行1: 期間・休日 ---
@@ -91,7 +94,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 if(isWithin(currentYMD, acadData.periods.exam1) || isWithin(currentYMD, acadData.periods.exam2)) badges[0] = { text: '試験', cls: 'badge-red' };
             }
             if(acadData.festivals) acadData.festivals.forEach(f => {
-                // ★変更点: キャンパス名削除
                 if(isWithin(currentYMD, f)) badges[0] = { text: `文化祭`, cls: getCampusBadgeClass(f.cid) };
             });
             if(acadData.winter && isWithin(currentYMD, acadData.winter)) badges[0] = { text: '冬季休暇', cls: 'badge-gray' };
@@ -113,7 +115,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
                 if (isWithin(currentYMD, evt)) {
                     if (evt.type === 'general') eventOverride = { text: '総会日', cls: 'badge-teal-yellow' };
                     if (evt.type === 'camp') eventOverride = { text: '合宿', cls: 'badge-camp' };
-                    
                     if (evt.type === 'radio') badges[2] = { text: 'ラジオ日', cls: 'badge-radio' };
                     if (evt.type === 'dev_basic') badges[3] = { text: '基礎班開発', cls: 'badge-dev-basic' };
                     if (evt.type === 'dev_adv') badges[4] = { text: '発展班開発', cls: 'badge-dev-adv' };
@@ -126,7 +127,6 @@ async function renderCalendarGrid(targetId, ym, mode) {
         if (eventOverride) {
             badges[1] = eventOverride;
         } else if (registeredCampuses.length > 0 && monthData.activityDays) {
-            // 活動日分割バー
             let splitHtml = "";
             let isTerm = isTermPeriodFunc(currentYMD, acadData);
             let isExcl = isExcludedFunc(currentYMD, acadData);
@@ -163,11 +163,9 @@ async function renderCalendarGrid(targetId, ym, mode) {
         }
         badgeHtml += `</div>`;
 
-
         // --- アイコン・ステータス判定 ---
         let isTerm = isTermPeriodFunc(currentYMD, acadData);
         let isExcl = isExcludedFunc(currentYMD, acadData);
-        
         let isUserActivityDay = false;
         let userCampus = (userSettings && userSettings.defaultCampusId) ? userSettings.defaultCampusId : null;
         

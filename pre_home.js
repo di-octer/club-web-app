@@ -206,7 +206,7 @@ function handleSwipe() {
 
 async function fetchWithProxy(targetUrl) {
     const proxies = [
-        // 1. AllOrigins (比較的安定)
+        // 1. AllOrigins (JSONP不要のrawエンドポイント)
         (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
         // 2. CodeTabs (バックアップ)
         (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
@@ -215,7 +215,7 @@ async function fetchWithProxy(targetUrl) {
     for (const proxyFunc of proxies) {
         try {
             const controller = new AbortController();
-            // ★修正: タイムアウトを2秒に短縮 (サクサク諦める)
+            // ★修正: タイムアウトを2秒に短縮 (サクサク諦めて次へ)
             const timeoutId = setTimeout(() => controller.abort(), 2000); 
             
             const res = await fetch(proxyFunc(targetUrl), { signal: controller.signal });
@@ -224,7 +224,7 @@ async function fetchWithProxy(targetUrl) {
             if (!res.ok) throw new Error(`Status ${res.status}`);
             return await res.json();
         } catch (e) { 
-            // 次のプロキシへ
+            // 失敗したら次のプロキシへ
         }
     }
     // 全部ダメならnullを返す
