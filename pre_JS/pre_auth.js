@@ -15,22 +15,10 @@ window.addEventListener('beforeunload', (e) => {
 
 async function startUserAuthFlow() {
     if (!currentUser) return alert("ログイン情報なし");
-    try {
-        const staleSnaps = await db.collection('auth_requests')
-            .where('userName', '==', currentUser.displayName)
-            .where('status', '==', 'pending')
-            .get();
-        
-        const batch = db.batch();
-        staleSnaps.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-        await batch.commit();
-        console.log("過去の未完了申請を削除しました");
-    } catch(e) {
-        console.error("Cleanup error:", e);
-    }
     
+    // ★修正: ここにあった「過去の未完了申請を削除する処理」を削除しました。
+    // これにより、キャンセルや再試行時に他の申請が勝手に消えるのを防ぎます。
+
     document.getElementById('step-0').classList.remove('active');
     if (!navigator.geolocation) return alert("位置情報不可");
     await loadCampuses(); 
@@ -57,7 +45,6 @@ async function startUserAuthFlow() {
 
         // 2. そのキャンパスの時間設定でチェック
         const now = new Date();
-        // checkActivityTimeStatus は内部でFirestoreを引くため最新時間を取得します
         const timeStatus = await checkActivityTimeStatus(now, nearestCampus.id);
         
         if (timeStatus.status === 'out') {

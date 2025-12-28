@@ -699,7 +699,8 @@ async function saveFaceDataManual() {
 }
 
 async function refreshAllUsers() {
-    const list = document.getElementById('user-list');
+    // ★修正: HTML側のID 'allUsersList' に合わせる
+    const list = document.getElementById('allUsersList');
     if (!list) return;
     list.innerHTML = '読み込み中...';
 
@@ -711,7 +712,6 @@ async function refreshAllUsers() {
             const d = doc.data();
             const uid = doc.id;
             
-            // 各フィールドの値を安全に取得
             const realName = d.realName || "";
             const discord = d.discordName || "";
             const gitId = d.gitId || "";
@@ -1622,11 +1622,37 @@ async function refreshAdminEquipmentList() {
 // --- 強制返却関数 ---
 async function forceReturnEquipment(eqId) {
     if (!confirm("強制的に「貸出可」に戻しますか？\n(現在貸出中のユーザー情報は削除されます)")) return;
+    
     try {
-        await db.collection('equipments').doc(eqId).update({
+        // まず現在の貸出状況を取得してユーザーを特定
+        const eqRef = db.collection('equipments').doc(eqId);
+        const doc = await eqRef.get();
+        
+        if (!doc.exists) return;
+        const data = doc.data();
+
+        const batch = db.batch();
+
+        // 1. 備品情報の更新 (貸出情報削除)
+        batch.update(eqRef, {
             status: 'available',
             currentLoan: firebase.firestore.FieldValue.delete()
         });
+
+        // 2. ★追加: ユーザー情報の borrowedItems から削除
+        if (data.currentLoan && data.currentLoan.userId) {
+            const userRef = db.collection('users').doc(data.currentLoan.userId);
+            batch.update(userRef, {
+                // arrayRemoveは完全一致が必要なため、追加時と同じ構造を指定
+                borrowedItems: firebase.firestore.FieldValue.arrayRemove({
+                    id: eqId,
+                    name: data.name // 備品ドキュメント自身の名前を使用
+                })
+            });
+        }
+
+        await batch.commit();
+        
         refreshAdminEquipmentList();
     } catch (e) { alert("エラー: " + e.message); }
 }
@@ -1736,8 +1762,11 @@ async function handleEqRequest(reqId, isApproved) {
         const data = reqDoc.data();
 
         if (isApproved) {
-            // 備品マスタの状態を「貸出中」に更新
-            await db.collection('equipments').doc(data.equipmentId).update({
+            const batch = db.batch();
+
+            // 1. 備品マスタの状態を「貸出中」に更新
+            const eqRef = db.collection('equipments').doc(data.equipmentId);
+            batch.update(eqRef, {
                 status: 'loaned',
                 currentLoan: {
                     userId: data.userId,
@@ -1746,7 +1775,20 @@ async function handleEqRequest(reqId, isApproved) {
                     endDate: data.endDate
                 }
             });
-            await reqRef.update({ status: 'approved' });
+
+            // 2. 申請ステータスを承認に更新
+            batch.update(reqRef, { status: 'approved' });
+
+            // 3. ★追加: ユーザー情報の borrowedItems に追加
+            const userRef = db.collection('users').doc(data.userId);
+            batch.update(userRef, {
+                borrowedItems: firebase.firestore.FieldValue.arrayUnion({
+                    id: data.equipmentId,
+                    name: data.equipmentName
+                })
+            });
+
+            await batch.commit();
         } else {
             await reqRef.update({ status: 'rejected' });
         }
@@ -1754,7 +1796,6 @@ async function handleEqRequest(reqId, isApproved) {
         alert("処理しました");
         refreshEquipmentRequests();
         
-        // もし備品一覧が表示されていれば更新する
         if (document.getElementById('equipment-list-admin')) refreshAdminEquipmentList();
 
     } catch (e) {
