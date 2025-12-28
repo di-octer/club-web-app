@@ -276,11 +276,11 @@ function setupCommonAppbar() {
 }
 
 async function updateAppbarStatus() {
-    // ★修正: HTML側のID 'appbarCampus' に合わせる (以前は 'appbarPlace' で取得失敗していた)
+    // ID修正: HTML側のID 'appbarCampus' に合わせる
     const placeEl = document.getElementById('appbarCampus'); 
     const statusEl = document.getElementById('appbarStatus');
     
-    // 要素がない場合は何もしない (ここでのreturnにより以降が実行されていなかった)
+    // 要素がない場合は何もしない
     if (!placeEl) return;
 
     // ターゲットキャンパス決定
@@ -303,7 +303,6 @@ async function updateAppbarStatus() {
             const now = new Date();
             const status = await checkActivityTimeStatus(now, campus.id);
             if (status.status !== 'out') {
-                // start, end がある場合のみ表示
                 timeStr = ` [${status.start}〜${status.end}]`;
             }
         } catch(e) { console.error(e); }
@@ -315,13 +314,18 @@ async function updateAppbarStatus() {
         if (statusEl) {
             if (useGps) {
                 const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
+                
                 if (targetAreas.length === 0) {
                     statusEl.innerHTML = '<div class="status-static">エリア外</div>';
-                } else if (targetAreas.length === 1) {
-                    statusEl.innerHTML = `<div class="status-static">📍 ${targetAreas[0].name}</div>`;
                 } else {
-                    const text = targetAreas.map(a => a.name).join("　");
-                    statusEl.innerHTML = `<div class="status-marquee">${text}　　${text}</div>`;
+                    // ★修正: 1箇所でも常にマーキー（電光掲示板）表示にする
+                    // 名前を結合 (例: "📍 場所A　📍 場所B")
+                    const names = targetAreas.map(a => `📍 ${a.name}`).join("　");
+                    
+                    // スクロール用にテキストを複製してつなげる (切れ目なく見せるため)
+                    const marqueeText = `${names}　　　　${names}`;
+                    
+                    statusEl.innerHTML = `<div class="status-marquee">${marqueeText}</div>`;
                 }
             } else {
                 statusEl.innerHTML = '<div class="status-static">固定設定</div>';
