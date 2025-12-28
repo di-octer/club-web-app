@@ -699,98 +699,221 @@ async function saveFaceDataManual() {
 }
 
 async function refreshAllUsers() {
-    // ★修正: HTML側のID 'allUsersList' に合わせる
     const list = document.getElementById('allUsersList');
     if (!list) return;
     list.innerHTML = '読み込み中...';
 
     try {
         const snap = await db.collection('users').get();
-        let html = '<table class="admin-table"><thead><tr><th>User</th><th>本名</th><th>Discord</th><th>GitHub (ID / Repo)</th><th>Qiita ID</th><th>操作</th></tr></thead><tbody>';
+        if (snap.empty) {
+            list.innerHTML = '<p>ユーザーがいません</p>';
+            return;
+        }
+
+        let html = '<div style="display:flex; flex-direction:column; gap:20px;">';
         
         snap.forEach(doc => {
             const d = doc.data();
             const uid = doc.id;
             
-            const realName = d.realName || "";
-            const discord = d.discordName || "";
-            const gitId = d.gitId || "";
-            const gitRepo = d.gitRepo || "";
-            const qiitaId = d.qiitaId || "";
+            // --- データ整形ヘルパー ---
+            const safeStr = (v) => (v === undefined || v === null) ? '' : String(v);
+            const joinList = (arr, sep='•') => (Array.isArray(arr) ? arr.join(sep) : '');
+            
+            // 削除済みタグはオブジェクト配列({tag, until})の可能性があるため対応
+            const joinHiddenTags = (arr) => {
+                if (!Array.isArray(arr)) return '';
+                return arr.map(item => (typeof item === 'object' && item.tag) ? item.tag : item).join('•');
+            };
 
-            html += `<tr id="row-${uid}">
-                <td>
-                    <div style="display:flex; align-items:center; gap:5px;">
-                        <img src="${d.photoURL}" style="width:30px; height:30px; border-radius:50%;">
-                        <span style="font-size:0.8em;">${d.displayName}</span>
+            // 1. 名前系
+            const realName = safeStr(d.realName || d.displayName);
+            const dispName = safeStr(d.displayName);
+
+            // 2. 顔登録・画像
+            const faceRegTxt = d.faceRegistered ? '済' : '未';
+            const faceImgHtml = d.faceThumbnail ? `<br><img src="${d.faceThumbnail}" style="max-height:60px; border:1px solid #ccc; margin-top:5px;">` : '';
+
+            // 3. アプリ内アイコン
+            let appIconHtml = '無し';
+            if (d.customIcon) {
+                appIconHtml = `<img src="${d.customIcon}" style="width:40px; height:40px; border-radius:50%; border:1px solid #ddd;">`;
+            } else if (d.photoURL) { // customがなければphotoURLを表示するか、厳密に「無し」にするか。ここでは一応表示しておく
+                appIconHtml = `<img src="${d.photoURL}" style="width:40px; height:40px; border-radius:50%; border:1px solid #ddd;">`;
+            }
+
+            // 4. ステータス・属性
+            const isMemStr = d.isMember ? '部員' : '非部員'; // 真偽値の表示
+            const gradeStr = safeStr(d.grade);
+            const roleStr = safeStr(d.role);
+            const isAdminStr = d.isAdmin ? '管理者' : '一般';
+            
+            // 貸出物リスト (オブジェクト配列 {id, name} 想定)
+            let borrowedStr = '無し';
+            if (Array.isArray(d.borrowedItems) && d.borrowedItems.length > 0) {
+                borrowedStr = d.borrowedItems.map(i => i.name).join('•');
+            }
+
+            // 5. Discord
+            const discordIconSrc = d.discordIcon || d.photoURL || 'https://via.placeholder.com/40';
+            const discordName = safeStr(d.discordName);
+            const discordId = safeStr(d.discordId);
+
+            // 6-8. ID類 (変更可)
+            const qiitaId = safeStr(d.qiitaId);
+            const gitId = safeStr(d.gitId);
+            const gitRepo = safeStr(d.gitRepo);
+
+            // 9. 自己紹介
+            const profileText = safeStr(d.profileText);
+
+            // 10-11. タグ
+            const tagStr = `${joinList(d.manualInterests)} / ${joinList(d.manualTechStack)} / ${joinList(d.autoInterests)} / ${joinList(d.autoTechStack)}`;
+            const hiddenTagStr = `${joinHiddenTags(d.hiddenInterests)} / ${joinHiddenTags(d.hiddenTechStack)}`;
+
+            // 12-14. 管理者項目 (変更可)
+            const adminMemo = safeStr(d.adminMemo);
+            const groupsStr = joinList(d.groups, ','); // 入力欄用にはカンマ区切り
+            const rAct = safeStr(d.rateActivity);
+            const rTeam = safeStr(d.rateTeam);
+            const rCurr = safeStr(d.rateCurriculum);
+            const rFri = safeStr(d.rateFriends);
+
+            // --- HTML生成 (カード形式) ---
+            html += `
+            <div class="card" id="row-${uid}" style="padding: 15px; border-left: 5px solid #007bff; text-align: left;">
+                <div style="font-weight:bold; font-size:1.1em; border-bottom:1px solid #eee; margin-bottom:10px; padding-bottom:5px;">
+                    本名：${realName}　アプリ内名：${dispName}
+                </div>
+
+                <div style="display:flex; flex-wrap:wrap; gap:20px; margin-bottom:10px; align-items:flex-start;">
+                    <div>
+                        <div style="font-size:0.9em; font-weight:bold; color:#555;">顔登録</div>
+                        <div>${faceRegTxt}</div>
+                        ${faceImgHtml}
                     </div>
-                    <div style="font-size:0.7em; color:#888;">${uid}</div>
-                </td>
-                <td><input type="text" class="edit-input" name="realName" value="${realName}" disabled style="width:100px;"></td>
-                <td><input type="text" class="edit-input" name="discordName" value="${discord}" disabled style="width:100px;"></td>
-                <td>
-                    ID: <input type="text" class="edit-input" name="gitId" value="${gitId}" disabled style="width:80px; margin-bottom:2px;"><br>
-                    Repo: <input type="text" class="edit-input" name="gitRepo" value="${gitRepo}" disabled style="width:80px;">
-                </td>
-                <td><input type="text" class="edit-input" name="qiitaId" value="${qiitaId}" disabled style="width:80px;"></td>
-                <td>
-                    <button class="btn-primary" onclick="toggleUserEdit(this, '${uid}')">変更</button>
-                    <button class="btn-danger" onclick="deleteItem('users', '${uid}')" style="margin-top:5px;">削除</button>
-                </td>
-            </tr>`;
+                    <div>
+                        <div style="font-size:0.9em; font-weight:bold; color:#555;">アプリ内アイコン</div>
+                        <div>${appIconHtml}</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px; border:1px solid #eee; padding:5px; border-radius:5px;">
+                        <img src="${discordIconSrc}" style="width:40px; height:40px; border-radius:50%;">
+                        <div style="font-size:0.85em; line-height:1.3;">
+                            Discord名：${discordName}<br>
+                            DiscordID：${discordId}
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background:#f1f8ff; padding:8px; border-radius:5px; margin-bottom:10px; font-weight:bold; font-size:0.95em;">
+                    ${isMemStr} / ${gradeStr}回生 / ${roleStr} / 貸出：${borrowedStr} / ${isAdminStr}
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-bottom:10px;">
+                    <div><span style="font-size:0.8em; color:#666;">QiitaID</span><input type="text" class="edit-input form-control" name="qiitaId" value="${qiitaId}" disabled style="padding:4px;"></div>
+                    <div><span style="font-size:0.8em; color:#666;">GitID</span><input type="text" class="edit-input form-control" name="gitId" value="${gitId}" disabled style="padding:4px;"></div>
+                    <div><span style="font-size:0.8em; color:#666;">GitRepo</span><input type="text" class="edit-input form-control" name="gitRepo" value="${gitRepo}" disabled style="padding:4px;"></div>
+                </div>
+
+                <div style="margin-bottom:10px;">
+                    <span style="font-size:0.8em; color:#666; font-weight:bold;">自己紹介文</span>
+                    <div style="background:#f9f9f9; padding:8px; border-radius:4px; font-size:0.9em; min-height:1.5em; white-space:pre-wrap;">${profileText || '(無し)'}</div>
+                </div>
+
+                <div style="margin-bottom:5px; font-size:0.9em;">
+                    <span style="color:#007bff;">[現在タグ]</span> ${tagStr}
+                </div>
+                <div style="margin-bottom:15px; font-size:0.9em; color:#888;">
+                    <span>[削除タグ]</span> ${hiddenTagStr}
+                </div>
+
+                <div style="border-top:2px dashed #ddd; padding-top:10px; background:#fafafa; margin:-5px -15px -15px -15px; padding: 15px;">
+                    <div style="margin-bottom:10px;">
+                        <span style="font-size:0.8em; font-weight:bold;">管理者所感</span>
+                        <textarea class="edit-input form-control" name="adminMemo" rows="2" disabled style="width:100%; margin-top:3px;">${adminMemo}</textarea>
+                    </div>
+
+                    <div style="margin-bottom:10px;">
+                        <span style="font-size:0.8em; font-weight:bold;">所属グループ (カンマ区切り)</span>
+                        <input type="text" class="edit-input form-control" name="groups" value="${groupsStr}" disabled style="width:100%; margin-top:3px;">
+                    </div>
+
+                    <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:0.9em;">
+                        <span style="font-weight:bold;">意欲(%)</span>
+                        <label>活動 <input type="number" class="edit-input" name="rateActivity" value="${rAct}" disabled style="width:50px;"></label> /
+                        <label>チーム <input type="number" class="edit-input" name="rateTeam" value="${rTeam}" disabled style="width:50px;"></label> /
+                        <label>カリキュラム <input type="number" class="edit-input" name="rateCurriculum" value="${rCurr}" disabled style="width:50px;"></label> /
+                        <label>コミュ <input type="number" class="edit-input" name="rateFriends" value="${rFri}" disabled style="width:50px;"></label>
+                    </div>
+
+                    <div style="text-align:right; margin-top:15px;">
+                        <button class="btn-primary" onclick="toggleUserEdit(this, '${uid}')">変更</button>
+                        <button class="btn-danger" onclick="deleteItem('users', '${uid}')" style="margin-left:10px;">削除</button>
+                    </div>
+                </div>
+            </div>`;
         });
-        html += '</tbody></table>';
+        
+        html += '</div>';
         list.innerHTML = html;
+
     } catch (e) {
         console.error(e);
-        list.innerHTML = 'エラー';
+        list.innerHTML = '<p style="color:red;">エラーが発生しました</p>';
     }
 }
 
 // ★追加: 編集モード切り替え & 更新処理
 async function toggleUserEdit(btn, uid) {
     const row = document.getElementById(`row-${uid}`);
+    if (!row) return;
+
+    // 対象の入力フィールドを取得
     const inputs = row.querySelectorAll('.edit-input');
     
     if (btn.textContent === "変更") {
-        // 編集モードへ
+        // --- 編集モードへ ---
         inputs.forEach(input => {
             input.disabled = false;
-            input.style.border = "1px solid #007bff";
             input.style.backgroundColor = "#fff";
+            input.style.border = "1px solid #007bff";
         });
         btn.textContent = "更新";
-        btn.classList.remove('btn-primary');
-        btn.classList.add('btn-success'); // 緑色などに変えるとベター（CSS次第）
-        btn.style.backgroundColor = "#28a745"; 
+        btn.style.backgroundColor = "#28a745"; // 緑色
         
     } else {
-        // 更新処理
-        const newData = {};
-        inputs.forEach(input => {
-            newData[input.name] = input.value.trim();
-        });
-
+        // --- 保存処理 ---
         if(!confirm("この内容で更新しますか？")) return;
+
+        const newData = {};
+        
+        // 各inputから値を取得してデータ構築
+        inputs.forEach(input => {
+            const name = input.name;
+            const val = input.value.trim();
+
+            if (name === 'groups') {
+                // 配列に変換 (空文字除去)
+                newData[name] = val.split(',').map(s => s.trim()).filter(s => s);
+            } else if (name.startsWith('rate')) {
+                // 数値変換
+                newData[name] = val ? parseInt(val) : 0;
+            } else {
+                // 文字列そのまま
+                newData[name] = val;
+            }
+        });
 
         try {
             await db.collection('users').doc(uid).update(newData);
-            alert("ユーザー情報を更新しました");
+            alert("更新しました");
             
-            // 読み取り専用に戻す
-            inputs.forEach(input => {
-                input.disabled = true;
-                input.style.border = "1px solid #ccc";
-                input.style.backgroundColor = "#f9f9f9"; // disabled色
-            });
-            btn.textContent = "変更";
-            btn.classList.remove('btn-success');
-            btn.classList.add('btn-primary');
-            btn.style.backgroundColor = ""; // 元の色へ
+            // 表示モードに戻す (リロードすると描画がリセットされるのでrefreshAllUsersを呼ぶ)
+            refreshAllUsers();
             
         } catch(e) {
             console.error(e);
-            alert("更新に失敗しました: " + e.message);
+            alert("更新エラー: " + e.message);
         }
     }
 }
