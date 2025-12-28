@@ -11,7 +11,7 @@ async function initSettingsPage() {
 
     const currentIcon = s.customIcon || currentUser.photoURL;
     document.getElementById('previewIcon').src = currentIcon || "https://via.placeholder.com/50";
-
+    document.getElementById('setDisplayName').value = currentUser.displayName || "";
     document.getElementById('manualInterests').value = (s.manualInterests || []).join(', ');
     document.getElementById('manualTechStack').value = (s.manualTechStack || []).join(', ');
     document.getElementById('profileText').value = s.profileText || "";
@@ -93,7 +93,7 @@ async function saveSettings() {
     } else if (document.getElementById('previewIcon').src === currentUser.photoURL) {
         customIcon = null; 
     }
-
+    const newDisplayName = document.getElementById('setDisplayName').value.trim();
     const manualInterests = document.getElementById('manualInterests').value.split(',').map(s => s.trim()).filter(s=>s);
     const manualTechStack = document.getElementById('manualTechStack').value.split(',').map(s => s.trim()).filter(s=>s);
     const profileText = document.getElementById('profileText').value;
@@ -101,11 +101,22 @@ async function saveSettings() {
     const language = document.getElementById('setLanguage').value;
 
     try {
-        await db.collection('users').doc(uid).set({
+        // Firestore更新データ作成
+        const updateData = {
             authMethod, newsOrder, newsDefaultTab, newsDefaultCount, newsMaxCount,
             customIcon, manualInterests, manualTechStack, profileText, defaultCampusId, language,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        };
+
+        // displayNameが変更されていれば追加
+        if (newDisplayName && newDisplayName !== currentUser.displayName) {
+            updateData.displayName = newDisplayName;
+            
+            // Firebase Auth側のProfileも更新しておく(推奨)
+            await currentUser.updateProfile({ displayName: newDisplayName });
+        }
+
+        await db.collection('users').doc(uid).set(updateData, { merge: true });
 
         alert("設定を保存しました");
         location.reload(); 
