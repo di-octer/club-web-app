@@ -186,7 +186,6 @@ function setupCommonAppbar() {
     if (userSettings && userSettings.customIcon) iconUrl = userSettings.customIcon;
     else if (currentUser && currentUser.photoURL) iconUrl = currentUser.photoURL;
 
-    // ★修正: CSS定義を大幅に見直し
     const style = document.createElement('style');
     style.innerHTML = `
         body { padding-top: 70px; margin: 0; }
@@ -199,43 +198,48 @@ function setupCommonAppbar() {
         }
         .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
         
-        /* 中央グループ: 固定幅をやめて柔軟に伸縮させる */
+        /* 中央グループ: 伸縮可能にする */
         .appbar-info-group {
             display: flex; align-items: center; justify-content: flex-start;
             background: rgba(0, 0, 0, 0.4);
             border-radius: 6px; height: 38px; padding: 0; overflow: hidden;
-            cursor: pointer; flex: 1; /* 親要素内で可能な限り広がる */
-            margin: 0 10px; max-width: 600px; /* 最大幅制限 */
+            cursor: pointer; flex: 1; 
+            margin: 0 10px; max-width: 600px;
         }
         
-        /* 左側: キャンパス名+時間 (固定表示・テキスト省略) */
+        /* 左側: キャンパス名 (固定) */
         .appbar-campus {
             font-weight: bold; padding: 0 10px; white-space: nowrap; 
             font-size: 0.85em; color: #fff; background: transparent;
             border-right: 1px solid rgba(255,255,255,0.3); flex: 0 0 auto;
-            max-width: 50%; overflow: hidden; text-overflow: ellipsis;
+            max-width: 45%; overflow: hidden; text-overflow: ellipsis;
         }
         
-        /* 右側: 流れるエリア (残り幅を全部使う) */
+        /* 右側: 流れるエリアのコンテナ */
         .appbar-center {
             flex: 1; background: transparent; height: 100%;
             display: flex; align-items: center; color: #fff; font-size: 0.9em; 
             font-weight: bold; overflow: hidden; position: relative;
         }
 
-        /* アニメーションなしの静的表示 */
+        /* 静的表示用 */
         .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 5px; }
         
-        /* アニメーション(マーキー) */
-        .status-marquee {
-            display: inline-block;
+        /* --- シームレスループ用アニメーション --- */
+        .marquee-track {
+            display: flex;
             white-space: nowrap;
-            padding-left: 100%; /* 親の右端からスタート */
-            animation: marquee-anim 15s linear infinite; /* 時間を少しゆっくりに */
+            /* 要素幅の半分(50%)だけ移動してリセットすることで無限ループに見せる */
+            animation: marquee-infinite 20s linear infinite; 
         }
-        @keyframes marquee-anim {
+        .marquee-item {
+            flex-shrink: 0;
+            padding: 0;
+        }
+        
+        @keyframes marquee-infinite {
             0% { transform: translateX(0); }
-            100% { transform: translateX(-100%); }
+            100% { transform: translateX(-50%); }
         }
 
         .icon-btn {
@@ -324,10 +328,8 @@ async function updateAppbarStatus() {
             }
         } catch(e) { console.error(e); }
 
-        // 左側：キャンパス名 + 時間
         placeEl.textContent = `${campus.name}${timeStr}`;
 
-        // 右側：活動場所（GPS連動時）
         if (statusEl) {
             if (useGps) {
                 const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
@@ -335,12 +337,30 @@ async function updateAppbarStatus() {
                 if (targetAreas.length === 0) {
                     statusEl.innerHTML = '<div class="status-static">エリア外</div>';
                 } else {
-                    // ★修正: 常に流れるように設定
-                    // 同じテキストを繰り返して、切れ目をわかりにくくする
-                    const names = targetAreas.map(a => `📍${a.name}`).join("　");
-                    const marqueeText = `${names}　　　${names}　　　${names}`; 
+                    // ★修正: 指定された空白ルールで文字列を作成
+                    // 1. 場所間は全角スペース3個
+                    const separator = "　　　";
+                    // 2. ループ間(最後と最初)は全角スペース5個
+                    const loopSpacer = "　　　　　";
+
+                    const namesStr = targetAreas.map(a => `📍${a.name}`).join(separator);
                     
-                    statusEl.innerHTML = `<div class="status-marquee">${marqueeText}</div>`;
+                    // ユニットを作成: [場所1　　　場所2　　　　　]
+                    const unitText = namesStr + loopSpacer;
+
+                    // 画面幅が広くても埋まるように、ユニット自体をある程度(例:4回)繰り返して1ブロックとする
+                    // これで "短いテキストだとスカスカになる" 問題を防ぐ
+                    const blockText = unitText.repeat(4);
+
+                    // シームレスループのために、同じブロックを2つ並べる
+                    // CSSで translateX(-50%) することで、2個目のブロックが1個目の位置に来た瞬間にリセットされる
+                    const html = `
+                        <div class="marquee-track">
+                            <span class="marquee-item">${blockText}</span>
+                            <span class="marquee-item">${blockText}</span>
+                        </div>
+                    `;
+                    statusEl.innerHTML = html;
                 }
             } else {
                 statusEl.innerHTML = '<div class="status-static">固定設定(GPSオフ)</div>';
@@ -367,7 +387,6 @@ async function updateAppbarStatus() {
         render(targetCampus, true);
 
     }, (err) => {
-        console.warn("GPS Error:", err);
         render(targetCampus, false);
     }, { timeout: 5000 });
 }
