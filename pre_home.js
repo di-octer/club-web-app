@@ -7,8 +7,11 @@ async function loadHomeNews() {
     const section = document.getElementById('news-section');
     if (!section) return;
 
+    // 1. HTML構造の復元 (タブバーとスライドトラックがない場合)
     if (!document.getElementById('news-tab-bar')) {
-        section.innerHTML = '';
+        section.innerHTML = ''; // クリアして再構築
+        
+        // タブバー
         const tabBar = document.createElement('div');
         tabBar.id = 'news-tab-bar';
         tabBar.style.cssText = "display:flex; margin-bottom:10px; border-radius:5px; overflow:hidden;";
@@ -18,12 +21,19 @@ async function loadHomeNews() {
         `;
         section.appendChild(tabBar);
 
+        // トラックとスライド
         const track = document.createElement('div');
         track.id = 'newsTrack';
         track.className = 'news-track';
         track.style.cssText = "display:flex; transition:transform 0.4s ease; width:200%;";
+        
+        // スワイプイベント
         track.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
-        track.addEventListener('touchend', e => { touchEndX = e.changedTouches[0].screenX; handleSwipe(); });
+        track.addEventListener('touchend', e => {
+            touchEndX = e.changedTouches[0].screenX;
+            handleSwipe();
+        });
+
         track.innerHTML = `
             <div id="slide-rec" class="news-slide" style="width:50%; padding:0 10px; box-sizing:border-box;"></div>
             <div id="slide-trend" class="news-slide" style="width:50%; padding:0 10px; box-sizing:border-box;"></div>
@@ -33,58 +43,57 @@ async function loadHomeNews() {
 
     const maxCount = (userSettings && userSettings.newsMaxCount) ? parseInt(userSettings.newsMaxCount) : 20;
 
-    // A. 管理者おすすめ
+    // 読み込み中表示
     const slideRec = document.getElementById('slide-rec');
-    if (slideRec) {
-        slideRec.innerHTML = '<p>読み込み中...</p>';
-        try {
-            const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').get();
-            let items = [];
-            snap.forEach(doc => {
-                const d = doc.data();
-                items.push({ title: d.title, url: d.url, badge: 'Pick', color: '#ff9800', author: null });
-            });
-            if (items.length > maxCount) items = items.slice(0, maxCount);
-            renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", items, 1);
-        } catch(e) { slideRec.innerHTML = '<p>読み込みエラー</p>'; }
-    }
-
-    // B. Qiitaトレンド (キャッシュ対応)
     const slideTrend = document.getElementById('slide-trend');
-    if (slideTrend) {
-        slideTrend.innerHTML = '<p>読み込み中...</p>';
-        
-        // キャッシュチェック (有効期限: 1時間)
-        const cacheKey = 'qiita_trends_cache';
-        const cacheTimeKey = 'qiita_trends_timestamp';
-        const cachedData = localStorage.getItem(cacheKey);
-        const cachedTime = localStorage.getItem(cacheTimeKey);
-        const now = new Date().getTime();
+    if (slideRec) slideRec.innerHTML = '<p>読み込み中...</p>';
+    if (slideTrend) slideTrend.innerHTML = '<p>読み込み中...</p>';
 
-        if (cachedData && cachedTime && (now - parseInt(cachedTime) < 3600000)) {
-            // キャッシュ有効
-            console.log("Using cached Qiita trends");
-            let items = JSON.parse(cachedData);
-            if (items.length > maxCount) items = items.slice(0, maxCount);
-            renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
-        } else {
-            // 新規取得
-            try {
-                const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=20&query=stocks:>20';
-                const data = await fetchWithProxy(targetUrl);
-                let items = [];
-                if (data && Array.isArray(data)) {
-                    items = data.map(item => ({
-                        title: item.title, url: item.url, badge: 'Qiita', color: '#55c500', author: (item.user ? item.user.id : 'unknown')
-                    }));
-                    // キャッシュ保存
-                    localStorage.setItem(cacheKey, JSON.stringify(items));
-                    localStorage.setItem(cacheTimeKey, now.toString());
-                }
-                if (items.length > maxCount) items = items.slice(0, maxCount);
-                renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
-            } catch(e) { slideTrend.innerHTML = '<p style="color:red">取得失敗: 混雑中</p>'; }
+    try {
+        // ★修正: バックエンドで集計されたフィードを取得 (高速化・安定化)
+        const doc = await db.collection('home_news').doc('feed').get();
+        
+        let recItems = [];
+        let trendItems = [];
+
+        if (doc.exists) {
+            const data = doc.data();
+            const allItems = data.items || [];
+
+            // データを管理者用とQiita用に振り分け & 表示用形式にマッピング
+            recItems = allItems
+                .filter(i => i.type === 'admin')
+                .map(i => ({
+                    title: i.title,
+                    url: i.url,
+                    badge: i.badge,
+                    color: i.badgeColor,
+                    author: null
+                }));
+
+            trendItems = allItems
+                .filter(i => i.type === 'qiita')
+                .map(i => ({
+                    title: i.title,
+                    url: i.url,
+                    badge: i.badge,
+                    color: i.badgeColor,
+                    author: i.author
+                }));
         }
+
+        // 表示数制限
+        if (recItems.length > maxCount) recItems = recItems.slice(0, maxCount);
+        if (trendItems.length > maxCount) trendItems = trendItems.slice(0, maxCount);
+
+        // レンダリング
+        if (slideRec) renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", recItems, 1);
+        if (slideTrend) renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", trendItems, 0);
+
+    } catch (e) {
+        console.error("News load error:", e);
+        if (slideRec) slideRec.innerHTML = '<p>読み込みエラー</p>';
+        if (slideTrend) slideTrend.innerHTML = '<p>読み込みエラー</p>';
     }
 }
 

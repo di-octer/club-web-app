@@ -280,3 +280,54 @@ video { width: 100%; display: block; transform: scaleX(-1); }
 .badge-event { background-color: #ffa500; color: white; }
 
 .icon-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; margin-top: auto; min-height: 16px; }
+
+/* --- ポートフォリオ --- */
+.portfolio-card {
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    text-align: left;
+    background: white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+.portfolio-info-row { margin-bottom: 8px; font-size: 0.95em; }
+.portfolio-label { font-weight: bold; color: #666; margin-right: 8px; display: inline-block; width: 80px; }
+
+/* 記事詳細 (Sticky Header) */
+.article-container {
+    margin-bottom: 30px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden; /* Stickyを効かせるため要調整の場合あり */
+}
+.article-header-sticky {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 60px; /* Appbarの高さ分ずらす */
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    padding: 10px 15px;
+    z-index: 100;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+.article-header-sticky:hover {
+    background: #e2e6ea;
+}
+.article-body {
+    padding: 20px;
+    background: #fff;
+    display: none; /* 初期は閉じる */
+}
+.article-body.open {
+    display: block;
+}
+.article-link-icon {
+    text-decoration: none;
+    font-size: 1.2em;
+    margin-left: 10px;
+}
