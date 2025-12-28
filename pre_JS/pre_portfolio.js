@@ -81,12 +81,11 @@ async function initPortfolioDetail() {
     const articlesContainer = document.getElementById('articlesList');
     
     try {
-        // 1. ユーザー情報取得 (Firestore)
+        // 1. ユーザー情報取得
         const uDoc = await db.collection('users').doc(uid).get();
         if (!uDoc.exists) throw new Error("User not found");
         const user = uDoc.data();
 
-        // ヘッダー表示
         const gitUrl = user.gitId ? `https://github.com/${user.gitId}` : '#';
         headerContainer.innerHTML = `
             <h2>${user.realName || user.displayName}</h2>
@@ -102,25 +101,57 @@ async function initPortfolioDetail() {
             return;
         }
 
-        // 2. 記事取得 (Cloud Functions呼び出し)
         articlesContainer.innerHTML = '<p>記事を読み込んでいます...</p>';
-        
-        const getArticles = firebase.functions().httpsCallable('getPortfolioArticles');
-        const result = await getArticles({ qiitaId: user.qiitaId });
-        
-        const articles = result.data;
-        articlesContainer.innerHTML = "";
+        let articles = [];
 
-        if (articles.error) {
-            articlesContainer.innerHTML = `<p style="color:red;">記事の取得に失敗しました: ${articles.error}</p>`;
+        // =========================================================================
+        // 【プラン変更待ち】 バックエンド版 (コメントアウト中)
+        // =========================================================================
+        /*
+        try {
+            const getArticles = firebase.functions().httpsCallable('getPortfolioArticles');
+            const result = await getArticles({ qiitaId: user.qiitaId });
+            articles = result.data;
+            if (articles.error) throw new Error(articles.error);
+        } catch(e) {
+            console.error("Backend Error:", e);
+            articlesContainer.innerHTML = `<p style="color:red;">記事取得エラー(Backend)</p>`;
             return;
         }
+        */
+
+        // =========================================================================
+        // 【暫定対応】 フロントエンド版 (プロキシ経由 - 公開記事のみ)
+        // =========================================================================
+        try {
+            // 公開記事のみ取得 (Team記事は取得不可)
+            const targetUrl = `https://qiita.com/api/v2/items?query=user:${user.qiitaId}&per_page=20`;
+            const data = await fetchWithProxy(targetUrl); // pre_home.jsの関数を利用
+            
+            if (Array.isArray(data)) {
+                articles = data.map(item => ({
+                    title: item.title,
+                    url: item.url,
+                    created_at: item.created_at,
+                    // rendered_bodyがあればそれを使う、なければbody(Markdown)
+                    body: item.rendered_body || item.body 
+                }));
+            } else {
+                throw new Error("Data format error");
+            }
+        } catch(e) {
+            console.error("Frontend Error:", e);
+            articlesContainer.innerHTML = `<p style="color:red;">記事を取得できませんでした(API制限の可能性あり)</p>`;
+            return;
+        }
+        // =========================================================================
+
         if (!articles || articles.length === 0) {
-            articlesContainer.innerHTML = "<p>記事がありません。</p>";
+            articlesContainer.innerHTML = "<p>公開記事がありません。</p>";
             return;
         }
 
-        // 3. 記事トグル生成
+        articlesContainer.innerHTML = "";
         articles.forEach(article => {
             const articleEl = createArticleToggle(article);
             articlesContainer.appendChild(articleEl);

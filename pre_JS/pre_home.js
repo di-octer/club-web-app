@@ -7,11 +7,9 @@ async function loadHomeNews() {
     const section = document.getElementById('news-section');
     if (!section) return;
 
-    // 1. HTML構造の復元 (タブバーとスライドトラックがない場合)
+    // 1. HTML構造の復元 (タブバーとスライドトラック)
     if (!document.getElementById('news-tab-bar')) {
-        section.innerHTML = ''; // クリアして再構築
-        
-        // タブバー
+        section.innerHTML = ''; 
         const tabBar = document.createElement('div');
         tabBar.id = 'news-tab-bar';
         tabBar.style.cssText = "display:flex; margin-bottom:10px; border-radius:5px; overflow:hidden;";
@@ -21,13 +19,10 @@ async function loadHomeNews() {
         `;
         section.appendChild(tabBar);
 
-        // トラックとスライド
         const track = document.createElement('div');
         track.id = 'newsTrack';
         track.className = 'news-track';
         track.style.cssText = "display:flex; transition:transform 0.4s ease; width:200%;";
-        
-        // スワイプイベント
         track.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
         track.addEventListener('touchend', e => {
             touchEndX = e.changedTouches[0].screenX;
@@ -42,58 +37,90 @@ async function loadHomeNews() {
     }
 
     const maxCount = (userSettings && userSettings.newsMaxCount) ? parseInt(userSettings.newsMaxCount) : 20;
-
-    // 読み込み中表示
     const slideRec = document.getElementById('slide-rec');
     const slideTrend = document.getElementById('slide-trend');
+
+    // =========================================================================
+    // 【プラン変更待ち】 バックエンド版 (コメントアウト中)
+    // =========================================================================
+    /*
     if (slideRec) slideRec.innerHTML = '<p>読み込み中...</p>';
     if (slideTrend) slideTrend.innerHTML = '<p>読み込み中...</p>';
-
     try {
-        // ★修正: バックエンドで集計されたフィードを取得 (高速化・安定化)
         const doc = await db.collection('home_news').doc('feed').get();
-        
-        let recItems = [];
-        let trendItems = [];
-
+        let recItems = [], trendItems = [];
         if (doc.exists) {
             const data = doc.data();
             const allItems = data.items || [];
-
-            // データを管理者用とQiita用に振り分け & 表示用形式にマッピング
-            recItems = allItems
-                .filter(i => i.type === 'admin')
-                .map(i => ({
-                    title: i.title,
-                    url: i.url,
-                    badge: i.badge,
-                    color: i.badgeColor,
-                    author: null
-                }));
-
-            trendItems = allItems
-                .filter(i => i.type === 'qiita')
-                .map(i => ({
-                    title: i.title,
-                    url: i.url,
-                    badge: i.badge,
-                    color: i.badgeColor,
-                    author: i.author
-                }));
+            recItems = allItems.filter(i => i.type === 'admin');
+            trendItems = allItems.filter(i => i.type === 'qiita');
         }
-
-        // 表示数制限
         if (recItems.length > maxCount) recItems = recItems.slice(0, maxCount);
         if (trendItems.length > maxCount) trendItems = trendItems.slice(0, maxCount);
 
-        // レンダリング
         if (slideRec) renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", recItems, 1);
         if (slideTrend) renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", trendItems, 0);
-
     } catch (e) {
-        console.error("News load error:", e);
-        if (slideRec) slideRec.innerHTML = '<p>読み込みエラー</p>';
-        if (slideTrend) slideTrend.innerHTML = '<p>読み込みエラー</p>';
+        console.error("Backend News Error:", e);
+    }
+    */
+   
+    // =========================================================================
+    // 【暫定対応】 フロントエンド版 (プロキシ経由 & Firestore直接読み込み)
+    // =========================================================================
+    
+    // A. 管理者おすすめ (Firestoreから直接取得)
+    if (slideRec) {
+        slideRec.innerHTML = '<p>読み込み中...</p>';
+        try {
+            const snap = await db.collection('recommended_news').orderBy('timestamp', 'desc').limit(maxCount).get();
+            let items = [];
+            snap.forEach(doc => {
+                const d = doc.data();
+                items.push({ 
+                    title: d.title, url: d.url, badge: 'Pick', color: '#ff9800', author: null 
+                });
+            });
+            renderNewsSlide(slideRec, "🏆 管理者おすすめ", "Qiitaトレンド ➡", items, 1);
+        } catch(e) { slideRec.innerHTML = '<p>読み込みエラー</p>'; }
+    }
+
+    // B. Qiitaトレンド (プロキシAPI経由)
+    if (slideTrend) {
+        slideTrend.innerHTML = '<p>読み込み中...</p>';
+        try {
+            // キャッシュチェック (LocalStorage)
+            const cacheKey = 'qiita_trends_cache';
+            const cacheTimeKey = 'qiita_trends_timestamp';
+            const cachedData = localStorage.getItem(cacheKey);
+            const cachedTime = localStorage.getItem(cacheTimeKey);
+            const now = new Date().getTime();
+
+            if (cachedData && cachedTime && (now - parseInt(cachedTime) < 3600000)) { // 1時間キャッシュ
+                let items = JSON.parse(cachedData);
+                renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
+            } else {
+                // API取得
+                const targetUrl = 'https://qiita.com/api/v2/items?page=1&per_page=20&query=stocks:>20';
+                const data = await fetchWithProxy(targetUrl);
+                let items = [];
+                if (data && Array.isArray(data)) {
+                    items = data.map(item => ({
+                        title: item.title, url: item.url, badge: 'Qiita', color: '#55c500', 
+                        author: (item.user ? item.user.id : 'unknown')
+                    }));
+                    if (items.length > maxCount) items = items.slice(0, maxCount);
+                    localStorage.setItem(cacheKey, JSON.stringify(items));
+                    localStorage.setItem(cacheTimeKey, now.toString());
+                    renderNewsSlide(slideTrend, "📈 Qiitaトレンド", "⬅ 管理者おすすめ", items, 0);
+                } else {
+                    slideTrend.innerHTML = '<p>記事を取得できませんでした</p>';
+                }
+            }
+        } catch(e) { 
+            console.error(e);
+            slideTrend.innerHTML = '<p>読み込み失敗(API制限など)</p>'; 
+        }
     }
 }
 
@@ -215,27 +242,17 @@ function handleSwipe() {
 
 async function fetchWithProxy(targetUrl) {
     const proxies = [
-        // 1. AllOrigins (JSONP不要のrawエンドポイント)
         (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        // 2. CodeTabs (バックアップ)
         (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
     ];
-
     for (const proxyFunc of proxies) {
         try {
             const controller = new AbortController();
-            // ★修正: タイムアウトを2秒に短縮 (サクサク諦めて次へ)
-            const timeoutId = setTimeout(() => controller.abort(), 2000); 
-            
+            const timeoutId = setTimeout(() => controller.abort(), 3000); 
             const res = await fetch(proxyFunc(targetUrl), { signal: controller.signal });
             clearTimeout(timeoutId);
-            
-            if (!res.ok) throw new Error(`Status ${res.status}`);
-            return await res.json();
-        } catch (e) { 
-            // 失敗したら次のプロキシへ
-        }
+            if (res.ok) return await res.json();
+        } catch (e) { console.log("Proxy fail:", e); }
     }
-    // 全部ダメならnullを返す
     return null;
 }
