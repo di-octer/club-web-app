@@ -444,7 +444,7 @@ function toggleStatusModal() {
 // --- 顔認識モデル読み込み (共通関数) ---
 async function loadModels() {
     // ★修正: アップロードされたローカルのmodelsフォルダを参照
-    const MODEL_URL = './models'; 
+    const MODEL_URL = '../models'; 
     
     try {
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
