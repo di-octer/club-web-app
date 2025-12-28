@@ -1404,3 +1404,250 @@ function drawAdminGuide(ctx, w, h, step) {
 
 function updateMonthlyBaseYear() {}
 function enforceMonthlyYear(el) {}
+
+// --- pre_admin.js への追加コード ---
+
+// 1. 備品管理エリアの描画 (initAdminPageなどで「キャンパス管理」の前などに呼ぶ)
+async function renderEquipmentManagement() {
+    const container = document.getElementById('equipment-manage-area');
+    // HTML内にこのIDのdivがない場合は、JSで作って挿入する処理が必要
+    // 便宜上、管理画面の「新規キャンパス登録」コンテナ(例: #campus-register-container)の上に追加する想定
+    
+    let area = document.getElementById('equipment-manage-area');
+    if (!area) {
+        // キャンパス登録エリアを探して、その前に挿入
+        const campusArea = document.querySelector('.admin-section') || document.getElementById('campus-list').parentNode; 
+        area = document.createElement('div');
+        area.id = 'equipment-manage-area';
+        area.className = 'admin-section'; // 既存スタイルに合わせる
+        area.style.marginBottom = "30px";
+        area.style.borderTop = "2px solid #ccc";
+        area.style.paddingTop = "20px";
+        
+        // 挿入位置: キャンパスエリアの前
+        campusArea.parentNode.insertBefore(area, campusArea);
+    }
+
+    area.innerHTML = `
+        <h3>備品管理</h3>
+        <div class="card" style="background:#f0f8ff;">
+            <h4>新規備品登録</h4>
+            <div class="form-group">
+                <label>備品名</label>
+                <input type="text" id="newEqName" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>最大貸出期間(日) <small>※空欄で制限なし</small></label>
+                <input type="number" id="newEqDuration" class="form-control" placeholder="例: 7">
+            </div>
+            <div class="form-group">
+                <label>受取キャンパス</label>
+                <select id="newEqCampus" class="form-control"></select>
+            </div>
+            <button class="btn-primary" onclick="addEquipment()">登録</button>
+        </div>
+        
+        <div id="equipment-list-admin" style="margin-top:15px;">読み込み中...</div>
+    `;
+
+    // キャンパス選択肢充填
+    const cSelect = document.getElementById('newEqCampus');
+    let opts = '<option value="">選択してください</option>';
+    const cSnap = await db.collection('campuses').get();
+    cSnap.forEach(doc => {
+        opts += `<option value="${doc.id}">${doc.data().name}</option>`;
+    });
+    cSelect.innerHTML = opts;
+
+    refreshAdminEquipmentList();
+}
+
+async function addEquipment() {
+    const name = document.getElementById('newEqName').value;
+    const dur = document.getElementById('newEqDuration').value;
+    const cid = document.getElementById('newEqCampus').value;
+
+    if(!name || !cid) return alert("備品名とキャンパスは必須です");
+
+    if(!confirm("登録しますか？")) return;
+
+    try {
+        await db.collection('equipments').add({
+            name: name,
+            maxDuration: dur ? parseInt(dur) : null,
+            campusId: cid,
+            status: 'available', // available / loaned
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        alert("登録しました");
+        document.getElementById('newEqName').value = "";
+        refreshAdminEquipmentList();
+    } catch(e) {
+        alert("エラー: " + e.message);
+    }
+}
+
+async function refreshAdminEquipmentList() {
+    const list = document.getElementById('equipment-list-admin');
+    const snap = await db.collection('equipments').orderBy('name').get();
+    
+    let html = '<table class="admin-table"><thead><tr><th>備品名</th><th>制限(日)</th><th>場所</th><th>状態</th><th>操作</th></tr></thead><tbody>';
+    
+    snap.forEach(doc => {
+        const d = doc.data();
+        const statusLabel = d.status === 'loaned' ? '<span style="color:red">貸出中</span>' : '可';
+        
+        // 編集用UI（簡易版）
+        html += `
+            <tr>
+                <td>${d.name}</td>
+                <td>${d.maxDuration || '-'}</td>
+                <td>${d.campusId}</td>
+                <td>${statusLabel}</td>
+                <td>
+                    <button class="btn-danger" onclick="deleteItem('equipments', '${doc.id}')">削除</button>
+                    ${d.status === 'loaned' ? `<button class="btn-primary" onclick="forceReturnEquipment('${doc.id}')">強制返却</button>` : ''}
+                </td>
+            </tr>
+        `;
+    });
+    html += '</tbody></table>';
+    list.innerHTML = html;
+}
+
+// 強制返却処理 (管理者が手動で戻す場合)
+async function forceReturnEquipment(eqId) {
+    if(!confirm("強制的に「貸出可」に戻しますか？")) return;
+    await db.collection('equipments').doc(eqId).update({
+        status: 'available',
+        currentLoan: firebase.firestore.FieldValue.delete()
+    });
+    refreshAdminEquipmentList();
+}
+
+
+// 2. 申請承認エリア (ステータスタブ内に追加)
+// switchAdminSubTab('status') が呼ばれたときに、タブUIを追加する想定
+
+function renderEquipmentApprovalsTab() {
+    // ステータスタブコンテナを取得
+    const statusContainer = document.getElementById('tab-status');
+    if (!statusContainer) return;
+
+    // もし既にタブUIがなければ作成 (タブの右端に追加)
+    let subTabBar = document.getElementById('status-sub-tabs');
+    if (!subTabBar) {
+        // 既存のコンテンツをラップするか、上に挿入
+        subTabBar = document.createElement('div');
+        subTabBar.id = 'status-sub-tabs';
+        subTabBar.style.marginBottom = "10px";
+        subTabBar.innerHTML = `
+            <button onclick="showStatusSub('main')">混雑状況</button>
+            <button onclick="showStatusSub('analytics')">分析(仮)</button>
+            <button onclick="showStatusSub('approval')">備品承認</button>
+        `;
+        statusContainer.insertBefore(subTabBar, statusContainer.firstChild);
+    }
+    
+    // 承認用コンテナ
+    let approvalContainer = document.getElementById('status-approval-area');
+    if(!approvalContainer) {
+        approvalContainer = document.createElement('div');
+        approvalContainer.id = 'status-approval-area';
+        approvalContainer.style.display = 'none'; // 初期は非表示
+        statusContainer.appendChild(approvalContainer);
+    }
+
+    refreshEquipmentRequests();
+}
+
+// サブタブ切り替え用
+window.showStatusSub = function(mode) {
+    // 既存の混雑状況リスト(status-list)など
+    const statusList = document.getElementById('status-list');
+    const approvalArea = document.getElementById('status-approval-area');
+    
+    if(mode === 'main') {
+        if(statusList) statusList.style.display = 'block';
+        if(approvalArea) approvalArea.style.display = 'none';
+    } else if (mode === 'approval') {
+        if(statusList) statusList.style.display = 'none';
+        if(approvalArea) {
+            approvalArea.style.display = 'block';
+            refreshEquipmentRequests();
+        }
+    }
+};
+
+async function refreshEquipmentRequests() {
+    const container = document.getElementById('status-approval-area');
+    container.innerHTML = "読み込み中...";
+    
+    try {
+        const snap = await db.collection('equipment_requests')
+            .where('status', '==', 'pending')
+            .orderBy('timestamp', 'asc')
+            .get();
+
+        if (snap.empty) {
+            container.innerHTML = "<p>承認待ちの申請はありません</p>";
+            return;
+        }
+
+        let html = '<div style="display:flex; flex-direction:column; gap:10px;">';
+        snap.forEach(doc => {
+            const d = doc.data();
+            const start = d.startDate.toDate().toLocaleDateString();
+            const end = d.endDate.toDate().toLocaleDateString();
+
+            html += `
+                <div class="card">
+                    <div><strong>${d.userName}</strong> が <strong>${d.equipmentName}</strong> を希望</div>
+                    <div>期間: ${start} 〜 ${end}</div>
+                    <div style="margin-top:10px;">
+                        <button class="btn-primary" onclick="handleEqRequest('${doc.id}', true)">承認</button>
+                        <button class="btn-danger" onclick="handleEqRequest('${doc.id}', false)">却下</button>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    } catch(e) {
+        console.error(e);
+        container.innerHTML = "読み込みエラー";
+    }
+}
+
+async function handleEqRequest(reqId, isApproved) {
+    if(!confirm(isApproved ? "承認しますか？" : "却下しますか？")) return;
+
+    try {
+        const reqRef = db.collection('equipment_requests').doc(reqId);
+        const reqDoc = await reqRef.get();
+        const data = reqDoc.data();
+
+        if (isApproved) {
+            // 備品自体のステータスを更新
+            await db.collection('equipments').doc(data.equipmentId).update({
+                status: 'loaned',
+                currentLoan: {
+                    userId: data.userId,
+                    startDate: data.startDate,
+                    endDate: data.endDate
+                }
+            });
+            // 申請ステータス更新
+            await reqRef.update({ status: 'approved' });
+        } else {
+            await reqRef.update({ status: 'rejected' });
+        }
+
+        alert("処理しました");
+        refreshEquipmentRequests();
+        // 必要なら備品一覧も更新
+        if(document.getElementById('equipment-list-admin')) refreshAdminEquipmentList();
+    } catch(e) {
+        alert("エラー: " + e.message);
+    }
+}
