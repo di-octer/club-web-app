@@ -15,12 +15,24 @@ window.addEventListener('beforeunload', (e) => {
 
 async function startUserAuthFlow() {
     if (!currentUser) return alert("ログイン情報なし");
+    try {
+        const staleSnaps = await db.collection('auth_requests')
+            .where('userName', '==', currentUser.displayName)
+            .where('status', '==', 'pending')
+            .get();
+        
+        const batch = db.batch();
+        staleSnaps.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+        console.log("過去の未完了申請を削除しました");
+    } catch(e) {
+        console.error("Cleanup error:", e);
+    }
     
     document.getElementById('step-0').classList.remove('active');
-    
     if (!navigator.geolocation) return alert("位置情報不可");
-
-    // ★追加: 認証開始直前に最新のキャンパス設定をロード (更新時間の反映)
     await loadCampuses(); 
     
     // 1. 位置情報で最寄りキャンパス特定
@@ -138,26 +150,32 @@ function stopFaceAuth() {
 async function requestAuth(userName) {
     document.getElementById('step-1').classList.remove('active');
     
-    // Step-2 (承認待ち) 表示
     const step2 = document.getElementById('step-2');
     step2.classList.add('active');
     
-    // ★追加: キャンセルボタンの注入 (既存ボタンがあれば削除してから追加)
+    // ★修正: キャンセルボタンを確実に再生成
     const existingBtn = document.getElementById('cancelAuthBtn');
     if(existingBtn) existingBtn.remove();
     
     const cancelBtn = document.createElement('button');
     cancelBtn.id = 'cancelAuthBtn';
     cancelBtn.textContent = "申請をキャンセルして戻る";
-    cancelBtn.className = "btn-danger";
-    cancelBtn.style.marginTop = "15px";
-    cancelBtn.onclick = () => {
-        cancelAuthRequest();
-        alert("申請を取り消しました。");
-        location.reload(); // 最初に戻る
+    cancelBtn.className = "btn-danger"; 
+    cancelBtn.style.cssText = "margin-top:20px; width:100%; padding:10px; background:#dc3545; color:white; border:none; border-radius:4px;";
+    
+    cancelBtn.onclick = async () => {
+        if(confirm("申請を取り消しますか？")) {
+            await cancelAuthRequest();
+            alert("申請を取り消しました。");
+            location.reload(); 
+        }
     };
-    step2.appendChild(cancelBtn);
+    
+    // step2の中に追加 (step2内に .btn-area があればそこへ、なければ末尾へ)
+    const btnArea = step2.querySelector('.btn-area') || step2;
+    btnArea.appendChild(cancelBtn);
 
+    // ... (以下、申請データ送信処理) ...
     const colors = ['C', 'Y', 'M', 'G'];
     const myCode = [colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)]];
     drawHCode(myCode);
@@ -174,17 +192,12 @@ async function requestAuth(userName) {
     }
 }
 
-// ★追加: 申請削除関数
 async function cancelAuthRequest() {
     if (!myRequestId) return;
     try {
-        // 削除実行
         await db.collection('auth_requests').doc(myRequestId).delete();
-        console.log("Request deleted:", myRequestId);
         myRequestId = null;
-    } catch(e) {
-        console.error("Delete Error:", e);
-    }
+    } catch(e) { console.error("Delete Error:", e); }
 }
 
 // ステータス確認完了後

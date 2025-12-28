@@ -272,11 +272,14 @@ function setupCommonAppbar() {
 }
 
 async function updateAppbarStatus() {
-    const campusEl = document.getElementById('appbarCampus');
+    // IDを 'appbarPlace' に戻しました (HTMLに合わせてください)
+    const placeEl = document.getElementById('appbarPlace'); 
     const statusEl = document.getElementById('appbarStatus');
-    if (!statusEl || !registeredCampuses) return;
     
-    // ターゲットキャンパス決定 (設定 > GPSの順)
+    // 要素がない場合は何もしない
+    if (!placeEl) return;
+
+    // ターゲットキャンパス決定
     let targetCampus = null;
     if (userSettings && userSettings.defaultCampusId) {
         targetCampus = registeredCampuses.find(c => c.id === userSettings.defaultCampusId);
@@ -285,38 +288,40 @@ async function updateAppbarStatus() {
     // 描画関数
     const render = async (campus, useGps) => {
         if (!campus) {
-            campusEl.textContent = "未設定";
-            statusEl.innerHTML = '<div class="status-static">---</div>';
+            placeEl.textContent = "未設定";
+            if(statusEl) statusEl.innerHTML = '<div class="status-static">---</div>';
             return;
         }
 
-        // 時間情報の取得 (共通関数を利用)
+        // 時間情報の取得
         let timeStr = " [活動なし]";
         try {
             const now = new Date();
+            // checkActivityTimeStatus は pre_common.js 内に定義済みとします
             const status = await checkActivityTimeStatus(now, campus.id);
             if (status.status !== 'out') {
                 timeStr = ` [${status.start}〜${status.end}]`;
             }
         } catch(e) { console.error(e); }
 
-        // キャンパス名 + 時間表示
-        campusEl.textContent = `${campus.name}${timeStr}`;
+        // ★修正: 活動場所 + 時間 をここに表示
+        placeEl.textContent = `${campus.name}${timeStr}`;
 
-        // エリア表示 (GPS利用時のみ詳細判定)
-        if (useGps) {
-            const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
-            if (targetAreas.length === 0) {
-                statusEl.innerHTML = '<div class="status-static">現在地: 活動エリア外</div>';
-            } else if (targetAreas.length === 1) {
-                statusEl.innerHTML = `<div class="status-static">📍 ${targetAreas[0].name}</div>`;
+        // エリア表示 (GPS利用時のみ)
+        if (statusEl) {
+            if (useGps) {
+                const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
+                if (targetAreas.length === 0) {
+                    statusEl.innerHTML = '<div class="status-static">エリア外</div>';
+                } else if (targetAreas.length === 1) {
+                    statusEl.innerHTML = `<div class="status-static">📍 ${targetAreas[0].name}</div>`;
+                } else {
+                    const text = targetAreas.map(a => a.name).join("　");
+                    statusEl.innerHTML = `<div class="status-marquee">${text}　　${text}</div>`;
+                }
             } else {
-                const text = targetAreas.map(a => a.name).join("　");
-                statusEl.innerHTML = `<div class="status-marquee">${text}　　${text}</div>`;
+                statusEl.innerHTML = '<div class="status-static">固定設定</div>';
             }
-        } else {
-            // 固定設定の場合はエリア判定しない
-            statusEl.innerHTML = '<div class="status-static">固定設定中</div>';
         }
     };
 
@@ -329,7 +334,6 @@ async function updateAppbarStatus() {
         const uLat = pos.coords.latitude;
         const uLon = pos.coords.longitude;
         
-        // 設定がない場合のみGPSでキャンパス判定
         if (!targetCampus) {
             let minDist = Infinity;
             registeredCampuses.forEach(c => {
@@ -337,11 +341,9 @@ async function updateAppbarStatus() {
                 if (dist < minDist) { minDist = dist; targetCampus = c; }
             });
         }
-        
         render(targetCampus, true);
 
     }, (err) => {
-        // GPSエラー時は設定済みキャンパスを表示
         render(targetCampus, false);
     }, { timeout: 5000 });
 }
