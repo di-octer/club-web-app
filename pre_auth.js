@@ -36,13 +36,14 @@ async function startUserAuthFlow() {
         const now = new Date();
         const timeStatus = await checkActivityTimeStatus(now, nearestCampus.id);
         
+        // ★修正: 活動時間外、または活動なし日の場合、認証をブロック
         if (timeStatus.status === 'out') {
-            alert(`現在は ${nearestCampus.name} の活動時間外、または活動日ではありません。`);
+            alert(`【認証エラー】\n現在は ${nearestCampus.name} での活動時間外、\nまたは本日は「活動なし」の日です。\n\n認証を開始できません。`);
             return;
         }
         
         if (timeStatus.status === 'late') {
-            isLateAuth = true;
+            isLateAuth = true; // グローバル変数 (pre_common.js)
             alert(`【${nearestCampus.name}】\n活動開始から30分以上経過しています。\n「遅刻」として認証を開始します。`);
         } else {
             isLateAuth = false;

@@ -23,6 +23,7 @@ let isLateAuth = false;
 window.onload = async () => {
     const path = window.location.pathname;
     const isLoginPage = path.includes('pre_login.html');
+    const bodyId = document.body.id;
 
     // Admin画面で認証モーダルが一瞬表示されるのを防ぐ
     const authModal = document.getElementById('authModal');
@@ -32,10 +33,27 @@ window.onload = async () => {
         currentUser = user;
         if (user) {
             console.log("Logged in:", user.displayName);
+
+            // ★追加: Discord ID (Username) の取得と保存
+            // Discordログインの場合、providerDataに情報が含まれます
+            const discordProfile = user.providerData.find(p => p.providerId.includes('discord'));
+            if (discordProfile) {
+                const discordName = discordProfile.displayName; 
+                if (discordName) {
+                    // Firestoreに保存 (既存データを上書きしないよう merge: true)
+                    db.collection('users').doc(user.uid).set({
+                        discordName: discordName
+                    }, { merge: true }).catch(err => console.error("Discord info save error:", err));
+                }
+            }
+
             if (isLoginPage && !isLoggingIn) window.location.href = 'pre_home.html';
+            
+            // ユーザー設定読み込み待機
             await loadUserSettings(user.uid);
             await checkGradePromotion(user.uid);
             updateUserDisplay(user);
+            
             if (!isLoginPage) setupCommonAppbar();
         } else {
             console.log("Not logged in");
@@ -43,40 +61,30 @@ window.onload = async () => {
         }
     });
 
-    console.log("初期化開始: bodyId =", document.body.id);
+    console.log("初期化開始: bodyId =", bodyId);
 
+    // 共通データロード
     await loadCampuses();
     await loadGpsAreas();
     
-    if (!isLoginPage) {
-        if(currentUser) await loadUserSettings(currentUser.uid);
-        setupCommonAppbar();
-        updateAppbarStatus();
-    }
-    
-    const bodyId = document.body.id;
+    // ページごとの初期化振り分け
     if (bodyId === 'page-admin') {
-        await loadModels(); await loadRegisteredFaces(); await loadAdminRecommendedArticles(); 
-        await populateRegUserSelect(); await populateCampusSelects(); 
-        switchAdminSubTab('auth'); populateInfoLists();
-        
-        // Admin画面を開いたときに現在の年月/年度で設定を自動ロード
-        const now = new Date();
-        const y = now.getFullYear();
-        const m = now.getMonth() + 1;
-        const acadY = (m >= 4) ? y : y - 1;
-        const acadInput = document.getElementById('acadYear');
-        if(acadInput) { acadInput.value = acadY; loadAcademicConfigByYear(); }
-        const tmInput = document.getElementById('targetMonth');
-        if(tmInput) { tmInput.value = `${y}-${String(m).padStart(2,'0')}`; loadMonthConfig(); }
-
+        if(typeof initAdminPage === 'function') await initAdminPage();
     } else if (bodyId === 'page-check') {
-        // 統合カレンダー表示
-        if(currentUser) checkAttendance();
+        if(typeof checkAttendance === 'function' && currentUser) checkAttendance();
     } else if (document.getElementById('news-section')) {
-        loadHomeNews();
+        if(typeof loadHomeNews === 'function') loadHomeNews();
     } else if (bodyId === 'page-settings') {
         if(typeof initSettingsPage === 'function') initSettingsPage();
+    } else if (bodyId === 'page-calendar') {
+        // ★追加: ユーザーカレンダー画面用
+        if(typeof initUserCalendarPage === 'function') initUserCalendarPage();
+    } else if (bodyId === 'page-portfolio') {
+        // ★追加: ポートフォリオ一覧画面用
+        if(typeof initPortfolioList === 'function') initPortfolioList();
+    } else if (bodyId === 'page-portfolio-detail') {
+        // ★追加: ポートフォリオ詳細画面用
+        if(typeof initPortfolioDetail === 'function') initPortfolioDetail();
     }
 };
 

@@ -303,19 +303,26 @@ function switchCalendarSubTab(tab) {
 }
 
 async function populateCampusSelects() {
-    if(registeredCampuses.length === 0) await loadCampuses();
+    // 1. ユーザー登録用のセレクトボックス
+    const regSelect = document.getElementById('regCampusSelect');
+    // 2. 活動時間変更用のセレクトボックス (★ここが読み込めていなかった)
+    const exSelect = document.getElementById('exTimeCampus');
     
-    const selects = ['fesCampus', 'noActCampus'];
-    selects.forEach(id => {
-        const sel = document.getElementById(id);
-        if(!sel) return;
-        sel.innerHTML = '<option value="">キャンパスを選択</option>';
-        registeredCampuses.forEach(c => {
-            const opt = document.createElement('option');
-            opt.value = c.id; opt.innerText = c.name;
-            sel.appendChild(opt);
+    // 両方なければ何もしない
+    if (!regSelect && !exSelect) return;
+
+    try {
+        const snap = await db.collection('campuses').get();
+        let options = '<option value="">選択してください</option>';
+        snap.forEach(doc => {
+            const d = doc.data();
+            options += `<option value="${doc.id}">${d.name}</option>`;
         });
-    });
+
+        if (regSelect) regSelect.innerHTML = options;
+        if (exSelect) exSelect.innerHTML = options;
+
+    } catch (e) { console.error(e); }
 }
 
 function updateAllAcadDates() {
@@ -598,66 +605,100 @@ async function saveFaceDataManual() {
 }
 
 async function refreshAllUsers() {
-    const list = document.getElementById('allUsersList');
-    list.innerHTML = "読み込み中...";
+    const list = document.getElementById('user-list');
+    if (!list) return;
+    list.innerHTML = '読み込み中...';
+
     try {
         const snap = await db.collection('users').get();
-        list.innerHTML = "";
+        let html = '<table class="admin-table"><thead><tr><th>User</th><th>本名</th><th>Discord</th><th>GitHub (ID / Repo)</th><th>Qiita ID</th><th>操作</th></tr></thead><tbody>';
+        
         snap.forEach(doc => {
-            const u = doc.data();
+            const d = doc.data();
             const uid = doc.id;
-            const detailsId = `details-${uid}`;
             
-            const div = document.createElement('div');
-            div.className = 'item-card';
-            div.style.display = 'block';
-            
-            const groupsStr = (Array.isArray(u.groups) && u.groups.length > 0) ? u.groups.join(", ") : "なし";
-            const itemsStr = (Array.isArray(u.borrowedItems) && u.borrowedItems.length > 0) ? u.borrowedItems.join(", ") : "なし";
-            
-            let faceStatusHtml = "未";
-            if (u.faceRegistered) {
-                if (u.faceThumbnail) {
-                    faceStatusHtml = `済 <br><img src="${u.faceThumbnail}" style="width:60px; height:60px; object-fit:cover; border-radius:4px; margin-top:5px; border:1px solid #ccc;">`;
-                } else {
-                    faceStatusHtml = "済 (画像なし)";
-                }
-            }
+            // 各フィールドの値を安全に取得
+            const realName = d.realName || "";
+            const discord = d.discordName || "";
+            const gitId = d.gitId || "";
+            const gitRepo = d.gitRepo || "";
+            const qiitaId = d.qiitaId || "";
 
-            // ★修正: 表示順序と回生の追加
-            const hiddenInfo = `
-                <ul style="font-size:0.9em; color:#333; text-align:left; padding-left:0; list-style:none; line-height:1.6;">
-                    <li style="margin-bottom:4px;"><b>基本情報:</b> ${u.discordName || u.displayName} / ${u.realName || "未設定"} / ${u.grade ? u.grade+"回生" : "回生未設定"} / ${u.studentId || "学籍番号未設定"}</li>
-                    <li style="margin-bottom:4px;"><b>ステータス:</b> ${u.isMember ? "部員" : "未所属"} / ${u.role || "仮入部"}</li>
-                    <li style="margin-bottom:4px;"><b>Discord:</b> ${u.discordName || "-"} (ID: ${u.discordId || "-"})</li>
-                    <li style="margin-bottom:4px;"><b>連携:</b> Qiita(${u.qiitaId || "-"}), Git(${u.gitId || "-"})</li>
-                    <li style="margin-bottom:4px; display:flex; align-items:flex-start;"><b>顔登録:</b>&nbsp;<div>${faceStatusHtml}</div></li>
-                    <li style="margin-bottom:4px;"><b>所感:</b> ${u.adminMemo || "未設定"}</li>
-                    <li style="margin-bottom:4px;"><b>活動参加率:</b> ${u.rateActivity || 0}%</li>
-                    <li style="margin-bottom:4px;"><b>チーム開発意欲:</b> ${u.rateTeam || 0}%</li>
-                    <li style="margin-bottom:4px;"><b>カリキュラム意欲:</b> ${u.rateCurriculum || 0}%</li>
-                    <li style="margin-bottom:4px;"><b>交友率:</b> ${u.rateFriends || 0}%</li>
-                    <li style="margin-bottom:4px;"><b>よくいるグループ:</b> ${groupsStr}</li>
-                    <li style="margin-bottom:4px;"><b>Admin権限:</b> ${u.isAdmin ? "あり" : "なし"}</li>
-                    <li style="margin-bottom:4px;"><b>借用備品:</b> ${itemsStr}</li>
-                </ul>
-            `;
-
-            div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <img src="${u.customIcon || u.photoURL || 'https://via.placeholder.com/32'}" style="width:32px; height:32px; border-radius:50%; object-fit:cover;">
-                        <strong>${u.displayName}</strong>
+            html += `<tr id="row-${uid}">
+                <td>
+                    <div style="display:flex; align-items:center; gap:5px;">
+                        <img src="${d.photoURL}" style="width:30px; height:30px; border-radius:50%;">
+                        <span style="font-size:0.8em;">${d.displayName}</span>
                     </div>
-                    <button onclick="document.getElementById('${detailsId}').style.display = document.getElementById('${detailsId}').style.display==='none'?'block':'none'" style="font-size:0.8em; padding:5px 10px;">詳細</button>
-                </div>
-                <div id="${detailsId}" style="display:none; margin-top:10px; border-top:1px solid #eee; padding-top:10px;">
-                    ${hiddenInfo}
-                </div>
-            `;
-            list.appendChild(div);
+                    <div style="font-size:0.7em; color:#888;">${uid}</div>
+                </td>
+                <td><input type="text" class="edit-input" name="realName" value="${realName}" disabled style="width:100px;"></td>
+                <td><input type="text" class="edit-input" name="discordName" value="${discord}" disabled style="width:100px;"></td>
+                <td>
+                    ID: <input type="text" class="edit-input" name="gitId" value="${gitId}" disabled style="width:80px; margin-bottom:2px;"><br>
+                    Repo: <input type="text" class="edit-input" name="gitRepo" value="${gitRepo}" disabled style="width:80px;">
+                </td>
+                <td><input type="text" class="edit-input" name="qiitaId" value="${qiitaId}" disabled style="width:80px;"></td>
+                <td>
+                    <button class="btn-primary" onclick="toggleUserEdit(this, '${uid}')">変更</button>
+                    <button class="btn-danger" onclick="deleteItem('users', '${uid}')" style="margin-top:5px;">削除</button>
+                </td>
+            </tr>`;
         });
-    } catch(e) { console.error(e); list.innerHTML = "読み込みエラー"; }
+        html += '</tbody></table>';
+        list.innerHTML = html;
+    } catch (e) {
+        console.error(e);
+        list.innerHTML = 'エラー';
+    }
+}
+
+// ★追加: 編集モード切り替え & 更新処理
+async function toggleUserEdit(btn, uid) {
+    const row = document.getElementById(`row-${uid}`);
+    const inputs = row.querySelectorAll('.edit-input');
+    
+    if (btn.textContent === "変更") {
+        // 編集モードへ
+        inputs.forEach(input => {
+            input.disabled = false;
+            input.style.border = "1px solid #007bff";
+            input.style.backgroundColor = "#fff";
+        });
+        btn.textContent = "更新";
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-success'); // 緑色などに変えるとベター（CSS次第）
+        btn.style.backgroundColor = "#28a745"; 
+        
+    } else {
+        // 更新処理
+        const newData = {};
+        inputs.forEach(input => {
+            newData[input.name] = input.value.trim();
+        });
+
+        if(!confirm("この内容で更新しますか？")) return;
+
+        try {
+            await db.collection('users').doc(uid).update(newData);
+            alert("ユーザー情報を更新しました");
+            
+            // 読み取り専用に戻す
+            inputs.forEach(input => {
+                input.disabled = true;
+                input.style.border = "1px solid #ccc";
+                input.style.backgroundColor = "#f9f9f9"; // disabled色
+            });
+            btn.textContent = "変更";
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-primary');
+            btn.style.backgroundColor = ""; // 元の色へ
+            
+        } catch(e) {
+            console.error(e);
+            alert("更新に失敗しました: " + e.message);
+        }
+    }
 }
 
 async function loadRegisteredFaces() {
