@@ -5,6 +5,14 @@ let myRequestId = null;
 let lastDetectedDesc = null;
 let missedFrameCount = 0;
 
+window.addEventListener('beforeunload', (e) => {
+    if (myRequestId) {
+        // 非同期だがベストエフォートで実行
+        cancelAuthRequest();
+        e.returnValue = ''; // 確認ダイアログを出す場合
+    }
+});
+
 async function startUserAuthFlow() {
     if (!currentUser) return alert("ログイン情報なし");
     
@@ -59,69 +67,6 @@ async function startUserAuthFlow() {
     }, (err) => {
         alert("位置情報の取得に失敗しました: " + err.message);
     });
-}
-
-// 日時・特定キャンパスから活動状態を判定
-// return: { status: 'ok'|'late'|'out' }
-async function checkActivityTimeStatus(date, campusId) {
-    const ymd = formatDate(date);
-    const ym = ymd.substring(0, 7);
-    const day = date.getDay();
-    const nowMins = date.getHours() * 60 + date.getMinutes();
-
-    let startTime = "17:00";
-    let endTime = "19:40";
-    let isActivity = false;
-
-    try {
-        // 1. 活動例外 (Activity Exceptions)
-        const exId = `${ymd}_${campusId}`;
-        const exDoc = await db.collection('activity_exceptions').doc(exId).get();
-        
-        if (exDoc.exists) {
-            const d = exDoc.data();
-            startTime = d.start;
-            endTime = d.end;
-            isActivity = true;
-        } else {
-            // 2. 月次カレンダー
-            const calDoc = await db.collection('calendars').doc(ym).get();
-            if (calDoc.exists) {
-                const calData = calDoc.data();
-                
-                // ブロックチェック
-                const isBlocked = calData.noActivityDays && calData.noActivityDays.some(n => n.date === ymd && (n.cid === campusId || !n.cid));
-                
-                if (!isBlocked) {
-                    // 曜日設定
-                    if (calData.activityDays && calData.activityDays[campusId]) {
-                        const setting = calData.activityDays[campusId].find(s => s.day === day);
-                        if (setting) {
-                            isActivity = true;
-                            // 設定があれば上書き
-                            if (setting.start) startTime = setting.start;
-                            if (setting.end) endTime = setting.end;
-                        }
-                    }
-                }
-            }
-        }
-    } catch(e) { console.error(e); }
-
-    if (!isActivity) return { status: 'out' };
-
-    // 時間比較
-    const [sh, sm] = startTime.split(':').map(Number);
-    const [eh, em] = endTime.split(':').map(Number);
-    const startMins = sh * 60 + sm;
-    const endMins = eh * 60 + em;
-
-    if (nowMins < startMins || nowMins > endMins) return { status: 'out' };
-    
-    // 遅刻判定 (30分後)
-    if (nowMins > startMins + 30) return { status: 'late' };
-
-    return { status: 'ok' };
 }
 
 async function startFaceAuth(userName) {
@@ -192,15 +137,54 @@ function stopFaceAuth() {
 
 async function requestAuth(userName) {
     document.getElementById('step-1').classList.remove('active');
-    document.getElementById('step-2').classList.add('active');
+    
+    // Step-2 (承認待ち) 表示
+    const step2 = document.getElementById('step-2');
+    step2.classList.add('active');
+    
+    // ★追加: キャンセルボタンの注入 (既存ボタンがあれば削除してから追加)
+    const existingBtn = document.getElementById('cancelAuthBtn');
+    if(existingBtn) existingBtn.remove();
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.id = 'cancelAuthBtn';
+    cancelBtn.textContent = "申請をキャンセルして戻る";
+    cancelBtn.className = "btn-danger";
+    cancelBtn.style.marginTop = "15px";
+    cancelBtn.onclick = () => {
+        cancelAuthRequest();
+        alert("申請を取り消しました。");
+        location.reload(); // 最初に戻る
+    };
+    step2.appendChild(cancelBtn);
+
     const colors = ['C', 'Y', 'M', 'G'];
     const myCode = [colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)]];
     drawHCode(myCode);
-    const docRef = await db.collection('auth_requests').add({
-        userName: userName, authType: `code,${myCode.join(',')}`,
-        status: 'pending', isLate: isLateAuth, requestTimestamp: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    myRequestId = docRef.id;
+    
+    try {
+        const docRef = await db.collection('auth_requests').add({
+            userName: userName, authType: `code,${myCode.join(',')}`,
+            status: 'pending', isLate: isLateAuth, requestTimestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        myRequestId = docRef.id;
+    } catch(e) {
+        alert("申請エラー: " + e.message);
+        location.reload();
+    }
+}
+
+// ★追加: 申請削除関数
+async function cancelAuthRequest() {
+    if (!myRequestId) return;
+    try {
+        // 削除実行
+        await db.collection('auth_requests').doc(myRequestId).delete();
+        console.log("Request deleted:", myRequestId);
+        myRequestId = null;
+    } catch(e) {
+        console.error("Delete Error:", e);
+    }
 }
 
 // ステータス確認完了後

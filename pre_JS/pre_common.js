@@ -276,101 +276,36 @@ async function updateAppbarStatus() {
     const statusEl = document.getElementById('appbarStatus');
     if (!statusEl || !registeredCampuses) return;
     
-    // ターゲットキャンパスの決定
+    // ターゲットキャンパス決定 (設定 > GPSの順)
     let targetCampus = null;
     if (userSettings && userSettings.defaultCampusId) {
         targetCampus = registeredCampuses.find(c => c.id === userSettings.defaultCampusId);
     }
-    // デフォルトがない場合は位置情報から…ですが、表示の一貫性のため
-    // ここでは「設定がなければリストの先頭」等のフォールバック、またはGPS待ちとします。
-    // GPS取得時のコールバック内で最終決定して描画します。
 
-    const render = async (campusName, campusId) => {
-        let timeStr = "";
-        
-        // 時間取得ロジック
-        if (campusId) {
+    // 描画関数
+    const render = async (campus, useGps) => {
+        if (!campus) {
+            campusEl.textContent = "未設定";
+            statusEl.innerHTML = '<div class="status-static">---</div>';
+            return;
+        }
+
+        // 時間情報の取得 (共通関数を利用)
+        let timeStr = " [活動なし]";
+        try {
             const now = new Date();
-            const ymd = formatDate(now);
-            const ym = ymd.substring(0, 7);
-            const day = now.getDay();
-            
-            // デフォルト時間
-            let start = "17:00";
-            let end = "19:40";
-            let isAct = false;
-            let isBlocked = false;
-
-            try {
-                // 1. 例外チェック
-                const exId = `${ymd}_${campusId}`;
-                const exDoc = await db.collection('activity_exceptions').doc(exId).get();
-                if(exDoc.exists) {
-                    const d = exDoc.data();
-                    start = d.start; end = d.end; isAct = true;
-                } else {
-                    // 2. カレンダーチェック
-                    const calDoc = await db.collection('calendars').doc(ym).get();
-                    if(calDoc.exists) {
-                        const cData = calDoc.data();
-                        isBlocked = cData.noActivityDays && cData.noActivityDays.some(n => n.date === ymd && (n.cid === campusId || !n.cid));
-                        if(!isBlocked) {
-                            if(cData.activityDays && cData.activityDays[campusId]) {
-                                const setting = cData.activityDays[campusId].find(s => s.day === day);
-                                if(setting) {
-                                    isAct = true;
-                                    if(setting.start) start = setting.start;
-                                    if(setting.end) end = setting.end;
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch(e) { console.error(e); }
-
-            if (isBlocked) {
-                timeStr = " [活動なし]";
-            } else if (isAct) {
-                timeStr = ` [${start}〜${end}]`;
-            } else {
-                timeStr = " [活動なし]";
+            const status = await checkActivityTimeStatus(now, campus.id);
+            if (status.status !== 'out') {
+                timeStr = ` [${status.start}〜${status.end}]`;
             }
-        }
+        } catch(e) { console.error(e); }
 
-        // 表示更新
-        campusEl.textContent = `${campusName}${timeStr}`;
+        // キャンパス名 + 時間表示
+        campusEl.textContent = `${campus.name}${timeStr}`;
 
-        // エリア情報の表示 (GPSエリア判定は既存ロジック利用)
-        // ここではステータスバーのテキスト更新のみ行います
-        // ※ statusEl の中身(marquee等)は GPS logic の方で更新されますが、
-        //    ここでは活動場所名の部分だけ更新しました。
-    };
-
-    if (!navigator.geolocation) { 
-        render(targetCampus ? targetCampus.name : "未設定", targetCampus ? targetCampus.id : null);
-        statusEl.innerHTML = '<div class="status-static">GPS不可</div>';
-        return; 
-    }
-
-    navigator.geolocation.getCurrentPosition((pos) => {
-        const uLat = pos.coords.latitude;
-        const uLon = pos.coords.longitude;
-        
-        // ターゲットキャンパスが未定ならGPSで決定
-        if (!targetCampus) {
-            let minDist = Infinity;
-            registeredCampuses.forEach(c => {
-                const dist = getDistance(uLat, uLon, c.lat, c.lon);
-                if (dist < minDist) { minDist = dist; targetCampus = c; }
-            });
-        }
-        
-        if (targetCampus) {
-            // ここで時間取得を含めてレンダリング
-            render(targetCampus.name, targetCampus.id);
-            
-            // エリア判定
-            const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === targetCampus.id);
+        // エリア表示 (GPS利用時のみ詳細判定)
+        if (useGps) {
+            const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
             if (targetAreas.length === 0) {
                 statusEl.innerHTML = '<div class="status-static">現在地: 活動エリア外</div>';
             } else if (targetAreas.length === 1) {
@@ -380,12 +315,94 @@ async function updateAppbarStatus() {
                 statusEl.innerHTML = `<div class="status-marquee">${text}　　${text}</div>`;
             }
         } else {
-            render("キャンパス外", null);
-            statusEl.innerHTML = '<div class="status-static">---</div>';
+            // 固定設定の場合はエリア判定しない
+            statusEl.innerHTML = '<div class="status-static">固定設定中</div>';
         }
+    };
+
+    if (!navigator.geolocation) {
+        render(targetCampus, false);
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition((pos) => {
+        const uLat = pos.coords.latitude;
+        const uLon = pos.coords.longitude;
+        
+        // 設定がない場合のみGPSでキャンパス判定
+        if (!targetCampus) {
+            let minDist = Infinity;
+            registeredCampuses.forEach(c => {
+                const dist = getDistance(uLat, uLon, c.lat, c.lon);
+                if (dist < minDist) { minDist = dist; targetCampus = c; }
+            });
+        }
+        
+        render(targetCampus, true);
+
     }, (err) => {
-        render(targetCampus ? targetCampus.name : "全キャンパス", targetCampus ? targetCampus.id : null);
+        // GPSエラー時は設定済みキャンパスを表示
+        render(targetCampus, false);
     }, { timeout: 5000 });
+}
+
+async function checkActivityTimeStatus(date, campusId) {
+    const ymd = formatDate(date);
+    const ym = ymd.substring(0, 7);
+    const day = date.getDay();
+    const nowMins = date.getHours() * 60 + date.getMinutes();
+
+    let startTime = "17:00";
+    let endTime = "19:40";
+    let isActivity = false;
+
+    try {
+        // 1. 活動例外
+        const exId = `${ymd}_${campusId}`;
+        const exDoc = await db.collection('activity_exceptions').doc(exId).get();
+        
+        if (exDoc.exists) {
+            const d = exDoc.data();
+            startTime = d.start; endTime = d.end; isActivity = true;
+        } else {
+            // 2. カレンダー
+            const calDoc = await db.collection('calendars').doc(ym).get();
+            if (calDoc.exists) {
+                const calData = calDoc.data();
+                const isBlocked = calData.noActivityDays && calData.noActivityDays.some(n => n.date === ymd && (n.cid === campusId || !n.cid));
+                
+                if (!isBlocked) {
+                    if (calData.activityDays && calData.activityDays[campusId]) {
+                        const setting = calData.activityDays[campusId].find(s => s.day === day);
+                        if (setting) {
+                            isActivity = true;
+                            if (setting.start) startTime = setting.start;
+                            if (setting.end) endTime = setting.end;
+                        }
+                    }
+                }
+            }
+        }
+    } catch(e) { console.error(e); }
+
+    // 結果オブジェクト生成
+    const result = { start: startTime, end: endTime, status: 'out' };
+    
+    if (!isActivity) return result;
+
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    const startMins = sh * 60 + sm;
+    const endMins = eh * 60 + em;
+
+    if (nowMins < startMins || nowMins > endMins) {
+        result.status = 'out';
+    } else if (nowMins > startMins + 30) {
+        result.status = 'late';
+    } else {
+        result.status = 'ok';
+    }
+    return result;
 }
 
 async function loadCampuses() {
