@@ -11,6 +11,9 @@ async function startUserAuthFlow() {
     document.getElementById('step-0').classList.remove('active');
     
     if (!navigator.geolocation) return alert("位置情報不可");
+
+    // ★追加: 認証開始直前に最新のキャンパス設定をロード (更新時間の反映)
+    await loadCampuses(); 
     
     // 1. 位置情報で最寄りキャンパス特定
     navigator.geolocation.getCurrentPosition(async (pos) => {
@@ -34,16 +37,16 @@ async function startUserAuthFlow() {
 
         // 2. そのキャンパスの時間設定でチェック
         const now = new Date();
+        // checkActivityTimeStatus は内部でFirestoreを引くため最新時間を取得します
         const timeStatus = await checkActivityTimeStatus(now, nearestCampus.id);
         
-        // ★修正: 活動時間外、または活動なし日の場合、認証をブロック
         if (timeStatus.status === 'out') {
             alert(`【認証エラー】\n現在は ${nearestCampus.name} での活動時間外、\nまたは本日は「活動なし」の日です。\n\n認証を開始できません。`);
             return;
         }
         
         if (timeStatus.status === 'late') {
-            isLateAuth = true; // グローバル変数 (pre_common.js)
+            isLateAuth = true;
             alert(`【${nearestCampus.name}】\n活動開始から30分以上経過しています。\n「遅刻」として認証を開始します。`);
         } else {
             isLateAuth = false;
@@ -126,31 +129,61 @@ async function startFaceAuth(userName) {
     isAuthCompleted = false; isDetectingLoop = false;
     try {
         await loadModels();
-        const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+
+        // ★修正: スマホ対応のオプション設定
+        const constraints = {
+            video: {
+                facingMode: "user",
+                width: { ideal: 640 },
+                height: { ideal: 480 }
+            },
+            audio: false
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         currentStream = stream;
         const video = document.getElementById('userVideo');
         video.srcObject = stream;
+        
+        // ★重要: iOS/スマホでの再生エラー防止
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('autoplay', 'true');
+        video.muted = true;
+
         video.onloadedmetadata = () => {
-            video.play();
+            video.play().catch(e => console.error("Play error:", e));
+            
             const canvas = document.getElementById('userCanvas');
             const displaySize = { width: video.videoWidth, height: video.videoHeight };
             faceapi.matchDimensions(canvas, displaySize);
+            
             const detectLoop = async () => {
-                if (isAuthCompleted || video.paused) return;
-                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
-                const resized = faceapi.resizeResults(detections, displaySize);
-                canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-                faceapi.draw.drawDetections(canvas, resized);
-                if (resized.length > 0) {
-                    isAuthCompleted = true;
-                    stopFaceAuth();
-                    requestAuth(userName);
-                }
+                if (isAuthCompleted || video.paused || video.ended) return;
+                
+                try {
+                    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+                    const resized = faceapi.resizeResults(detections, displaySize);
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    faceapi.draw.drawDetections(canvas, resized);
+                    
+                    if (resized.length > 0) {
+                        // 検出成功
+                        isAuthCompleted = true;
+                        stopFaceAuth();
+                        requestAuth(userName);
+                        return; // ループ終了
+                    }
+                } catch(err) { console.log("Detect error", err); }
+                
                 if (!isAuthCompleted) setTimeout(detectLoop, 200);
             };
             detectLoop();
         };
-    } catch(e) { alert("カメラエラー"); }
+    } catch(e) { 
+        console.error(e);
+        alert("カメラ起動エラー: " + e.message + "\n権限を確認してください。"); 
+    }
 }
 
 function stopFaceAuth() {

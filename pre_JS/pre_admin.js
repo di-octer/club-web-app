@@ -243,6 +243,90 @@ async function saveMonthCalendar() {
     alert("保存しました");
 }
 
+// --- ステータス管理タブ ---
+async function refreshCampusStatusList() {
+    const list = document.getElementById('status-list');
+    if (!list) return;
+    list.innerHTML = '読み込み中...';
+
+    try {
+        const snap = await db.collection('campuses').orderBy('order').get();
+        let html = '<div style="margin-bottom:15px;">※各キャンパスの状況を入力し、下の「全情報を更新」を押してください。</div>';
+        
+        html += '<div class="status-edit-grid" style="display:flex; flex-direction:column; gap:10px;">';
+        
+        snap.forEach(doc => {
+            const d = doc.data();
+            const cid = doc.id;
+            // 既存の値がない場合のデフォルト
+            const status = d.status || 'open';
+            const count = d.currentCount || 0;
+            const msg = d.message || '';
+
+            html += `
+                <div class="card" style="padding:10px; border:1px solid #ddd; border-radius:8px;">
+                    <div style="font-weight:bold; margin-bottom:5px;">${d.name}</div>
+                    <div style="display:flex; gap:10px; margin-bottom:5px;">
+                        <select id="status-${cid}" class="form-control" style="flex:1;">
+                            <option value="open" ${status==='open'?'selected':''}>開室 (Open)</option>
+                            <option value="crowded" ${status==='crowded'?'selected':''}>混雑 (Crowded)</option>
+                            <option value="closed" ${status==='closed'?'selected':''}>閉室 (Closed)</option>
+                            <option value="full" ${status==='full'?'selected':''}>満員 (Full)</option>
+                        </select>
+                        <input type="number" id="cap-${cid}" class="form-control" placeholder="現在数" value="${count}" style="width:80px;">
+                    </div>
+                    <input type="text" id="msg-${cid}" class="form-control" placeholder="ひとことメッセージ" value="${msg}" style="width:100%;">
+                </div>
+            `;
+        });
+        html += '</div>';
+
+        // 更新ボタン
+        html += `
+            <div style="margin-top:20px; text-align:center;">
+                <button class="btn-primary" onclick="updateAllCampusStatuses()" style="padding:12px 30px; font-size:1.1em; width:100%; max-width:300px;">全情報を更新</button>
+            </div>
+        `;
+
+        list.innerHTML = html;
+    } catch(e) {
+        console.error(e);
+        list.innerHTML = '読み込みエラー';
+    }
+}
+
+async function updateAllCampusStatuses() {
+    if(!confirm("すべてのキャンパス情報を更新しますか？")) return;
+    
+    try {
+        const snap = await db.collection('campuses').get();
+        const batch = db.batch();
+        const now = firebase.firestore.FieldValue.serverTimestamp();
+
+        snap.forEach(doc => {
+            const cid = doc.id;
+            const statusVal = document.getElementById(`status-${cid}`).value;
+            const capVal = document.getElementById(`cap-${cid}`).value;
+            const msgVal = document.getElementById(`msg-${cid}`).value;
+
+            const ref = db.collection('campuses').doc(cid);
+            batch.update(ref, {
+                status: statusVal,
+                currentCount: parseInt(capVal) || 0,
+                message: msgVal,
+                updatedAt: now // 更新時刻を記録
+            });
+        });
+
+        await batch.commit();
+        alert("ステータスを更新しました");
+        refreshCampusStatusList(); // 再読み込み
+    } catch(e) {
+        console.error(e);
+        alert("更新に失敗しました: " + e.message);
+    }
+}
+
 async function updateActivityTimeException() {
     const cid = document.getElementById('exTimeCampus').value;
     const date = document.getElementById('exTimeDate').value; // YYYY-MM-DD

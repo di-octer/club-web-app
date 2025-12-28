@@ -274,41 +274,89 @@ function setupCommonAppbar() {
 async function updateAppbarStatus() {
     const campusEl = document.getElementById('appbarCampus');
     const statusEl = document.getElementById('appbarStatus');
-    if (!statusEl || !registeredGpsAreas || !registeredCampuses) return;
+    if (!statusEl || !registeredCampuses) return;
     
-    let fixedCampus = null;
+    // ターゲットキャンパスの決定
+    let targetCampus = null;
     if (userSettings && userSettings.defaultCampusId) {
-        fixedCampus = registeredCampuses.find(c => c.id === userSettings.defaultCampusId);
+        targetCampus = registeredCampuses.find(c => c.id === userSettings.defaultCampusId);
     }
+    // デフォルトがない場合は位置情報から…ですが、表示の一貫性のため
+    // ここでは「設定がなければリストの先頭」等のフォールバック、またはGPS待ちとします。
+    // GPS取得時のコールバック内で最終決定して描画します。
 
-    const render = (campusName, areas) => {
-        campusEl.textContent = campusName;
-        if (areas.length === 0) {
-            statusEl.innerHTML = '<div class="status-static">活動なし</div>';
-        } else if (areas.length === 1) {
-            statusEl.innerHTML = `<div class="status-static">📍 ${areas[0].name}</div>`;
-        } else {
-            const text = areas.map(a => a.name).join("　");
-            statusEl.innerHTML = `<div class="status-marquee">${text}　　${text}</div>`;
+    const render = async (campusName, campusId) => {
+        let timeStr = "";
+        
+        // 時間取得ロジック
+        if (campusId) {
+            const now = new Date();
+            const ymd = formatDate(now);
+            const ym = ymd.substring(0, 7);
+            const day = now.getDay();
+            
+            // デフォルト時間
+            let start = "17:00";
+            let end = "19:40";
+            let isAct = false;
+            let isBlocked = false;
+
+            try {
+                // 1. 例外チェック
+                const exId = `${ymd}_${campusId}`;
+                const exDoc = await db.collection('activity_exceptions').doc(exId).get();
+                if(exDoc.exists) {
+                    const d = exDoc.data();
+                    start = d.start; end = d.end; isAct = true;
+                } else {
+                    // 2. カレンダーチェック
+                    const calDoc = await db.collection('calendars').doc(ym).get();
+                    if(calDoc.exists) {
+                        const cData = calDoc.data();
+                        isBlocked = cData.noActivityDays && cData.noActivityDays.some(n => n.date === ymd && (n.cid === campusId || !n.cid));
+                        if(!isBlocked) {
+                            if(cData.activityDays && cData.activityDays[campusId]) {
+                                const setting = cData.activityDays[campusId].find(s => s.day === day);
+                                if(setting) {
+                                    isAct = true;
+                                    if(setting.start) start = setting.start;
+                                    if(setting.end) end = setting.end;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch(e) { console.error(e); }
+
+            if (isBlocked) {
+                timeStr = " [活動なし]";
+            } else if (isAct) {
+                timeStr = ` [${start}〜${end}]`;
+            } else {
+                timeStr = " [活動なし]";
+            }
         }
-        const modalContent = document.getElementById('statusDetailContent');
-        if (areas.length === 0) {
-            modalContent.innerHTML = `<p>${campusName} で活動中の場所はありません。</p>`;
-        } else {
-            modalContent.innerHTML = areas.map(a => `
-                <div style="padding:8px 0; border-bottom:1px solid #f0f0f0;">
-                    <span style="background:#28a745; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em; margin-right:5px;">活動中</span>
-                    <strong>${campusName}</strong> - ${a.name}
-                </div>`).join('');
-        }
+
+        // 表示更新
+        campusEl.textContent = `${campusName}${timeStr}`;
+
+        // エリア情報の表示 (GPSエリア判定は既存ロジック利用)
+        // ここではステータスバーのテキスト更新のみ行います
+        // ※ statusEl の中身(marquee等)は GPS logic の方で更新されますが、
+        //    ここでは活動場所名の部分だけ更新しました。
     };
 
-    if (!navigator.geolocation) { render("GPS不可", []); return; }
+    if (!navigator.geolocation) { 
+        render(targetCampus ? targetCampus.name : "未設定", targetCampus ? targetCampus.id : null);
+        statusEl.innerHTML = '<div class="status-static">GPS不可</div>';
+        return; 
+    }
 
     navigator.geolocation.getCurrentPosition((pos) => {
         const uLat = pos.coords.latitude;
         const uLon = pos.coords.longitude;
-        let targetCampus = fixedCampus;
+        
+        // ターゲットキャンパスが未定ならGPSで決定
         if (!targetCampus) {
             let minDist = Infinity;
             registeredCampuses.forEach(c => {
@@ -316,15 +364,27 @@ async function updateAppbarStatus() {
                 if (dist < minDist) { minDist = dist; targetCampus = c; }
             });
         }
+        
         if (targetCampus) {
+            // ここで時間取得を含めてレンダリング
+            render(targetCampus.name, targetCampus.id);
+            
+            // エリア判定
             const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === targetCampus.id);
-            render(targetCampus.name, targetAreas);
+            if (targetAreas.length === 0) {
+                statusEl.innerHTML = '<div class="status-static">現在地: 活動エリア外</div>';
+            } else if (targetAreas.length === 1) {
+                statusEl.innerHTML = `<div class="status-static">📍 ${targetAreas[0].name}</div>`;
+            } else {
+                const text = targetAreas.map(a => a.name).join("　");
+                statusEl.innerHTML = `<div class="status-marquee">${text}　　${text}</div>`;
+            }
         } else {
-            render("キャンパス外", []);
+            render("キャンパス外", null);
+            statusEl.innerHTML = '<div class="status-static">---</div>';
         }
     }, (err) => {
-        const allActive = registeredGpsAreas.filter(a => a.isActive);
-        render("全キャンパス", allActive);
+        render(targetCampus ? targetCampus.name : "全キャンパス", targetCampus ? targetCampus.id : null);
     }, { timeout: 5000 });
 }
 
