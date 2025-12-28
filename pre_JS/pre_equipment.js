@@ -180,14 +180,16 @@ async function submitEqRequest() {
     }
 }
 
-// 自分の履歴表示
+// 自分の履歴表示 (修正版: インデックスエラー回避)
 async function loadMyEqRequests() {
     const div = document.getElementById('myEqHistory');
+    if (!div) return; // 安全対策
+
     try {
+        // ★修正: orderByとlimitを削除し、whereのみにする
+        // (複合インデックス未作成によるエラーを回避するため)
         const snap = await db.collection('equipment_requests')
             .where('userId', '==', currentUser.uid)
-            .orderBy('timestamp', 'desc')
-            .limit(5)
             .get();
         
         if(snap.empty) {
@@ -195,21 +197,38 @@ async function loadMyEqRequests() {
             return;
         }
 
-        let html = "";
-        snap.forEach(doc => {
-            const d = doc.data();
-            let statusText = "申請中";
-            let color = "#ffc107";
-            if(d.status === 'approved') { statusText = "承認済(貸出中)"; color = "#28a745"; }
-            if(d.status === 'rejected') { statusText = "却下"; color = "#dc3545"; }
-            if(d.status === 'returned') { statusText = "返却済"; color = "#666"; }
+        // 1. データを配列に変換
+        const requests = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            const sDate = d.startDate.toDate().toLocaleDateString();
-            const eDate = d.endDate.toDate().toLocaleDateString();
+        // 2. JS側でタイムスタンプ降順（新しい順）にソート
+        requests.sort((a, b) => {
+            const t1 = a.timestamp ? a.timestamp.toMillis() : 0;
+            const t2 = b.timestamp ? b.timestamp.toMillis() : 0;
+            return t2 - t1; 
+        });
+
+        // 3. 最新の5件だけを取り出す
+        const recentRequests = requests.slice(0, 5);
+
+        let html = "";
+        recentRequests.forEach(d => {
+            let statusText = "申請中";
+            let color = "#ffc107"; // 黄色
+            if(d.status === 'approved') { statusText = "承認済(貸出中)"; color = "#28a745"; } // 緑
+            if(d.status === 'rejected') { statusText = "却下"; color = "#dc3545"; } // 赤
+            if(d.status === 'returned') { statusText = "返却済"; color = "#666"; }   // グレー
+
+            // 日付フォーマットの安全な処理
+            let sDate = "---";
+            let eDate = "---";
+            try {
+                if(d.startDate) sDate = d.startDate.toDate().toLocaleDateString();
+                if(d.endDate) eDate = d.endDate.toDate().toLocaleDateString();
+            } catch(e) {}
 
             html += `
                 <div class="eq-card" style="border-left: 5px solid ${color};">
-                    <div style="font-weight:bold;">${d.equipmentName}</div>
+                    <div style="font-weight:bold;">${d.equipmentName || '不明な備品'}</div>
                     <div style="font-size:0.9em;">期間: ${sDate} 〜 ${eDate}</div>
                     <div style="font-size:0.9em;">状態: <span style="color:${color};font-weight:bold;">${statusText}</span></div>
                 </div>
@@ -219,7 +238,7 @@ async function loadMyEqRequests() {
 
     } catch(e) {
         console.error(e);
-        div.innerHTML = "読み込みエラー";
+        div.innerHTML = "<p>読み込みエラーが発生しました</p>";
     }
 }
 
