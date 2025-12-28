@@ -1419,162 +1419,187 @@ function enforceMonthlyYear(el) {}
 // 1. 備品管理エリアの描画 (initAdminPageなどで「キャンパス管理」の前などに呼ぶ)
 // --- 備品管理 (initAdminPageで呼び出し) ---
 async function renderEquipmentManagement() {
-    const area = document.getElementById('equipment-manage-area');
-    if (!area) return; // HTML側にエリアがなければスキップ
+    const container = document.getElementById('equipment-manage-container');
+    if (!container) return; // 要素がなければ安全に終了
 
-    area.innerHTML = `
-        <div class="admin-section" style="margin-bottom:30px; border-bottom:2px solid #ddd; padding-bottom:20px;">
-            <h3>備品管理 (登録・一覧)</h3>
-            <div class="card" style="background:#f0f8ff;">
-                <h4>新規備品登録</h4>
-                <div class="form-group">
-                    <label>備品名</label>
-                    <input type="text" id="newEqName" class="form-control">
-                </div>
-                <div class="form-group">
-                    <label>最大貸出期間(日) <small>※空欄で制限なし</small></label>
-                    <input type="number" id="newEqDuration" class="form-control" placeholder="例: 7">
-                </div>
-                <div class="form-group">
-                    <label>受取キャンパス</label>
-                    <select id="newEqCampus" class="form-control"></select>
-                </div>
-                <button class="btn-primary" onclick="addEquipment()">登録</button>
-            </div>
-            
-            <div id="equipment-list-admin" style="margin-top:15px;">読み込み中...</div>
+    // HTML描画
+    container.innerHTML = `
+        <div class="input-group">
+            <input type="text" id="newEqName" placeholder="備品名" class="form-control">
+            <input type="number" id="newEqDuration" placeholder="最大貸出日数 (空欄で無制限)" style="width:180px;" class="form-control">
+            <select id="newEqCampus" class="form-control"><option value="">受取キャンパスを読み込み中...</option></select>
+            <button onclick="addEquipment()" class="btn-primary">登録</button>
         </div>
+        <div id="equipment-list-admin" class="list-container" style="margin-top:15px; min-height:50px;">
+            <p>読み込み中...</p>
+        </div>
+        <button onclick="refreshAdminEquipmentList()" class="refresh-btn" style="margin-top:10px;">リスト更新</button>
     `;
 
-    // キャンパス選択肢充填
+    // ★修正: キャンパス選択肢の読み込み (registeredCampuses利用 + フォールバック)
     const cSelect = document.getElementById('newEqCampus');
-    let opts = '<option value="">選択してください</option>';
-    try {
-        const cSnap = await db.collection('campuses').get();
-        cSnap.forEach(doc => {
-            opts += `<option value="${doc.id}">${doc.data().name}</option>`;
-        });
-        cSelect.innerHTML = opts;
-    } catch(e) { console.error(e); }
+    if (cSelect) {
+        let campuses = [];
+        
+        // 1. すでにロード済みの共通変数を使う
+        if (typeof registeredCampuses !== 'undefined' && registeredCampuses.length > 0) {
+            campuses = registeredCampuses;
+        } else {
+            // 2. なければFirestoreから直接取得
+            try {
+                const snap = await db.collection('campuses').get();
+                snap.forEach(doc => campuses.push({ id: doc.id, ...doc.data() }));
+            } catch (e) {
+                console.error("Campus load error:", e);
+                cSelect.innerHTML = '<option value="">読み込みエラー</option>';
+                return;
+            }
+        }
 
+        if (campuses.length === 0) {
+            cSelect.innerHTML = '<option value="">キャンパス登録がありません</option>';
+        } else {
+            let opts = '<option value="">受取キャンパスを選択</option>';
+            campuses.forEach(c => {
+                opts += `<option value="${c.id}">${c.name}</option>`;
+            });
+            cSelect.innerHTML = opts;
+        }
+    }
+
+    // 備品一覧の更新
     refreshAdminEquipmentList();
 }
 
-// 備品追加
+// --- 備品追加関数 ---
 async function addEquipment() {
-    const name = document.getElementById('newEqName').value;
-    const dur = document.getElementById('newEqDuration').value;
-    const cid = document.getElementById('newEqCampus').value;
+    const nameInput = document.getElementById('newEqName');
+    const durInput = document.getElementById('newEqDuration');
+    const cidInput = document.getElementById('newEqCampus');
 
-    if(!name || !cid) return alert("備品名とキャンパスは必須です");
-    if(!confirm("登録しますか？")) return;
+    if (!nameInput || !cidInput) return; // DOMがない場合
+
+    const name = nameInput.value;
+    const dur = durInput.value;
+    const cid = cidInput.value;
+
+    if (!name || !cid) return alert("備品名とキャンパスは必須です");
+    if (!confirm("登録しますか？")) return;
 
     try {
         await db.collection('equipments').add({
             name: name,
             maxDuration: dur ? parseInt(dur) : null,
             campusId: cid,
-            status: 'available', 
+            status: 'available',
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         alert("登録しました");
-        document.getElementById('newEqName').value = "";
+        nameInput.value = "";
+        durInput.value = "";
+        // キャンパスは選択したままにする
         refreshAdminEquipmentList();
-    } catch(e) {
+    } catch (e) {
         alert("エラー: " + e.message);
     }
 }
 
-// 備品一覧
+// --- 備品一覧取得関数 (フリーズ防止版) ---
 async function refreshAdminEquipmentList() {
     const list = document.getElementById('equipment-list-admin');
-    if(!list) return;
+    if (!list) return;
+
+    list.innerHTML = '<p>読み込み中...</p>';
 
     try {
         const snap = await db.collection('equipments').orderBy('name').get();
+        
+        if (snap.empty) {
+            list.innerHTML = '<p>登録された備品はありません</p>';
+            return;
+        }
+
         let html = '<table class="admin-table"><thead><tr><th>備品名</th><th>制限</th><th>場所</th><th>状態</th><th>操作</th></tr></thead><tbody>';
         
         snap.forEach(doc => {
             const d = doc.data();
-            const statusLabel = d.status === 'loaned' ? '<span style="color:red">貸出中</span>' : '可';
+            const statusLabel = d.status === 'loaned' ? '<span style="color:red; font-weight:bold;">貸出中</span>' : '<span style="color:green;">可</span>';
+            
+            // キャンパス名解決 (registeredCampusesがあれば使う)
+            let cName = d.campusId;
+            if (typeof registeredCampuses !== 'undefined') {
+                const c = registeredCampuses.find(x => x.id === d.campusId);
+                if (c) cName = c.name;
+            }
+
             html += `
                 <tr>
-                    <td>${d.name}</td>
-                    <td>${d.maxDuration ? d.maxDuration+'日' : '-'}</td>
-                    <td>${d.campusId}</td>
+                    <td>${d.name || '-'}</td>
+                    <td>${d.maxDuration ? d.maxDuration + '日' : '無制限'}</td>
+                    <td style="font-size:0.9em;">${cName}</td>
                     <td>${statusLabel}</td>
                     <td>
-                        <button class="btn-danger" onclick="deleteItem('equipments', '${doc.id}')">削除</button>
-                        ${d.status === 'loaned' ? `<button class="btn-primary" onclick="forceReturnEquipment('${doc.id}')" style="margin-left:5px;">強制返却</button>` : ''}
+                        <button class="btn-danger" onclick="deleteItem('equipments', '${doc.id}')" style="padding:2px 5px; font-size:0.8em;">削除</button>
+                        ${d.status === 'loaned' ? `<button class="btn-primary" onclick="forceReturnEquipment('${doc.id}')" style="margin-left:5px; padding:2px 5px; font-size:0.8em;">強制返却</button>` : ''}
                     </td>
                 </tr>
             `;
         });
         html += '</tbody></table>';
         list.innerHTML = html;
-    } catch(e) {
-        list.innerHTML = "読み込みエラー";
+
+    } catch (e) {
+        console.error(e);
+        list.innerHTML = '<p style="color:red;">読み込みエラーが発生しました</p>';
     }
 }
 
-// 強制返却
+// --- 強制返却関数 ---
 async function forceReturnEquipment(eqId) {
-    if(!confirm("強制的に「貸出可」に戻しますか？")) return;
+    if (!confirm("強制的に「貸出可」に戻しますか？\n(現在貸出中のユーザー情報は削除されます)")) return;
     try {
         await db.collection('equipments').doc(eqId).update({
             status: 'available',
             currentLoan: firebase.firestore.FieldValue.delete()
         });
         refreshAdminEquipmentList();
-    } catch(e) { alert("エラー: " + e.message); }
+    } catch (e) { alert("エラー: " + e.message); }
 }
 
-
-// --- ステータスタブ: サブタブ切り替え拡張 ---
-// 既存の switchAdminSubTab を上書きまたは拡張する必要があります
-const originalSwitchAdminSubTab = window.switchAdminSubTab || function(){};
-
+// --- サブタブ切り替え関数 (フリーズ防止 & 備品タブ対応) ---
 window.switchAdminSubTab = function(subTabName) {
-    // 既存の処理があれば呼ぶ（あるいは完全に上書きするなら以下のみでOK）
-    // originalSwitchAdminSubTab(subTabName); 
+    // 1. ボタンのアクティブ化
+    const btns = document.querySelectorAll('#tab-status .sub-tab');
+    btns.forEach(b => b.classList.remove('active'));
     
-    // 全サブタブボタンのactive解除
-    document.querySelectorAll('#tab-status .sub-tab').forEach(b => b.classList.remove('active'));
-    
-    // 対象ボタンactive化
     const targetBtn = document.getElementById('btn-sub-' + subTabName);
-    if(targetBtn) targetBtn.classList.add('active');
+    if (targetBtn) targetBtn.classList.add('active');
 
-    // 全ビュー非表示
+    // 2. ビューの切り替え
     const views = ['auth', 'report', 'recurring', 'equipment'];
     views.forEach(v => {
         const el = document.getElementById('view-' + v);
-        if(el) el.style.display = 'none';
+        if (el) el.style.display = 'none';
     });
 
-    // 対象ビュー表示 & データロード
     const targetView = document.getElementById('view-' + subTabName);
-    if(targetView) {
+    if (targetView) {
         targetView.style.display = 'block';
-        if (subTabName === 'auth') {
-            if(typeof refreshAuthList === 'function') refreshAuthList();
-        } else if (subTabName === 'report') {
-            if(typeof refreshReportList === 'function') refreshReportList();
-        } else if (subTabName === 'recurring') {
-            if(typeof refreshRecurringList === 'function') refreshRecurringList();
-        } else if (subTabName === 'equipment') {
-            // ★追加: 備品承認リスト更新
-            refreshEquipmentRequests();
-        }
+        
+        // 3. データ読み込み (関数が存在する場合のみ実行)
+        if (subTabName === 'auth' && typeof refreshAuthList === 'function') refreshAuthList();
+        if (subTabName === 'report' && typeof refreshReportList === 'function') refreshReportList();
+        if (subTabName === 'recurring' && typeof refreshRecurringList === 'function') refreshRecurringList();
+        if (subTabName === 'equipment') refreshEquipmentRequests(); // ★追加
     }
 };
 
-// 備品承認リスト (サブタブ: equipment)
+// --- 備品承認リスト取得関数 (フリーズ防止版) ---
 async function refreshEquipmentRequests() {
     const container = document.getElementById('approval-list');
-    if(!container) return;
+    if (!container) return;
 
-    container.innerHTML = "読み込み中...";
+    container.innerHTML = '<p>読み込み中...</p>';
     
     try {
         const snap = await db.collection('equipment_requests')
@@ -1590,13 +1615,20 @@ async function refreshEquipmentRequests() {
         let html = '<div style="display:flex; flex-direction:column; gap:10px;">';
         snap.forEach(doc => {
             const d = doc.data();
-            const start = d.startDate.toDate().toLocaleDateString();
-            const end = d.endDate.toDate().toLocaleDateString();
+            // 日付の安全な変換
+            let rangeText = "期間不明";
+            if (d.startDate && d.endDate) {
+                try {
+                    const start = d.startDate.toDate().toLocaleDateString();
+                    const end = d.endDate.toDate().toLocaleDateString();
+                    rangeText = `${start} 〜 ${end}`;
+                } catch(err) { rangeText = "日付形式エラー"; }
+            }
 
             html += `
-                <div class="card">
-                    <div><strong>${d.userName}</strong> が <strong>${d.equipmentName}</strong> を希望</div>
-                    <div>期間: ${start} 〜 ${end}</div>
+                <div class="card" style="padding:10px; border:1px solid #ddd;">
+                    <div><strong>${d.userName || '不明なユーザー'}</strong> が <strong>${d.equipmentName || '不明な備品'}</strong> を希望</div>
+                    <div style="font-size:0.9em; color:#555;">期間: ${rangeText}</div>
                     <div style="margin-top:10px;">
                         <button class="btn-primary" onclick="handleEqRequest('${doc.id}', true)">承認</button>
                         <button class="btn-danger" onclick="handleEqRequest('${doc.id}', false)">却下</button>
@@ -1608,26 +1640,28 @@ async function refreshEquipmentRequests() {
         container.innerHTML = html;
     } catch(e) {
         console.error(e);
-        container.innerHTML = "読み込みエラー";
+        container.innerHTML = '<p style="color:red;">読み込みエラーが発生しました</p>';
     }
 }
 
-// 承認/却下アクション
+// --- 承認/却下アクション関数 ---
 async function handleEqRequest(reqId, isApproved) {
-    if(!confirm(isApproved ? "承認しますか？" : "却下しますか？")) return;
+    if (!confirm(isApproved ? "承認しますか？" : "却下しますか？")) return;
 
     try {
         const reqRef = db.collection('equipment_requests').doc(reqId);
         const reqDoc = await reqRef.get();
-        if(!reqDoc.exists) { alert("申請が見つかりません"); return; }
+        if (!reqDoc.exists) { alert("申請が見つかりません(削除された可能性があります)"); return; }
+        
         const data = reqDoc.data();
 
         if (isApproved) {
-            // 備品ステータス更新
+            // 備品マスタの状態を「貸出中」に更新
             await db.collection('equipments').doc(data.equipmentId).update({
                 status: 'loaned',
                 currentLoan: {
                     userId: data.userId,
+                    userName: data.userName,
                     startDate: data.startDate,
                     endDate: data.endDate
                 }
@@ -1639,8 +1673,12 @@ async function handleEqRequest(reqId, isApproved) {
 
         alert("処理しました");
         refreshEquipmentRequests();
-        if(document.getElementById('equipment-list-admin')) refreshAdminEquipmentList();
-    } catch(e) {
-        alert("エラー: " + e.message);
+        
+        // もし備品一覧が表示されていれば更新する
+        if (document.getElementById('equipment-list-admin')) refreshAdminEquipmentList();
+
+    } catch (e) {
+        alert("エラーが発生しました: " + e.message);
+        console.error(e);
     }
 }

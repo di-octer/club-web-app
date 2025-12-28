@@ -41,15 +41,11 @@
             </div>
 
             <div id="view-auth">
-                <div id="requestList" class="list-container">
-                    <p>読み込み中...</p>
-                </div>
+                <div id="requestList" class="list-container"><p>読み込み中...</p></div>
             </div>
-
             <div id="view-report" style="display:none;">
                 <div id="reportList" class="list-container"></div>
             </div>
-
             <div id="view-recurring" style="display:none;">
                 <div id="recurringList" class="list-container"></div>
             </div>
@@ -58,9 +54,7 @@
                 <div style="text-align:right; margin-bottom:5px;">
                     <button class="refresh-btn" onclick="refreshEquipmentRequests()">リスト更新</button>
                 </div>
-                <div id="approval-list" class="list-container">
-                    <p>読み込み中...</p>
-                </div>
+                <div id="approval-list" class="list-container"></div>
             </div>
         </div>
 
@@ -113,19 +107,17 @@
                 </div>
             </details>
 
+            <details class="settings-details" open>
+                <summary>活動場所設定 (一覧・削除)</summary>
+                <div class="details-content">
+                    <div id="hierarchyList" class="list-container" style="border:none; padding:0;"></div>
+                </div>
+            </details>
+
             <details class="settings-details">
                 <summary>備品管理 (登録・一覧)</summary>
-                <div class="details-content">
-                    <div class="input-group">
-                        <input type="text" id="newEqName" placeholder="備品名">
-                        <input type="number" id="newEqDuration" placeholder="最大貸出日数 (空欄で無制限)" style="width:180px;">
-                        <select id="newEqCampus"><option value="">受取キャンパスを選択</option></select>
-                        <button onclick="addEquipment()">登録</button>
-                    </div>
-                    <div id="equipment-list-admin" class="list-container">
-                        <p>読み込み中...</p>
-                    </div>
-                    <button onclick="refreshAdminEquipmentList()" class="refresh-btn" style="margin-top:10px;">リスト更新</button>
+                <div class="details-content" id="equipment-manage-container">
+                    <p>読み込み中...</p>
                 </div>
             </details>
 
