@@ -1417,13 +1417,14 @@ function enforceMonthlyYear(el) {}
 // --- pre_admin.js への追加コード ---
 
 // 1. 備品管理エリアの描画 (initAdminPageなどで「キャンパス管理」の前などに呼ぶ)
+// --- 備品管理 (initAdminPageで呼び出し) ---
 async function renderEquipmentManagement() {
     const area = document.getElementById('equipment-manage-area');
-    if (!area) return;
+    if (!area) return; // HTML側にエリアがなければスキップ
 
     area.innerHTML = `
         <div class="admin-section" style="margin-bottom:30px; border-bottom:2px solid #ddd; padding-bottom:20px;">
-            <h3>備品管理</h3>
+            <h3>備品管理 (登録・一覧)</h3>
             <div class="card" style="background:#f0f8ff;">
                 <h4>新規備品登録</h4>
                 <div class="form-group">
@@ -1456,50 +1457,6 @@ async function renderEquipmentManagement() {
         cSelect.innerHTML = opts;
     } catch(e) { console.error(e); }
 
-    // 一覧更新
-    refreshAdminEquipmentList();
-}
-
-async function renderEquipmentManagement() {
-    const area = document.getElementById('equipment-manage-area');
-    if (!area) return;
-
-    area.innerHTML = `
-        <div class="admin-section" style="margin-bottom:30px; border-bottom:2px solid #ddd; padding-bottom:20px;">
-            <h3>備品管理</h3>
-            <div class="card" style="background:#f0f8ff;">
-                <h4>新規備品登録</h4>
-                <div class="form-group">
-                    <label>備品名</label>
-                    <input type="text" id="newEqName" class="form-control">
-                </div>
-                <div class="form-group">
-                    <label>最大貸出期間(日) <small>※空欄で制限なし</small></label>
-                    <input type="number" id="newEqDuration" class="form-control" placeholder="例: 7">
-                </div>
-                <div class="form-group">
-                    <label>受取キャンパス</label>
-                    <select id="newEqCampus" class="form-control"></select>
-                </div>
-                <button class="btn-primary" onclick="addEquipment()">登録</button>
-            </div>
-            
-            <div id="equipment-list-admin" style="margin-top:15px;">読み込み中...</div>
-        </div>
-    `;
-
-    // キャンパス選択肢充填
-    const cSelect = document.getElementById('newEqCampus');
-    let opts = '<option value="">選択してください</option>';
-    try {
-        const cSnap = await db.collection('campuses').get();
-        cSnap.forEach(doc => {
-            opts += `<option value="${doc.id}">${doc.data().name}</option>`;
-        });
-        cSelect.innerHTML = opts;
-    } catch(e) { console.error(e); }
-
-    // 一覧更新
     refreshAdminEquipmentList();
 }
 
@@ -1528,11 +1485,11 @@ async function addEquipment() {
     }
 }
 
-// 備品一覧取得
+// 備品一覧
 async function refreshAdminEquipmentList() {
     const list = document.getElementById('equipment-list-admin');
     if(!list) return;
-    
+
     try {
         const snap = await db.collection('equipments').orderBy('name').get();
         let html = '<table class="admin-table"><thead><tr><th>備品名</th><th>制限</th><th>場所</th><th>状態</th><th>操作</th></tr></thead><tbody>';
@@ -1540,15 +1497,11 @@ async function refreshAdminEquipmentList() {
         snap.forEach(doc => {
             const d = doc.data();
             const statusLabel = d.status === 'loaned' ? '<span style="color:red">貸出中</span>' : '可';
-            
-            // キャンパス名表示用（簡易的にID表示、登録済み配列があれば変換可）
-            const campusName = d.campusId; 
-
             html += `
                 <tr>
                     <td>${d.name}</td>
                     <td>${d.maxDuration ? d.maxDuration+'日' : '-'}</td>
-                    <td>${campusName}</td>
+                    <td>${d.campusId}</td>
                     <td>${statusLabel}</td>
                     <td>
                         <button class="btn-danger" onclick="deleteItem('equipments', '${doc.id}')">削除</button>
@@ -1560,12 +1513,11 @@ async function refreshAdminEquipmentList() {
         html += '</tbody></table>';
         list.innerHTML = html;
     } catch(e) {
-        console.error(e);
         list.innerHTML = "読み込みエラー";
     }
 }
 
-// 強制返却（貸出中 -> 可）
+// 強制返却
 async function forceReturnEquipment(eqId) {
     if(!confirm("強制的に「貸出可」に戻しますか？")) return;
     try {
@@ -1577,9 +1529,47 @@ async function forceReturnEquipment(eqId) {
     } catch(e) { alert("エラー: " + e.message); }
 }
 
-// ------------------------------------------------
-// ★追加: 備品申請一覧 -> 4つ目のタブ (approval)
-// ------------------------------------------------
+
+// --- ステータスタブ: サブタブ切り替え拡張 ---
+// 既存の switchAdminSubTab を上書きまたは拡張する必要があります
+const originalSwitchAdminSubTab = window.switchAdminSubTab || function(){};
+
+window.switchAdminSubTab = function(subTabName) {
+    // 既存の処理があれば呼ぶ（あるいは完全に上書きするなら以下のみでOK）
+    // originalSwitchAdminSubTab(subTabName); 
+    
+    // 全サブタブボタンのactive解除
+    document.querySelectorAll('#tab-status .sub-tab').forEach(b => b.classList.remove('active'));
+    
+    // 対象ボタンactive化
+    const targetBtn = document.getElementById('btn-sub-' + subTabName);
+    if(targetBtn) targetBtn.classList.add('active');
+
+    // 全ビュー非表示
+    const views = ['auth', 'report', 'recurring', 'equipment'];
+    views.forEach(v => {
+        const el = document.getElementById('view-' + v);
+        if(el) el.style.display = 'none';
+    });
+
+    // 対象ビュー表示 & データロード
+    const targetView = document.getElementById('view-' + subTabName);
+    if(targetView) {
+        targetView.style.display = 'block';
+        if (subTabName === 'auth') {
+            if(typeof refreshAuthList === 'function') refreshAuthList();
+        } else if (subTabName === 'report') {
+            if(typeof refreshReportList === 'function') refreshReportList();
+        } else if (subTabName === 'recurring') {
+            if(typeof refreshRecurringList === 'function') refreshRecurringList();
+        } else if (subTabName === 'equipment') {
+            // ★追加: 備品承認リスト更新
+            refreshEquipmentRequests();
+        }
+    }
+};
+
+// 備品承認リスト (サブタブ: equipment)
 async function refreshEquipmentRequests() {
     const container = document.getElementById('approval-list');
     if(!container) return;
@@ -1600,9 +1590,8 @@ async function refreshEquipmentRequests() {
         let html = '<div style="display:flex; flex-direction:column; gap:10px;">';
         snap.forEach(doc => {
             const d = doc.data();
-            // 日付整形
-            const start = d.startDate && d.startDate.toDate ? d.startDate.toDate().toLocaleDateString() : '不明';
-            const end = d.endDate && d.endDate.toDate ? d.endDate.toDate().toLocaleDateString() : '不明';
+            const start = d.startDate.toDate().toLocaleDateString();
+            const end = d.endDate.toDate().toLocaleDateString();
 
             html += `
                 <div class="card">
@@ -1623,21 +1612,18 @@ async function refreshEquipmentRequests() {
     }
 }
 
-// 申請の承認・却下処理
+// 承認/却下アクション
 async function handleEqRequest(reqId, isApproved) {
     if(!confirm(isApproved ? "承認しますか？" : "却下しますか？")) return;
 
     try {
         const reqRef = db.collection('equipment_requests').doc(reqId);
         const reqDoc = await reqRef.get();
-        if(!reqDoc.exists) {
-            alert("申請が見つかりません");
-            return;
-        }
+        if(!reqDoc.exists) { alert("申請が見つかりません"); return; }
         const data = reqDoc.data();
 
         if (isApproved) {
-            // 備品ステータスを更新 (貸出中へ)
+            // 備品ステータス更新
             await db.collection('equipments').doc(data.equipmentId).update({
                 status: 'loaned',
                 currentLoan: {
@@ -1646,17 +1632,13 @@ async function handleEqRequest(reqId, isApproved) {
                     endDate: data.endDate
                 }
             });
-            // 申請ステータスを承認へ
             await reqRef.update({ status: 'approved' });
         } else {
-            // 却下
             await reqRef.update({ status: 'rejected' });
         }
 
         alert("処理しました");
         refreshEquipmentRequests();
-        
-        // もしステータスタブが表示中なら備品一覧も更新
         if(document.getElementById('equipment-list-admin')) refreshAdminEquipmentList();
     } catch(e) {
         alert("エラー: " + e.message);
