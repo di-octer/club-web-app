@@ -870,53 +870,45 @@ function switchTab(tabName, btnElement) {
     }
 }
 
-function switchAdminSubTab(tab) {
-    const authView = document.getElementById('view-auth');
-    const reportView = document.getElementById('view-report');
-    const recurringView = document.getElementById('view-recurring');
-
-    // 表示・非表示のリセット
-    if(authView) authView.style.display = 'none';
-    if(reportView) reportView.style.display = 'none';
-    if(recurringView) recurringView.style.display = 'none';
+async function refreshAuthList() {
+    const list = document.getElementById('requestList');
+    if(!list) return;
+    list.innerHTML = '読み込み中...';
     
-    // ボタンのアクティブ状態リセット
-    document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
-    const targetBtn = document.getElementById(`btn-sub-${tab}`);
-    if(targetBtn) targetBtn.classList.add('active');
-
-    // コンテンツ表示
-    if (tab === 'auth') {
-        if(authView) authView.style.display = 'block';
-        refreshRequests();
-    } else if (tab === 'report') {
-        if(reportView) reportView.style.display = 'block';
-        refreshReports();
-    } else if (tab === 'recurring') {
-        if(recurringView) recurringView.style.display = 'block';
-        refreshRecurring();
-    }
-}
-
-async function refreshRequests() {
-    const listEl = document.getElementById('requestList');
-    listEl.innerHTML = '<p>読み込み中...</p>';
     try {
-        const snapshot = await db.collection('auth_requests').where('status', '==', 'pending').orderBy('requestTimestamp', 'desc').get();
-        listEl.innerHTML = '';
-        if (snapshot.empty) { listEl.innerHTML = '<p>リクエストはありません</p>'; return; }
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const date = data.requestTimestamp ? data.requestTimestamp.toDate().toLocaleString() : '';
-            const item = document.createElement('div');
-            item.className = 'item-card';
-            item.innerHTML = `
-                <div><strong>${data.userName}</strong><br><small>${date}</small><br><span style="font-size:0.8em; color:#666;">Type: ${data.authType}</span></div>
-                <button onclick="openAuthModal('${doc.id}', '${data.userName}', '${data.authType}')">認証へ</button>
-            `;
-            listEl.appendChild(item);
+        // 保留中のリクエストを取得
+        const snap = await db.collection('auth_requests')
+            .where('status', '==', 'pending')
+            .orderBy('requestTimestamp', 'desc')
+            .get();
+
+        if (snap.empty) {
+            list.innerHTML = '<p>現在、承認待ちのリクエストはありません。</p>';
+            return;
+        }
+
+        let html = '';
+        snap.forEach(doc => {
+            const d = doc.data();
+            const timeStr = d.requestTimestamp ? d.requestTimestamp.toDate().toLocaleString() : '---';
+            const authType = d.authType || 'unknown';
+            
+            html += `
+            <div class="card">
+                <div style="font-weight:bold; font-size:1.1em;">${d.userName}</div>
+                <div style="font-size:0.9em; color:#666;">${timeStr} - ${authType}</div>
+                ${d.isLate ? '<div style="color:red; font-weight:bold;">※遅刻申請</div>' : ''}
+                <div style="margin-top:10px;">
+                    <button class="btn-primary" onclick="openAuthModal('${doc.id}', '${d.userName}', '${d.authType}')">認証画面へ</button>
+                    <button class="btn-danger" onclick="rejectRequest('${doc.id}')">却下</button>
+                </div>
+            </div>`;
         });
-    } catch(e) { listEl.innerHTML = '<p>エラー</p>'; }
+        list.innerHTML = html;
+    } catch(e) {
+        console.error(e);
+        list.innerHTML = '<p>読み込みエラー</p>';
+    }
 }
 
 async function approveRequest() {
@@ -928,42 +920,43 @@ async function approveRequest() {
     refreshRequests();
 }
 
-async function refreshReports() {
-    const listEl = document.getElementById('reportList');
-    listEl.innerHTML = '<p>読み込み中...</p>';
+async function refreshReportList() {
+    const list = document.getElementById('reportList');
+    if(!list) return;
+    list.innerHTML = '読み込み中...';
+
     try {
-        const snapshot = await db.collection('absence_reports').orderBy('timestamp', 'desc').limit(50).get();
-        listEl.innerHTML = '';
-        if (snapshot.empty) { listEl.innerHTML = '<p>届出なし</p>'; return; }
-        snapshot.forEach(doc => {
+        const snap = await db.collection('absence_reports')
+            .orderBy('timestamp', 'desc')
+            .limit(20)
+            .get();
+
+        if(snap.empty) {
+            list.innerHTML = '<p>届出はありません</p>';
+            return;
+        }
+
+        let html = '';
+        snap.forEach(doc => {
             const d = doc.data();
-            const periodStr = d.endDate ? `${d.startDate.toDate().toLocaleString()} 〜 ${d.endDate.toDate().toLocaleString()}` : d.startDate.toDate().toLocaleString();
-            const statusLabel = { 'pending':'未承認', 'approved':'承認済', 'confirm':'要確認', 'rejected':'否認' }[d.status] || d.status;
-            let badgeColor = d.status==='approved'?"#007bff":d.status==='confirm'?"#ffc107":d.status==='rejected'?"#dc3545":"#666";
+            const dateStr = d.timestamp ? d.timestamp.toDate().toLocaleString() : '';
+            const typeLabel = (d.type === 'absence') ? '欠席' : ((d.type === 'late') ? '遅刻' : '早退');
             
-            const div = document.createElement('div');
-            div.className = 'item-card';
-            div.style.display = 'block';
-            div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; background-color:#eeeeee; padding:10px; border-bottom:1px solid #ddd;">
+            html += `
+            <div class="card">
+                <div style="display:flex; justify-content:space-between;">
                     <strong>${d.userName}</strong>
-                    <span style="background:${badgeColor}; color:white; padding:2px 8px; border-radius:4px; font-size:0.8em;">${statusLabel}</span>
+                    <span style="font-size:0.8em;">${dateStr}</span>
                 </div>
-                <div style="padding:10px;">
-                    <div style="font-size:0.9em; margin-bottom:5px;">
-                        <span style="color:#007bff; font-weight:bold;">[${d.type}]</span> <br>期間: <b>${periodStr}</b><br>理由: ${d.reason}
-                    </div>
-                    ${d.attachment ? `<img src="${d.attachment}" style="max-height:80px; border:1px solid #ccc; display:block; margin:5px 0;">` : ''}
-                    <div style="text-align:right; margin-top:10px;">
-                        <button onclick="updateReportStatus('${doc.id}','approved')" style="padding:5px 10px; font-size:0.8em; background:#007bff; color:white; border:none; border-radius:4px; margin-right:5px;">承認</button>
-                        <button onclick="updateReportStatus('${doc.id}','confirm')" style="padding:5px 10px; font-size:0.8em; background:#ffc107; color:black; border:none; border-radius:4px; margin-right:5px;">確認</button>
-                        <button onclick="updateReportStatus('${doc.id}','rejected')" style="padding:5px 10px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px;">否認</button>
-                    </div>
-                </div>
-            `;
-            listEl.appendChild(div);
+                <div>[${typeLabel}] ${d.reason}</div>
+                ${d.attachment ? `<div style="margin-top:5px;"><a href="${d.attachment}" target="_blank">添付画像を確認</a></div>` : ''}
+                <div style="margin-top:5px; font-size:0.8em; color:gray;">期間: ${d.startDate ? d.startDate.toDate().toLocaleDateString() : ''} ~ </div>
+            </div>`;
         });
-    } catch(e) { listEl.innerHTML = '<p>エラー</p>'; }
+        list.innerHTML = html;
+    } catch(e) {
+        list.innerHTML = '<p>読み込みエラー</p>';
+    }
 }
 
 async function updateReportStatus(docId, st) {
@@ -972,53 +965,39 @@ async function updateReportStatus(docId, st) {
     refreshReports();
 }
 
-async function refreshRecurring() {
+async function refreshRecurringList() {
     const list = document.getElementById('recurringList');
-    list.innerHTML = "読み込み中...";
-    const snap = await db.collection('recurring_absence_applications').where('status', '==', 'pending').get();
-    
-    list.innerHTML = "";
-    if(snap.empty) { list.innerHTML = "<p>申請なし</p>"; return; }
+    if(!list) return;
+    list.innerHTML = '読み込み中...';
 
-    snap.forEach(doc => {
-        const d = doc.data();
-        const div = document.createElement('div');
-        div.className = 'item-card';
-        
-        // 簡易カレンダー(グリッド)の生成
-        const weekDays = ['月', '火', '水', '木', '金', '土'];
-        let gridHtml = `<table class="schedule-table" id="sched-${doc.id}"><thead><tr><th></th>`;
-        weekDays.forEach(w => gridHtml += `<th>${w}</th>`);
-        gridHtml += `</tr></thead><tbody>`;
-
-        // 1行目: 曜日全休選択行
-        gridHtml += `<tr><td>Day</td>`;
-        weekDays.forEach(w => {
-            gridHtml += `<td><input type="checkbox" class="day-chk" data-day="${w}" onchange="toggleDayColumn(this, '${doc.id}', '${w}')"></td>`;
-        });
-        gridHtml += `</tr>`;
-
-        // 2~8行目: 時限 (1-7)
-        for(let p=1; p<=7; p++) {
-            gridHtml += `<tr><td>${p}</td>`;
-            weekDays.forEach(w => {
-                gridHtml += `<td><input type="checkbox" class="period-chk p-${w}" data-day="${w}" data-period="${p}" onchange="togglePeriodCell(this)"></td>`;
-            });
-            gridHtml += `</tr>`;
+    try {
+        const snap = await db.collection('recurring_absence').orderBy('createdAt', 'desc').get();
+        if(snap.empty) {
+            list.innerHTML = '<p>定期欠席の申請はありません</p>';
+            return;
         }
-        gridHtml += `</tbody></table>`;
-
-        div.innerHTML = `
-            <div>
-                <strong>${d.userName}</strong> (${d.semester})<br>
-                <img src="${d.image}" style="max-width:100%; max-height:200px; margin:5px 0;">
-                <p style="font-size:0.8em; color:#666;">曜日(全休)か時限を選択してください。<br>※選択部分はグレイアウト(欠席扱い)になります。</p>
-                ${gridHtml}
-            </div>
-            <button onclick="approveRecurring('${doc.id}')" class="btn-primary" style="margin-top:10px;">承認・保存</button>
-        `;
-        list.appendChild(div);
-    });
+        let html = '';
+        snap.forEach(doc => {
+            const d = doc.data();
+            const statusColor = d.status === 'approved' ? 'green' : (d.status === 'rejected' ? 'red' : 'orange');
+            const dayStr = ['日','月','火','水','木','金','土'][d.dayOfWeek] || '?';
+            
+            html += `
+            <div class="card" style="border-left: 5px solid ${statusColor};">
+                <div style="font-weight:bold;">${d.userName} (${dayStr}曜日)</div>
+                <div>理由: ${d.reason}</div>
+                <div>状態: <span style="color:${statusColor}">${d.status}</span></div>
+                <div style="margin-top:5px;">
+                    <button onclick="updateRecurringStatus('${doc.id}', 'approved')" class="btn-primary" style="padding:5px;">承認</button>
+                    <button onclick="updateRecurringStatus('${doc.id}', 'rejected')" class="btn-danger" style="padding:5px;">却下</button>
+                    <button onclick="deleteRecurring('${doc.id}')" style="padding:5px;">削除</button>
+                </div>
+            </div>`;
+        });
+        list.innerHTML = html;
+    } catch(e) {
+        list.innerHTML = '<p>読み込みエラー</p>';
+    }
 }
 
 async function approveRecurring(docId) {
@@ -1568,29 +1547,37 @@ async function forceReturnEquipment(eqId) {
 
 // --- サブタブ切り替え関数 (フリーズ防止 & 備品タブ対応) ---
 window.switchAdminSubTab = function(subTabName) {
-    // 1. ボタンのアクティブ化
+    // 1. 全サブタブボタンの active クラスを解除
     const btns = document.querySelectorAll('#tab-status .sub-tab');
     btns.forEach(b => b.classList.remove('active'));
     
+    // 2. クリックされたボタンに active クラスを付与
     const targetBtn = document.getElementById('btn-sub-' + subTabName);
-    if (targetBtn) targetBtn.classList.add('active');
+    if(targetBtn) targetBtn.classList.add('active');
 
-    // 2. ビューの切り替え
+    // 3. すべてのビューを非表示にする
+    // (auth: 認証, report: 届出, recurring: 定期欠席, equipment: 備品承認)
     const views = ['auth', 'report', 'recurring', 'equipment'];
     views.forEach(v => {
         const el = document.getElementById('view-' + v);
-        if (el) el.style.display = 'none';
+        if(el) el.style.display = 'none';
     });
 
+    // 4. 対象のビューを表示し、データを更新する
     const targetView = document.getElementById('view-' + subTabName);
-    if (targetView) {
+    if(targetView) {
         targetView.style.display = 'block';
-        
-        // 3. データ読み込み (関数が存在する場合のみ実行)
-        if (subTabName === 'auth' && typeof refreshAuthList === 'function') refreshAuthList();
-        if (subTabName === 'report' && typeof refreshReportList === 'function') refreshReportList();
-        if (subTabName === 'recurring' && typeof refreshRecurringList === 'function') refreshRecurringList();
-        if (subTabName === 'equipment') refreshEquipmentRequests(); // ★追加
+
+        // ★各リストの更新関数を呼び出して情報を最新にする
+        if (subTabName === 'auth') {
+            if(typeof refreshAuthList === 'function') refreshAuthList();
+        } else if (subTabName === 'report') {
+            if(typeof refreshReportList === 'function') refreshReportList();
+        } else if (subTabName === 'recurring') {
+            if(typeof refreshRecurringList === 'function') refreshRecurringList();
+        } else if (subTabName === 'equipment') {
+            if(typeof refreshEquipmentRequests === 'function') refreshEquipmentRequests();
+        }
     }
 };
 
