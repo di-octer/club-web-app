@@ -807,15 +807,6 @@ async function loadRegisteredFaces() {
     } catch (e) { console.error(e); }
 }
 
-async function loadModels() {
-    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'; 
-    try {
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-    } catch(e) { console.error("Model Load Error:", e); }
-}
-
 async function detectFaceLoopManual(video, canvas) {
     if (regStep > 5 || !regStream) return;
     const displaySize = { width: video.videoWidth, height: video.videoHeight };

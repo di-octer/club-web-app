@@ -440,3 +440,19 @@ function toggleStatusModal() {
     modal.style.display = isHidden ? 'block' : 'none';
     overlay.style.display = isHidden ? 'block' : 'none';
 }
+
+// --- 顔認識モデル読み込み (共通関数) ---
+async function loadModels() {
+    // ★修正: アップロードされたローカルのmodelsフォルダを参照
+    const MODEL_URL = './models'; 
+    
+    try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        // console.log("Models loaded from local");
+    } catch(e) { 
+        console.error("Model Load Error:", e);
+        alert("モデルの読み込みに失敗しました。\nmodelsフォルダが配置されているか確認してください。");
+    }
+}
