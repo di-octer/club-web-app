@@ -54,7 +54,11 @@ window.onload = async () => {
             await checkGradePromotion(user.uid);
             updateUserDisplay(user);
             
-            if (!isLoginPage) setupCommonAppbar();
+            if (!isLoginPage){
+                setupCommonAppbar();
+                updateAppbarStatus();
+                setInterval(updateAppbarStatus, 60000);
+            }
         } else {
             console.log("Not logged in");
             if (!isLoginPage) window.location.href = 'pre_login.html';
@@ -272,11 +276,11 @@ function setupCommonAppbar() {
 }
 
 async function updateAppbarStatus() {
-    // IDを 'appbarPlace' に戻しました (HTMLに合わせてください)
-    const placeEl = document.getElementById('appbarPlace'); 
+    // ★修正: HTML側のID 'appbarCampus' に合わせる (以前は 'appbarPlace' で取得失敗していた)
+    const placeEl = document.getElementById('appbarCampus'); 
     const statusEl = document.getElementById('appbarStatus');
     
-    // 要素がない場合は何もしない
+    // 要素がない場合は何もしない (ここでのreturnにより以降が実行されていなかった)
     if (!placeEl) return;
 
     // ターゲットキャンパス決定
@@ -297,14 +301,14 @@ async function updateAppbarStatus() {
         let timeStr = " [活動なし]";
         try {
             const now = new Date();
-            // checkActivityTimeStatus は pre_common.js 内に定義済みとします
             const status = await checkActivityTimeStatus(now, campus.id);
             if (status.status !== 'out') {
+                // start, end がある場合のみ表示
                 timeStr = ` [${status.start}〜${status.end}]`;
             }
         } catch(e) { console.error(e); }
 
-        // ★修正: 活動場所 + 時間 をここに表示
+        // 活動場所 + 時間 を表示
         placeEl.textContent = `${campus.name}${timeStr}`;
 
         // エリア表示 (GPS利用時のみ)

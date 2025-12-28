@@ -21,13 +21,10 @@ async function initAdminPage() {
     await populateRegUserSelect(); 
     await populateCampusSelects(); 
     
-    // ★追加: 備品管理エリアの描画
+    // 備品管理エリアの描画
     renderEquipmentManagement();
 
-    // デフォルトで「auth」タブではなく「status」タブなどを開く場合はここを変更
-    // 今回はHTML側で初期activeクラスがついているタブを開くように switchTab を呼ぶのが無難ですが、
-    // 既存コードに合わせて auth タブを開くか、statusタブを開くか調整してください。
-    // ここではHTMLの構成に合わせて、ステータスタブを初期表示とします。
+    // デフォルトで「ステータス」タブを開く
     switchTab('status', document.querySelector('.tab-btn.active'));
     
     populateInfoLists();
@@ -41,6 +38,10 @@ async function initAdminPage() {
     if(acadInput) { acadInput.value = acadY; loadAcademicConfigByYear(); }
     const tmInput = document.getElementById('targetMonth');
     if(tmInput) { tmInput.value = `${y}-${String(m).padStart(2,'0')}`; loadMonthConfig(); }
+
+    // ★追加: 初期表示時に「認証リクエスト」サブタブを強制的に読み込む
+    // これにより、タブ遷移しなくてもリストが表示されるようになります
+    switchAdminSubTab('auth');
 }
 
 async function loadAcademicConfigByYear() {
@@ -1666,6 +1667,7 @@ window.switchAdminSubTab = function(subTabName) {
 };
 
 // --- 備品承認リスト取得関数 (フリーズ防止版) ---
+// --- 備品承認リスト取得関数 (修正版: インデックスエラー回避) ---
 async function refreshEquipmentRequests() {
     const container = document.getElementById('approval-list');
     if (!container) return;
@@ -1673,9 +1675,10 @@ async function refreshEquipmentRequests() {
     container.innerHTML = '<p>読み込み中...</p>';
     
     try {
+        // ★修正: orderBy('timestamp', 'asc') を削除し、取得後にJSでソートする
+        // (複合インデックス未作成によるエラーを回避するため)
         const snap = await db.collection('equipment_requests')
             .where('status', '==', 'pending')
-            .orderBy('timestamp', 'asc')
             .get();
 
         if (snap.empty) {
@@ -1683,10 +1686,16 @@ async function refreshEquipmentRequests() {
             return;
         }
 
+        // JS側でタイムスタンプ順にソート
+        const docs = snap.docs.sort((a, b) => {
+            const t1 = a.data().timestamp ? a.data().timestamp.toMillis() : 0;
+            const t2 = b.data().timestamp ? b.data().timestamp.toMillis() : 0;
+            return t1 - t2; // 古い順 (昇順)
+        });
+
         let html = '<div style="display:flex; flex-direction:column; gap:10px;">';
-        snap.forEach(doc => {
+        docs.forEach(doc => {
             const d = doc.data();
-            // 日付の安全な変換
             let rangeText = "期間不明";
             if (d.startDate && d.endDate) {
                 try {
