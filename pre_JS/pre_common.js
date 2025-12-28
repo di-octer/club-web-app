@@ -186,6 +186,7 @@ function setupCommonAppbar() {
     if (userSettings && userSettings.customIcon) iconUrl = userSettings.customIcon;
     else if (currentUser && currentUser.photoURL) iconUrl = currentUser.photoURL;
 
+    // ★修正: CSS定義を大幅に見直し
     const style = document.createElement('style');
     style.innerHTML = `
         body { padding-top: 70px; margin: 0; }
@@ -197,27 +198,46 @@ function setupCommonAppbar() {
             padding: 0 10px; box-sizing: border-box;
         }
         .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
+        
+        /* 中央グループ: 固定幅をやめて柔軟に伸縮させる */
         .appbar-info-group {
-            display: flex; align-items: center; justify-content: center;
+            display: flex; align-items: center; justify-content: flex-start;
             background: rgba(0, 0, 0, 0.4);
             border-radius: 6px; height: 38px; padding: 0; overflow: hidden;
-            cursor: pointer; flex: 0 1 auto; 
-            width: 160px; max-width: 160px; min-width: 120px;
+            cursor: pointer; flex: 1; /* 親要素内で可能な限り広がる */
+            margin: 0 10px; max-width: 600px; /* 最大幅制限 */
         }
+        
+        /* 左側: キャンパス名+時間 (固定表示・テキスト省略) */
         .appbar-campus {
-            font-weight: bold; padding: 0 8px; white-space: nowrap; 
-            font-size: 0.8em; color: #fff; background: transparent;
+            font-weight: bold; padding: 0 10px; white-space: nowrap; 
+            font-size: 0.85em; color: #fff; background: transparent;
             border-right: 1px solid rgba(255,255,255,0.3); flex: 0 0 auto;
+            max-width: 50%; overflow: hidden; text-overflow: ellipsis;
         }
+        
+        /* 右側: 流れるエリア (残り幅を全部使う) */
         .appbar-center {
-            flex: 1; background: transparent; border-radius: 0; height: 100%;
+            flex: 1; background: transparent; height: 100%;
             display: flex; align-items: center; color: #fff; font-size: 0.9em; 
-            font-weight: bold; overflow: hidden; position: relative; padding: 0 5px;
-            white-space: nowrap;
+            font-weight: bold; overflow: hidden; position: relative;
         }
-        .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .status-marquee { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee-anim 10s linear infinite; }
-        @keyframes marquee-anim { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
+
+        /* アニメーションなしの静的表示 */
+        .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 5px; }
+        
+        /* アニメーション(マーキー) */
+        .status-marquee {
+            display: inline-block;
+            white-space: nowrap;
+            padding-left: 100%; /* 親の右端からスタート */
+            animation: marquee-anim 15s linear infinite; /* 時間を少しゆっくりに */
+        }
+        @keyframes marquee-anim {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+
         .icon-btn {
             font-size: 1.4em; text-decoration: none; color: white;
             display: flex; align-items: center; justify-content: center;
@@ -276,20 +296,16 @@ function setupCommonAppbar() {
 }
 
 async function updateAppbarStatus() {
-    // ID修正: HTML側のID 'appbarCampus' に合わせる
     const placeEl = document.getElementById('appbarCampus'); 
     const statusEl = document.getElementById('appbarStatus');
     
-    // 要素がない場合は何もしない
     if (!placeEl) return;
 
-    // ターゲットキャンパス決定
     let targetCampus = null;
     if (userSettings && userSettings.defaultCampusId) {
         targetCampus = registeredCampuses.find(c => c.id === userSettings.defaultCampusId);
     }
 
-    // 描画関数
     const render = async (campus, useGps) => {
         if (!campus) {
             placeEl.textContent = "未設定";
@@ -297,20 +313,21 @@ async function updateAppbarStatus() {
             return;
         }
 
-        // 時間情報の取得
-        let timeStr = " [活動なし]";
+        let timeStr = "";
         try {
             const now = new Date();
             const status = await checkActivityTimeStatus(now, campus.id);
             if (status.status !== 'out') {
                 timeStr = ` [${status.start}〜${status.end}]`;
+            } else {
+                timeStr = " [時間外]";
             }
         } catch(e) { console.error(e); }
 
-        // 活動場所 + 時間 を表示
+        // 左側：キャンパス名 + 時間
         placeEl.textContent = `${campus.name}${timeStr}`;
 
-        // エリア表示 (GPS利用時のみ)
+        // 右側：活動場所（GPS連動時）
         if (statusEl) {
             if (useGps) {
                 const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
@@ -318,17 +335,15 @@ async function updateAppbarStatus() {
                 if (targetAreas.length === 0) {
                     statusEl.innerHTML = '<div class="status-static">エリア外</div>';
                 } else {
-                    // ★修正: 1箇所でも常にマーキー（電光掲示板）表示にする
-                    // 名前を結合 (例: "📍 場所A　📍 場所B")
-                    const names = targetAreas.map(a => `📍 ${a.name}`).join("　");
-                    
-                    // スクロール用にテキストを複製してつなげる (切れ目なく見せるため)
-                    const marqueeText = `${names}　　　　${names}`;
+                    // ★修正: 常に流れるように設定
+                    // 同じテキストを繰り返して、切れ目をわかりにくくする
+                    const names = targetAreas.map(a => `📍${a.name}`).join("　");
+                    const marqueeText = `${names}　　　${names}　　　${names}`; 
                     
                     statusEl.innerHTML = `<div class="status-marquee">${marqueeText}</div>`;
                 }
             } else {
-                statusEl.innerHTML = '<div class="status-static">固定設定</div>';
+                statusEl.innerHTML = '<div class="status-static">固定設定(GPSオフ)</div>';
             }
         }
     };
@@ -352,6 +367,7 @@ async function updateAppbarStatus() {
         render(targetCampus, true);
 
     }, (err) => {
+        console.warn("GPS Error:", err);
         render(targetCampus, false);
     }, { timeout: 5000 });
 }
