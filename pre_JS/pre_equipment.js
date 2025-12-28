@@ -34,8 +34,11 @@ function switchEqTab(tabName) {
 }
 
 // 備品マスタ読み込み
+// 備品マスタ読み込み
 async function loadEquipments() {
     const select = document.getElementById('eqSelect');
+    if(!select) return;
+    
     select.innerHTML = '<option value="">読み込み中...</option>';
     
     try {
@@ -46,7 +49,19 @@ async function loadEquipments() {
         snap.forEach(doc => {
             const d = doc.data();
             allEquipments.push({ id: doc.id, ...d });
-            html += `<option value="${doc.id}">${d.name}</option>`;
+
+            // キャンパス名の解決 (registeredCampusesを利用)
+            let cName = "場所不明";
+            if (typeof registeredCampuses !== 'undefined') {
+                const c = registeredCampuses.find(x => x.id === d.campusId);
+                if (c) cName = c.name;
+            } else {
+                // 万が一ロード前の場合のフォールバック (ID表示)
+                cName = d.campusId;
+            }
+
+            // ★修正: 備品名(受け取りキャンパス名) の形式に変更
+            html += `<option value="${doc.id}">${d.name} (${cName})</option>`;
         });
         select.innerHTML = html;
     } catch(e) {

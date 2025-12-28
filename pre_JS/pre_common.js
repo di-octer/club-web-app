@@ -494,13 +494,72 @@ function toBase64(file) {
     });
 }
 
-function toggleStatusModal() {
+async function toggleStatusModal() {
     const modal = document.getElementById('statusDetailModal');
     const overlay = document.getElementById('modalOverlay');
     if (!modal || !overlay) return;
+
+    // 現在の表示状態を確認
     const isHidden = modal.style.display === 'none' || modal.style.display === '';
-    modal.style.display = isHidden ? 'block' : 'none';
-    overlay.style.display = isHidden ? 'block' : 'none';
+
+    if (isHidden) {
+        // --- 開く処理 ---
+        modal.style.display = 'block';
+        overlay.style.display = 'block';
+
+        const content = document.getElementById('statusDetailContent');
+        if (content) {
+            content.innerHTML = '<p style="padding:10px; text-align:center; color:#666;">活動状況を確認中...</p>';
+            
+            try {
+                let html = '<ul style="list-style:none; padding:0; margin:0; max-height:300px; overflow-y:auto;">';
+                let activeCount = 0;
+                const now = new Date();
+
+                // 全キャンパスを走査
+                for (const campus of registeredCampuses) {
+                    // 時間チェック
+                    const status = await checkActivityTimeStatus(now, campus.id);
+                    
+                    // 活動時間内であればエリアを確認
+                    if (status.status !== 'out') {
+                        const areas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
+                        
+                        // アクティブなエリアがあればリストに追加
+                        if (areas.length > 0) {
+                            areas.forEach(area => {
+                                activeCount++;
+                                html += `
+                                    <li style="padding:10px; border-bottom:1px solid #eee; display:flex; align-items:center;">
+                                        <span style="font-weight:bold; color:#007bff; margin-right:8px;">${campus.name}</span>
+                                        <span style="flex:1;">📍 ${area.name}</span>
+                                        <span style="font-size:0.8em; color:#666; background:#f0f0f0; padding:2px 6px; border-radius:4px;">
+                                            ${status.start}〜${status.end}
+                                        </span>
+                                    </li>
+                                `;
+                            });
+                        }
+                    }
+                }
+                html += '</ul>';
+
+                if (activeCount === 0) {
+                    content.innerHTML = '<p style="padding:20px; text-align:center; color:#888;">現在活動中の場所はありません</p>';
+                } else {
+                    content.innerHTML = html;
+                }
+            } catch (e) {
+                console.error(e);
+                content.innerHTML = '<p style="color:red; padding:10px;">読み込みエラーが発生しました</p>';
+            }
+        }
+
+    } else {
+        // --- 閉じる処理 ---
+        modal.style.display = 'none';
+        overlay.style.display = 'none';
+    }
 }
 
 // --- 顔認識モデル読み込み (共通関数) ---
