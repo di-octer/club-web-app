@@ -1395,121 +1395,196 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
-// --- 修正: 活動場所リスト (details/summary版 + クリック不具合修正) ---
+// --- 修正: 活動場所リスト (DOM直接生成によるイベント制御の完全修正版) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
-    if(select) {
+    if (select) {
         select.innerHTML = '<option value="">キャンパスを選択</option>';
-        registeredCampuses.forEach(c => { const opt = document.createElement('option'); opt.value = c.id; opt.innerText = c.name; select.appendChild(opt); });
+        registeredCampuses.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.innerText = c.name;
+            select.appendChild(opt);
+        });
     }
 
     const hierList = document.getElementById('hierarchyList');
-    if(hierList) {
-        hierList.innerHTML = '';
+    if (!hierList) return;
 
-        // 一括操作ボタン
-        const controls = document.createElement('div');
-        controls.style.cssText = "padding: 0 0 10px 0; border-bottom: 1px solid #ddd; margin-bottom: 10px; text-align: right;";
-        controls.innerHTML = `<button class="btn-danger" onclick="deleteSelectedItems('campuses')" style="padding:5px 10px; font-size:0.9em;">選択したキャンパスを削除</button>`;
-        hierList.appendChild(controls);
+    hierList.innerHTML = '';
 
-        if (registeredCampuses.length === 0) {
-            hierList.innerHTML += '<p style="text-align:center; color:#666;">キャンパスが登録されていません</p>';
-            return;
+    // --- 一括操作ボタンエリア ---
+    const controls = document.createElement('div');
+    controls.style.cssText = "padding: 0 0 10px 0; border-bottom: 1px solid #ddd; margin-bottom: 10px; text-align: right;";
+    
+    const delAllBtn = document.createElement('button');
+    delAllBtn.className = "btn-danger";
+    delAllBtn.textContent = "選択したキャンパスを削除";
+    delAllBtn.style.cssText = "padding:5px 10px; font-size:0.9em;";
+    delAllBtn.onclick = () => deleteSelectedItems('campuses');
+    controls.appendChild(delAllBtn);
+    hierList.appendChild(controls);
+
+    if (registeredCampuses.length === 0) {
+        hierList.innerHTML += '<p style="text-align:center; color:#666;">キャンパスが登録されていません</p>';
+        return;
+    }
+
+    // --- キャンパスリスト生成 ---
+    registeredCampuses.forEach(campus => {
+        const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
+
+        const details = document.createElement('details');
+        details.className = 'settings-details';
+        details.open = true;
+
+        // ----------------------------------------------------
+        // 1. ヘッダー (Summary) の構築
+        // ----------------------------------------------------
+        const summary = document.createElement('summary');
+        summary.style.cssText = `
+            display: grid; 
+            grid-template-columns: auto 1fr auto; 
+            align-items: center; 
+            gap: 15px; 
+            background: #f8f9fa; 
+            padding: 10px; 
+            cursor: pointer;
+            position: relative;
+        `;
+
+        // [左] チェックボックス
+        const campChk = document.createElement('input');
+        campChk.type = "checkbox";
+        campChk.className = "chk-campus";
+        campChk.value = campus.id;
+        campChk.title = "削除選択";
+        campChk.style.cssText = "transform:scale(1.3); cursor:pointer; margin:0; z-index:10; position:relative;";
+        
+        // ★重要: 親(summary)へのクリック伝播をここで確実に止める
+        campChk.onclick = (e) => { e.stopPropagation(); };
+
+        // [中] テキスト情報
+        const infoDiv = document.createElement('div');
+        infoDiv.style.cssText = "min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px;";
+        infoDiv.innerHTML = `
+            <span style="font-weight:bold; font-size:1.1em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🏢 ${campus.name}</span>
+            <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em; color:#555; white-space:nowrap;">${areas.length}箇所</span>
+        `;
+
+        // [右] 削除ボタン
+        const campDelBtn = document.createElement('button');
+        campDelBtn.className = "btn-danger";
+        campDelBtn.textContent = "削除";
+        campDelBtn.style.cssText = "padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0; z-index:10; position:relative;";
+        
+        // ★重要: 親(summary)へのクリック伝播をここで確実に止める
+        campDelBtn.onclick = (e) => {
+            e.stopPropagation();
+            deleteItem('campuses', campus.id);
+        };
+
+        summary.appendChild(campChk);
+        summary.appendChild(infoDiv);
+        summary.appendChild(campDelBtn);
+
+        // ----------------------------------------------------
+        // 2. コンテンツ (Details Content) の構築
+        // ----------------------------------------------------
+        const content = document.createElement('div');
+        content.className = 'details-content';
+        content.style.padding = "10px";
+
+        if (areas.length > 0) {
+            // エリア操作ボタン
+            const areaActionDiv = document.createElement('div');
+            areaActionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;';
+            
+            const btnSelDel = document.createElement('button');
+            btnSelDel.className = "btn-danger";
+            btnSelDel.textContent = "エリア選択削除";
+            btnSelDel.style.cssText = "padding:5px 10px; font-size:0.8em;";
+            btnSelDel.onclick = () => deleteSelectedAreas(campus.id);
+
+            const btnAllDel = document.createElement('button');
+            btnAllDel.className = "btn-danger";
+            btnAllDel.textContent = "エリア全削除";
+            btnAllDel.style.cssText = "padding:5px 10px; font-size:0.8em;";
+            btnAllDel.onclick = () => deleteAllAreasInCampus(campus.id);
+
+            areaActionDiv.appendChild(btnSelDel);
+            areaActionDiv.appendChild(btnAllDel);
+            content.appendChild(areaActionDiv);
+
+            // エリアリスト
+            const grid = document.createElement('div');
+            grid.style.cssText = "display:flex; flex-direction:column; gap:8px;";
+
+            areas.forEach(area => {
+                const row = document.createElement('div');
+                row.className = 'list-item-row nested-area';
+                row.style.cssText = `
+                    display: grid; 
+                    grid-template-columns: auto 1fr auto; 
+                    align-items: center; 
+                    gap: 10px;
+                    padding: 8px 10px; 
+                    border: 1px solid #ddd; 
+                    border-radius: 6px;
+                    background-color: ${area.isActive ? '#e6ffec' : '#fff'};
+                `;
+
+                // [左] エリアチェックボックス
+                const areaChk = document.createElement('input');
+                areaChk.type = "checkbox";
+                areaChk.className = `chk-area-${campus.id}`;
+                areaChk.value = area.name;
+                areaChk.style.cssText = "transform:scale(1.2); margin:0; cursor:pointer;";
+                // ※div内なのでstopPropagationは不要だが念のため
+                areaChk.onclick = (e) => e.stopPropagation();
+
+                // [中] エリア情報
+                const areaInfo = document.createElement('div');
+                areaInfo.style.cssText = "min-width: 0; display:flex; flex-direction:column;";
+                areaInfo.innerHTML = `
+                    <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${area.name}</div>
+                    <div style="font-size:0.75em; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                        Lat:${area.lat.toFixed(4)}, Lon:${area.lon.toFixed(4)}
+                    </div>
+                `;
+
+                // [右] ボタン群
+                const btnGroup = document.createElement('div');
+                btnGroup.style.cssText = "display:flex; gap:5px; white-space:nowrap;";
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.textContent = area.isActive ? '有効' : '無効';
+                toggleBtn.style.cssText = `padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; cursor:pointer;`;
+                toggleBtn.onclick = () => toggleAreaActive(area.name, area.isActive);
+
+                const delBtn = document.createElement('button');
+                delBtn.textContent = "削除";
+                delBtn.style.cssText = "padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;";
+                delBtn.onclick = () => deleteItem('gps_areas', area.name);
+
+                btnGroup.appendChild(toggleBtn);
+                btnGroup.appendChild(delBtn);
+
+                row.appendChild(areaChk);
+                row.appendChild(areaInfo);
+                row.appendChild(btnGroup);
+                grid.appendChild(row);
+            });
+            content.appendChild(grid);
+        } else {
+            content.innerHTML = '<p style="color:#888; text-align:center; padding:10px;">エリア未登録</p>';
         }
 
-        registeredCampuses.forEach(campus => {
-            const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
-            
-            const details = document.createElement('details');
-            details.className = 'settings-details';
-            details.open = true; 
-            
-            const summary = document.createElement('summary');
-            // レイアウト設定 (CSS Grid)
-            // position: relative を指定し、子要素の z-index が効くようにする
-            summary.style.cssText = `
-                display: grid; 
-                grid-template-columns: auto 1fr auto; 
-                align-items: center; 
-                gap: 15px; 
-                background: #f8f9fa; 
-                padding: 10px; 
-                cursor: pointer;
-                position: relative;
-            `;
-            
-            summary.innerHTML = `
-                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" 
-                    style="transform:scale(1.3); cursor:pointer; margin:0; position:relative; z-index:10;">
-                
-                <div style="min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px;">
-                    <span style="font-weight:bold; font-size:1.1em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🏢 ${campus.name}</span>
-                    <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em; color:#555; white-space:nowrap;">${areas.length}箇所</span>
-                </div>
+        details.appendChild(summary);
+        details.appendChild(content);
+        hierList.appendChild(details);
+    });
 
-                <button class="btn-danger" onclick="deleteItem('campuses', '${campus.id}'); event.stopPropagation();" 
-                    style="padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0; position:relative; z-index:10;">削除</button>
-            `;
-            
-            const content = document.createElement('div');
-            content.className = 'details-content';
-            content.style.padding = "10px";
-            
-            if (areas.length > 0) {
-                const actionDiv = document.createElement('div');
-                actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;';
-                actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">エリア選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">エリア全削除</button>`;
-                content.appendChild(actionDiv);
-                
-                const grid = document.createElement('div');
-                grid.style.cssText = "display:flex; flex-direction:column; gap:8px;";
-
-                areas.forEach(area => {
-                    const row = document.createElement('div');
-                    row.className = 'list-item-row nested-area';
-                    // エリア行のレイアウト
-                    row.style.cssText = `
-                        display: grid; 
-                        grid-template-columns: auto 1fr auto; 
-                        align-items: center; 
-                        gap: 10px;
-                        padding: 8px 10px; 
-                        border: 1px solid #ddd; 
-                        border-radius: 6px;
-                        background-color: ${area.isActive ? '#e6ffec' : '#fff'};
-                        position: relative;
-                    `;
-                    
-                    row.innerHTML = `
-                        <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" onclick="event.stopPropagation()"
-                            style="transform:scale(1.2); margin:0; cursor:pointer; position:relative; z-index:10;">
-                        
-                        <div style="min-width: 0; display:flex; flex-direction:column;">
-                            <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${area.name}</div>
-                            <div style="font-size:0.75em; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                                Lat:${area.lat.toFixed(4)}, Lon:${area.lon.toFixed(4)}
-                            </div>
-                        </div>
-
-                        <div style="display:flex; gap:5px; white-space:nowrap; position:relative; z-index:10;">
-                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive}')" 
-                                style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; cursor:pointer;">
-                                ${area.isActive ? '有効' : '無効'}
-                            </button>
-                            <button onclick="deleteItem('gps_areas', '${area.name}')" 
-                                style="padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;">削除</button>
-                        </div>`;
-                    grid.appendChild(row);
-                });
-                content.appendChild(grid);
-            } else {
-                content.innerHTML = '<p style="color:#888; text-align:center; padding:10px;">エリア未登録</p>';
-            }
-            
-            details.appendChild(summary); details.appendChild(content); hierList.appendChild(details);
-        });
-    }
     populateFaceList();
 }
 
