@@ -1395,6 +1395,7 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
+// --- 修正: 活動場所リスト (レイアウト崩れ・重なり防止版) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1410,17 +1411,16 @@ function populateInfoLists() {
             
             const details = document.createElement('details');
             details.className = 'settings-details';
-            details.open = true; // デフォルトで開いておく
+            details.open = true; 
             
             const summary = document.createElement('summary');
-            summary.style.cssText = "display:flex; align-items:center; justify-content:space-between;";
-            
+            summary.style.cssText = "display:flex; align-items:center; justify-content:space-between; background:#f8f9fa; padding:10px;";
             summary.innerHTML = `
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="font-weight:bold; font-size:1.1em;">🏢 ${campus.name}</span>
                     <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em;">${areas.length}箇所</span>
                 </div>
-                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択">
+                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" style="margin:0;">
             `;
             
             const content = document.createElement('div');
@@ -1430,7 +1430,7 @@ function populateInfoLists() {
             if (areas.length > 0) {
                 const actionDiv = document.createElement('div');
                 actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;';
-                actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">選択削除</button>`;
+                actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">全削除</button>`;
                 content.appendChild(actionDiv);
                 
                 const grid = document.createElement('div');
@@ -1439,27 +1439,34 @@ function populateInfoLists() {
                 areas.forEach(area => {
                     const row = document.createElement('div');
                     row.className = 'list-item-row nested-area';
-                    // ★修正: Flexboxで見やすく配置
+                    // ★修正: レイアウト崩れを防ぐスタイル設定
                     row.style.cssText = `
-                        display: flex; align-items: center; justify-content: space-between;
-                        padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: space-between;
+                        padding: 8px 10px; 
+                        border: 1px solid #ddd; 
+                        border-radius: 6px;
                         background-color: ${area.isActive ? '#e6ffec' : '#fff'};
+                        gap: 10px; /* 要素間の隙間を確保 */
                     `;
                     
                     row.innerHTML = `
-                        <div style="display:flex; align-items:center; gap:10px; flex:1;">
-                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2);">
-                            <div>
-                                <div style="font-weight:bold;">📍 ${area.name}</div>
-                                <div style="font-size:0.75em; color:#666;">Lat:${area.lat.toFixed(4)}, Lon:${area.lon.toFixed(4)}</div>
+                        <div style="display:flex; align-items:center; gap:10px; flex:1; min-width: 0;"> 
+                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2); margin:0;">
+                            <div style="overflow:hidden;">
+                                <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${area.name}</div>
+                                <div style="font-size:0.75em; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                    Lat:${area.lat.toFixed(4)}, Lon:${area.lon.toFixed(4)}
+                                </div>
                             </div>
                         </div>
-                        <div style="display:flex; gap:5px;">
+                        <div style="display:flex; gap:5px; flex-shrink: 0; align-items:center;">
                             <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" 
-                                style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px;">
+                                style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; white-space:nowrap;">
                                 ${area.isActive ? '有効' : '無効'}
                             </button>
-                            <button onclick="deleteItem('gps_areas', '${area.name}')" style="padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px;">削除</button>
+                            <button onclick="deleteItem('gps_areas', '${area.name}')" style="padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; white-space:nowrap;">削除</button>
                         </div>`;
                     grid.appendChild(row);
                 });
