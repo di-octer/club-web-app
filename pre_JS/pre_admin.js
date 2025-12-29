@@ -1395,7 +1395,7 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
-// --- 修正: 活動場所リスト (チェックボックスの当たり判定消失バグ修正版) ---
+// --- 修正: 活動場所リスト (details/summary版 + クリック判定修正適用済み) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if (select) {
@@ -1434,16 +1434,19 @@ function populateInfoLists() {
     registeredCampuses.forEach(campus => {
         const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
 
-        // 1. 外枠
-        const wrapper = document.createElement('div');
-        wrapper.className = 'settings-details-wrapper'; 
-        wrapper.style.cssText = "margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fff; text-align: left;";
+        // 1. detailsタグを使用
+        const details = document.createElement('details');
+        details.className = 'settings-details'; 
+        details.open = true;
+        // 既存のCSSクラス(settings-details)のスタイルを維持しつつ調整
+        details.style.cssText = "margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fff; text-align: left;";
 
-        // 2. ヘッダー
-        const header = document.createElement('div');
-        header.style.cssText = `
+        // 2. summaryタグを使用
+        const summary = document.createElement('summary');
+        // Gridレイアウト + クリック制御
+        summary.style.cssText = `
             display: grid; 
-            grid-template-columns: auto 1fr auto auto; 
+            grid-template-columns: auto 1fr auto; 
             align-items: center; 
             gap: 15px; 
             background: #f8f9fa; 
@@ -1451,62 +1454,55 @@ function populateInfoLists() {
             border-bottom: 1px solid #eee;
             user-select: none;
             position: relative;
+            cursor: pointer;
         `;
-        
-        const contentId = `content-${campus.id}`;
-        const arrowId = `arrow-${campus.id}`;
+        // デフォルトの三角マーカーを消したい場合は以下を追加（ブラウザによる）
+        // summary.style.listStyle = 'none'; 
 
-        // [左] チェックボックス (ラッパーで隔離 + サイズ直接指定)
+        // [左] チェックボックス
+        // ラッパーで隔離
         const chkWrapper = document.createElement('div');
         chkWrapper.style.cssText = "display:flex; align-items:center; justify-content:center; width:30px; height:30px; cursor:pointer;";
-        chkWrapper.onclick = (e) => e.stopPropagation(); // ここで食い止める
+        // ★重要: ここで summary へのイベント伝播を止める
+        chkWrapper.onclick = (e) => e.stopPropagation(); 
 
         const campChk = document.createElement('input');
         campChk.type = "checkbox";
         campChk.className = "chk-campus";
         campChk.value = campus.id;
         campChk.title = "削除選択";
-        // ★修正: scaleをやめてwidth/heightを指定
+        // ★重要: scaleを使わずサイズ指定 + pointer-events: auto
         campChk.style.cssText = "width:20px; height:20px; cursor:pointer; margin:0; pointer-events: auto;";
         
         chkWrapper.appendChild(campChk);
 
         // [中] テキスト情報
         const infoDiv = document.createElement('div');
-        infoDiv.style.cssText = "min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px; cursor:pointer;";
+        infoDiv.style.cssText = "min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px;";
         infoDiv.innerHTML = `
             <span style="font-weight:bold; font-size:1.1em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🏢 ${campus.name}</span>
             <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em; color:#555; white-space:nowrap;">${areas.length}箇所</span>
         `;
-        infoDiv.onclick = () => toggleAccordionDiv(contentId, arrowId);
 
-        // [右1] 削除ボタン
+        // [右] 削除ボタン
         const campDelBtn = document.createElement('button');
         campDelBtn.className = "btn-danger";
         campDelBtn.textContent = "削除";
-        campDelBtn.style.cssText = "padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0; pointer-events: auto;";
+        // ★重要: pointer-events: auto + stopPropagation
+        campDelBtn.style.cssText = "padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0; pointer-events: auto; position: relative; z-index: 10;";
         campDelBtn.onclick = (e) => {
             e.stopPropagation();
             deleteItem('campuses', campus.id);
         };
 
-        // [右2] 矢印アイコン
-        const arrowSpan = document.createElement('span');
-        arrowSpan.id = arrowId;
-        arrowSpan.innerHTML = "&#9660;"; 
-        arrowSpan.style.cssText = "font-size:0.8em; color:#666; width:1.5em; text-align:center; transition: transform 0.2s; cursor:pointer;";
-        arrowSpan.onclick = () => toggleAccordionDiv(contentId, arrowId);
-
-        header.appendChild(chkWrapper);
-        header.appendChild(infoDiv);
-        header.appendChild(campDelBtn);
-        header.appendChild(arrowSpan);
+        summary.appendChild(chkWrapper);
+        summary.appendChild(infoDiv);
+        summary.appendChild(campDelBtn);
 
         // 3. コンテンツエリア
         const content = document.createElement('div');
-        content.id = contentId;
         content.className = 'details-content'; 
-        content.style.cssText = "padding: 15px; background: #fff; display: block;"; 
+        content.style.cssText = "padding: 15px; background: #fff;";
 
         if (areas.length > 0) {
             const areaActionDiv = document.createElement('div');
@@ -1545,7 +1541,7 @@ function populateInfoLists() {
                     background-color: ${area.isActive ? '#e6ffec' : '#fff'};
                 `;
 
-                // [左] エリアチェックボックス (ラッパーで隔離 + サイズ直接指定)
+                // [左] エリアチェックボックス
                 const areaChkWrapper = document.createElement('div');
                 areaChkWrapper.style.cssText = "display:flex; align-items:center; justify-content:center; width:30px; height:30px; cursor:pointer;";
                 areaChkWrapper.onclick = (e) => e.stopPropagation();
@@ -1554,7 +1550,7 @@ function populateInfoLists() {
                 areaChk.type = "checkbox";
                 areaChk.className = `chk-area-${campus.id}`;
                 areaChk.value = area.name;
-                // ★修正: scaleをやめてwidth/heightを指定
+                // ★修正: width/height指定
                 areaChk.style.cssText = "width:18px; height:18px; cursor:pointer; margin:0; pointer-events: auto;";
                 
                 areaChkWrapper.appendChild(areaChk);
@@ -1596,28 +1592,13 @@ function populateInfoLists() {
             content.innerHTML = '<p style="color:#888; text-align:center; padding:10px;">エリア未登録</p>';
         }
 
-        wrapper.appendChild(header);
-        wrapper.appendChild(content);
-        hierList.appendChild(wrapper);
+        details.appendChild(summary);
+        details.appendChild(content);
+        hierList.appendChild(details);
     });
 
     populateFaceList();
 }
-
-// 開閉ヘルパー
-window.toggleAccordionDiv = function(contentId, arrowId) {
-    const content = document.getElementById(contentId);
-    const arrow = document.getElementById(arrowId);
-    if (!content) return;
-    
-    if (content.style.display === 'none') {
-        content.style.display = 'block';
-        if(arrow) arrow.innerHTML = "&#9660;"; 
-    } else {
-        content.style.display = 'none';
-        if(arrow) arrow.innerHTML = "&#9654;"; 
-    }
-};
 
 async function toggleAreaActive(docId, currentStatus) {
     await db.collection('gps_areas').doc(docId).update({ isActive: !currentStatus });
