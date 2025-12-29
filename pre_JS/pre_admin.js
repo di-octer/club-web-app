@@ -1396,7 +1396,7 @@ async function registerArea() {
 }
 
 // --- 修正: 活動場所リスト (CSS Gridによるレイアウト完全固定版) ---
-// --- 修正: 活動場所リスト (キャンパス行・エリア行ともにCSS Gridでレイアウト完全固定) ---
+// --- 修正: 活動場所リスト (チェックボックスのクリック不可対策版) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1426,7 +1426,7 @@ function populateInfoLists() {
             details.className = 'settings-details';
             details.open = true; 
             
-            // ★修正: summary(キャンパス行)も CSS Grid でレイアウト固定
+            // summary (キャンパス行)
             const summary = document.createElement('summary');
             summary.style.cssText = `
                 display: grid; 
@@ -1436,17 +1436,20 @@ function populateInfoLists() {
                 background: #f8f9fa; 
                 padding: 10px; 
                 cursor: pointer;
+                position: relative; /* z-indexの基準 */
             `;
             
             summary.innerHTML = `
-                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" style="transform:scale(1.3); cursor:pointer; margin:0;">
+                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" 
+                    style="transform:scale(1.3); cursor:pointer; margin:0; position:relative; z-index:100;">
                 
                 <div style="min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px;">
                     <span style="font-weight:bold; font-size:1.1em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🏢 ${campus.name}</span>
                     <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em; color:#555; white-space:nowrap;">${areas.length}箇所</span>
                 </div>
 
-                <button class="btn-danger" onclick="deleteItem('campuses', '${campus.id}'); event.stopPropagation();" style="padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0;">削除</button>
+                <button class="btn-danger" onclick="deleteItem('campuses', '${campus.id}'); event.stopPropagation();" 
+                    style="padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0; position:relative; z-index:100;">削除</button>
             `;
             
             const content = document.createElement('div');
@@ -1466,7 +1469,7 @@ function populateInfoLists() {
                     const row = document.createElement('div');
                     row.className = 'list-item-row nested-area';
                     
-                    // エリア行のレイアウト (前回修正分: CSS Grid)
+                    // エリア行のレイアウト
                     row.style.cssText = `
                         display: grid; 
                         grid-template-columns: auto 1fr auto; 
@@ -1476,10 +1479,12 @@ function populateInfoLists() {
                         border: 1px solid #ddd; 
                         border-radius: 6px;
                         background-color: ${area.isActive ? '#e6ffec' : '#fff'};
+                        position: relative; /* z-indexの基準 */
                     `;
                     
                     row.innerHTML = `
-                        <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2); margin:0; cursor:pointer;">
+                        <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" onclick="event.stopPropagation()"
+                            style="transform:scale(1.2); margin:0; cursor:pointer; position:relative; z-index:100;">
                         
                         <div style="min-width: 0; display:flex; flex-direction:column;">
                             <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${area.name}</div>
@@ -1488,12 +1493,13 @@ function populateInfoLists() {
                             </div>
                         </div>
 
-                        <div style="display:flex; gap:5px; white-space:nowrap;">
-                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" 
+                        <div style="display:flex; gap:5px; white-space:nowrap; position:relative; z-index:100;">
+                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive}')" 
                                 style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; cursor:pointer;">
                                 ${area.isActive ? '有効' : '無効'}
                             </button>
-                            <button onclick="deleteItem('gps_areas', '${area.name}')" style="padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;">削除</button>
+                            <button onclick="deleteItem('gps_areas', '${area.name}')" 
+                                style="padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;">削除</button>
                         </div>`;
                     grid.appendChild(row);
                 });
