@@ -1395,8 +1395,7 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
-// --- 修正: 活動場所リスト (CSS Gridによるレイアウト完全固定版) ---
-// --- 修正: 活動場所リスト (divベースの完全自作アコーディオン版) ---
+// --- 修正: 活動場所リスト (details/summary版 + クリック不具合修正) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1422,44 +1421,41 @@ function populateInfoLists() {
         registeredCampuses.forEach(campus => {
             const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
             
-            // 1. 外枠コンテナ (detailsの代わり)
-            const wrapper = document.createElement('div');
-            wrapper.style.cssText = "margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fff;";
+            const details = document.createElement('details');
+            details.className = 'settings-details';
+            details.open = true; 
             
-            // 2. ヘッダー (summaryの代わり) - CSS Gridでレイアウト固定
-            const header = document.createElement('div');
-            header.style.cssText = `
+            const summary = document.createElement('summary');
+            // レイアウト設定 (CSS Grid)
+            // position: relative を指定し、子要素の z-index が効くようにする
+            summary.style.cssText = `
                 display: grid; 
-                grid-template-columns: auto 1fr auto auto; 
+                grid-template-columns: auto 1fr auto; 
                 align-items: center; 
                 gap: 15px; 
                 background: #f8f9fa; 
                 padding: 10px; 
-                border-bottom: 1px solid #eee;
+                cursor: pointer;
+                position: relative;
             `;
             
-            // ID生成 (開閉制御用)
-            const contentId = `content-${campus.id}`;
-            const toggleIconId = `icon-${campus.id}`;
-
-            header.innerHTML = `
-                <input type="checkbox" class="chk-campus" value="${campus.id}" style="transform:scale(1.3); cursor:pointer; margin:0;">
+            summary.innerHTML = `
+                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" 
+                    style="transform:scale(1.3); cursor:pointer; margin:0; position:relative; z-index:10;">
                 
-                <div style="min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px; cursor:pointer;" onclick="toggleAccordion('${contentId}', '${toggleIconId}')">
+                <div style="min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px;">
                     <span style="font-weight:bold; font-size:1.1em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🏢 ${campus.name}</span>
                     <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em; color:#555; white-space:nowrap;">${areas.length}箇所</span>
                 </div>
 
-                <button class="btn-danger" onclick="deleteItem('campuses', '${campus.id}')" style="padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0;">削除</button>
-                
-                <span id="${toggleIconId}" onclick="toggleAccordion('${contentId}', '${toggleIconId}')" style="cursor:pointer; font-weight:bold; color:#666; padding:0 5px;">▼</span>
+                <button class="btn-danger" onclick="deleteItem('campuses', '${campus.id}'); event.stopPropagation();" 
+                    style="padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0; position:relative; z-index:10;">削除</button>
             `;
             
-            // 3. コンテンツエリア
             const content = document.createElement('div');
-            content.id = contentId;
-            content.style.cssText = "padding: 10px; display: block;"; // デフォルト開く
-
+            content.className = 'details-content';
+            content.style.padding = "10px";
+            
             if (areas.length > 0) {
                 const actionDiv = document.createElement('div');
                 actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;';
@@ -1472,7 +1468,7 @@ function populateInfoLists() {
                 areas.forEach(area => {
                     const row = document.createElement('div');
                     row.className = 'list-item-row nested-area';
-                    // エリア行のレイアウト (CSS Grid)
+                    // エリア行のレイアウト
                     row.style.cssText = `
                         display: grid; 
                         grid-template-columns: auto 1fr auto; 
@@ -1482,10 +1478,12 @@ function populateInfoLists() {
                         border: 1px solid #ddd; 
                         border-radius: 6px;
                         background-color: ${area.isActive ? '#e6ffec' : '#fff'};
+                        position: relative;
                     `;
                     
                     row.innerHTML = `
-                        <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2); margin:0; cursor:pointer;">
+                        <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" onclick="event.stopPropagation()"
+                            style="transform:scale(1.2); margin:0; cursor:pointer; position:relative; z-index:10;">
                         
                         <div style="min-width: 0; display:flex; flex-direction:column;">
                             <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${area.name}</div>
@@ -1494,7 +1492,7 @@ function populateInfoLists() {
                             </div>
                         </div>
 
-                        <div style="display:flex; gap:5px; white-space:nowrap;">
+                        <div style="display:flex; gap:5px; white-space:nowrap; position:relative; z-index:10;">
                             <button onclick="toggleAreaActive('${area.name}', ${area.isActive}')" 
                                 style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; cursor:pointer;">
                                 ${area.isActive ? '有効' : '無効'}
@@ -1509,29 +1507,11 @@ function populateInfoLists() {
                 content.innerHTML = '<p style="color:#888; text-align:center; padding:10px;">エリア未登録</p>';
             }
             
-            wrapper.appendChild(header);
-            wrapper.appendChild(content);
-            hierList.appendChild(wrapper);
+            details.appendChild(summary); details.appendChild(content); hierList.appendChild(details);
         });
     }
     populateFaceList();
 }
-
-// --- 追加: 開閉トグル関数 ---
-// (グローバルスコープまたはwindow直下に配置されるように定義)
-window.toggleAccordion = function(contentId, iconId) {
-    const content = document.getElementById(contentId);
-    const icon = document.getElementById(iconId);
-    if (!content || !icon) return;
-
-    if (content.style.display === 'none') {
-        content.style.display = 'block';
-        icon.textContent = '▼';
-    } else {
-        content.style.display = 'none';
-        icon.textContent = '◀';
-    }
-};
 
 async function toggleAreaActive(docId, currentStatus) {
     await db.collection('gps_areas').doc(docId).update({ isActive: !currentStatus });
