@@ -1395,7 +1395,7 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
-// --- 修正: 活動場所リスト (レイアウト崩れ・重なり防止版) ---
+// --- 修正: 活動場所リスト (文字消え対策・レイアウト安定版) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1439,7 +1439,7 @@ function populateInfoLists() {
                 areas.forEach(area => {
                     const row = document.createElement('div');
                     row.className = 'list-item-row nested-area';
-                    // ★修正: レイアウト崩れを防ぐスタイル設定
+                    // ★修正: 親コンテナのスタイル
                     row.style.cssText = `
                         display: flex; 
                         align-items: center; 
@@ -1448,20 +1448,22 @@ function populateInfoLists() {
                         border: 1px solid #ddd; 
                         border-radius: 6px;
                         background-color: ${area.isActive ? '#e6ffec' : '#fff'};
-                        gap: 10px; /* 要素間の隙間を確保 */
+                        gap: 10px;
                     `;
                     
                     row.innerHTML = `
-                        <div style="display:flex; align-items:center; gap:10px; flex:1; min-width: 0;"> 
-                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2); margin:0;">
-                            <div style="overflow:hidden;">
+                        <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2); margin:0; flex-shrink:0;">
+                            
+                            <div style="display:flex; flex-direction:column; justify-content:center; flex:1; min-width:0;">
                                 <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${area.name}</div>
                                 <div style="font-size:0.75em; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                                     Lat:${area.lat.toFixed(4)}, Lon:${area.lon.toFixed(4)}
                                 </div>
                             </div>
                         </div>
-                        <div style="display:flex; gap:5px; flex-shrink: 0; align-items:center;">
+
+                        <div style="display:flex; gap:5px; align-items:center; flex-shrink:0;">
                             <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" 
                                 style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; white-space:nowrap;">
                                 ${area.isActive ? '有効' : '無効'}
