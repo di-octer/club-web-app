@@ -1395,7 +1395,7 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
-// --- 修正: 活動場所リスト (Divベースでデザイン完全再現・動作保証版) ---
+// --- 修正: 活動場所リスト (イベント制御の完全分離版) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if (select) {
@@ -1413,7 +1413,7 @@ function populateInfoLists() {
 
     hierList.innerHTML = '';
 
-    // --- 一括操作ボタンエリア ---
+    // --- 一括操作ボタン ---
     const controls = document.createElement('div');
     controls.style.cssText = "padding: 0 0 10px 0; border-bottom: 1px solid #ddd; margin-bottom: 10px; text-align: right;";
     
@@ -1430,19 +1430,17 @@ function populateInfoLists() {
         return;
     }
 
-    // --- キャンパスリスト生成 ---
+    // --- リスト生成 ---
     registeredCampuses.forEach(campus => {
         const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
 
-        // 1. 外枠コンテナ (detailsのデザインを模倣)
+        // 1. 外枠
         const wrapper = document.createElement('div');
         wrapper.className = 'settings-details-wrapper'; 
-        // cssクラス .settings-details と同じスタイルを適用
         wrapper.style.cssText = "margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fff; text-align: left;";
 
-        // 2. ヘッダー (summaryのデザインを模倣)
+        // 2. ヘッダー
         const header = document.createElement('div');
-        // cssクラス .settings-details summary と同じスタイル + Gridレイアウト
         header.style.cssText = `
             display: grid; 
             grid-template-columns: auto 1fr auto auto; 
@@ -1450,16 +1448,13 @@ function populateInfoLists() {
             gap: 15px; 
             background: #f8f9fa; 
             padding: 12px 15px; 
-            cursor: pointer; 
             border-bottom: 1px solid #eee;
             user-select: none;
+            position: relative;
         `;
         
         const contentId = `content-${campus.id}`;
         const arrowId = `arrow-${campus.id}`;
-
-        // ヘッダー全体クリックで開閉
-        header.onclick = () => toggleAccordionDiv(contentId, arrowId);
 
         // [左] チェックボックス
         const campChk = document.createElement('input');
@@ -1467,33 +1462,35 @@ function populateInfoLists() {
         campChk.className = "chk-campus";
         campChk.value = campus.id;
         campChk.title = "削除選択";
-        campChk.style.cssText = "transform:scale(1.3); cursor:pointer; margin:0;";
-        // クリック時に親の開閉イベントを止める
-        campChk.onclick = (e) => { e.stopPropagation(); };
+        // ★修正: pointer-events: auto を強制し、z-indexを高くする
+        campChk.style.cssText = "transform:scale(1.3); cursor:pointer; margin:0; position:relative; z-index:100; pointer-events: auto;";
 
-        // [中] テキスト情報
+        // [中] テキスト情報 (ここをクリックした時だけ開閉させる)
         const infoDiv = document.createElement('div');
-        infoDiv.style.cssText = "min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px;";
+        infoDiv.style.cssText = "min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:10px; cursor:pointer;";
         infoDiv.innerHTML = `
             <span style="font-weight:bold; font-size:1.1em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">🏢 ${campus.name}</span>
             <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em; color:#555; white-space:nowrap;">${areas.length}箇所</span>
         `;
+        infoDiv.onclick = () => toggleAccordionDiv(contentId, arrowId);
 
         // [右1] 削除ボタン
         const campDelBtn = document.createElement('button');
         campDelBtn.className = "btn-danger";
         campDelBtn.textContent = "削除";
-        campDelBtn.style.cssText = "padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0;";
+        // ★修正: pointer-events: auto を強制
+        campDelBtn.style.cssText = "padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0; position:relative; z-index:100; pointer-events: auto;";
         campDelBtn.onclick = (e) => {
-            e.stopPropagation();
+            e.stopPropagation(); // 念のため
             deleteItem('campuses', campus.id);
         };
 
-        // [右2] 矢印アイコン (detailsのマーカーの代わり)
+        // [右2] 矢印アイコン (ここをクリックしても開閉させる)
         const arrowSpan = document.createElement('span');
         arrowSpan.id = arrowId;
-        arrowSpan.innerHTML = "&#9660;"; // ▼ (開いている状態)
-        arrowSpan.style.cssText = "font-size:0.8em; color:#666; width:1.5em; text-align:center; transition: transform 0.2s;";
+        arrowSpan.innerHTML = "&#9660;"; 
+        arrowSpan.style.cssText = "font-size:0.8em; color:#666; width:1.5em; text-align:center; transition: transform 0.2s; cursor:pointer;";
+        arrowSpan.onclick = () => toggleAccordionDiv(contentId, arrowId);
 
         header.appendChild(campChk);
         header.appendChild(infoDiv);
@@ -1503,31 +1500,29 @@ function populateInfoLists() {
         // 3. コンテンツエリア
         const content = document.createElement('div');
         content.id = contentId;
-        content.className = 'details-content'; // 既存CSSクラスを利用
-        content.style.cssText = "padding: 15px; background: #fff; display: block;"; // 初期状態: 開く
+        content.className = 'details-content'; 
+        content.style.cssText = "padding: 15px; background: #fff; display: block;"; 
 
         if (areas.length > 0) {
-            // エリア操作ボタン
             const areaActionDiv = document.createElement('div');
             areaActionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;';
             
             const btnSelDel = document.createElement('button');
             btnSelDel.className = "btn-danger";
             btnSelDel.textContent = "エリア選択削除";
-            btnSelDel.style.cssText = "padding:5px 10px; font-size:0.8em;";
+            btnSelDel.style.cssText = "padding:5px 10px; font-size:0.9em;";
             btnSelDel.onclick = () => deleteSelectedAreas(campus.id);
 
             const btnAllDel = document.createElement('button');
             btnAllDel.className = "btn-danger";
             btnAllDel.textContent = "エリア全削除";
-            btnAllDel.style.cssText = "padding:5px 10px; font-size:0.8em;";
+            btnAllDel.style.cssText = "padding:5px 10px; font-size:0.9em;";
             btnAllDel.onclick = () => deleteAllAreasInCampus(campus.id);
 
             areaActionDiv.appendChild(btnSelDel);
             areaActionDiv.appendChild(btnAllDel);
             content.appendChild(areaActionDiv);
 
-            // エリアリスト
             const grid = document.createElement('div');
             grid.style.cssText = "display:flex; flex-direction:column; gap:8px;";
 
@@ -1550,9 +1545,8 @@ function populateInfoLists() {
                 areaChk.type = "checkbox";
                 areaChk.className = `chk-area-${campus.id}`;
                 areaChk.value = area.name;
-                areaChk.style.cssText = "transform:scale(1.2); margin:0; cursor:pointer;";
-                // 親への伝播を止める
-                areaChk.onclick = (e) => e.stopPropagation();
+                // ★修正: pointer-events: auto を強制
+                areaChk.style.cssText = "transform:scale(1.2); margin:0; cursor:pointer; position:relative; z-index:100; pointer-events: auto;";
 
                 // [中] エリア情報
                 const areaInfo = document.createElement('div');
@@ -1570,12 +1564,14 @@ function populateInfoLists() {
 
                 const toggleBtn = document.createElement('button');
                 toggleBtn.textContent = area.isActive ? '有効' : '無効';
-                toggleBtn.style.cssText = `padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; cursor:pointer;`;
+                // ★修正: pointer-events: auto を強制
+                toggleBtn.style.cssText = `padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; cursor:pointer; position:relative; z-index:100; pointer-events: auto;`;
                 toggleBtn.onclick = () => toggleAreaActive(area.name, area.isActive);
 
                 const delBtn = document.createElement('button');
                 delBtn.textContent = "削除";
-                delBtn.style.cssText = "padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;";
+                // ★修正: pointer-events: auto を強制
+                delBtn.style.cssText = "padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer; position:relative; z-index:100; pointer-events: auto;";
                 delBtn.onclick = () => deleteItem('gps_areas', area.name);
 
                 btnGroup.appendChild(toggleBtn);
@@ -1599,7 +1595,7 @@ function populateInfoLists() {
     populateFaceList();
 }
 
-// --- 追加: アコーディオン開閉制御関数 ---
+// 開閉ヘルパー
 window.toggleAccordionDiv = function(contentId, arrowId) {
     const content = document.getElementById(contentId);
     const arrow = document.getElementById(arrowId);
@@ -1607,10 +1603,10 @@ window.toggleAccordionDiv = function(contentId, arrowId) {
     
     if (content.style.display === 'none') {
         content.style.display = 'block';
-        if(arrow) arrow.innerHTML = "&#9660;"; // ▼
+        if(arrow) arrow.innerHTML = "&#9660;"; 
     } else {
         content.style.display = 'none';
-        if(arrow) arrow.innerHTML = "&#9654;"; // ▶
+        if(arrow) arrow.innerHTML = "&#9654;"; 
     }
 };
 
