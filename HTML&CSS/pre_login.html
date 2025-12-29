@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン</title>
+    <link rel="stylesheet" href="pre_style.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f2f5; }
+        .login-card { background: white; padding: 40px; border-radius: 10px; text-align: center; width: 90%; max-width: 400px; }
+        .discord-btn { background-color: #5865F2; color: white; border: none; padding: 12px; width: 100%; border-radius: 5px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2>部活動アプリ</h2>
+        <button class="discord-btn" onclick="loginWithDiscord()">Discordでログイン</button>
+    </div>
+<script src="../pre_JS/pre_common.js"></script>
+</body>
+</html>

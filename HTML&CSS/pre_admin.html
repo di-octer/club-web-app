@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理者画面 | 統合アプリ</title>
+    <link rel="stylesheet" href="pre_style.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+</head>
+<body id="page-admin">
+
+<header class="appbar-fixed">
+    <div class="appbar-side">
+        <a href="pre_home.html" class="icon-btn">🏠</a>
+    </div>
+    <div class="appbar-center">管理者コンソール</div>
+    <div class="appbar-side">
+        <a href="pre_settings.html" class="icon-btn">⚙️</a>
+    </div>
+</header>
+
+<main class="content" style="padding-top: 80px;">
+    <div class="admin-container">
+        
+        <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchTab('status', this)">ステータス</button>
+            <button class="tab-btn" onclick="switchTab('info', this)">登録情報</button>
+            <button class="tab-btn" onclick="switchTab('face', this)">顔登録</button>
+            <button class="tab-btn" onclick="switchTab('calendar', this)">カレンダー設定</button>
+        </div>
+
+        <div id="tab-status" class="tab-content active">
+            <div style="display: flex; margin-bottom: 10px; overflow-x: auto;">
+                <button id="btn-sub-auth" class="sub-tab active" onclick="switchAdminSubTab('auth')">認証リクエスト</button>
+                <button id="btn-sub-report" class="sub-tab" onclick="switchAdminSubTab('report')">届出リスト</button>
+                <button id="btn-sub-recurring" class="sub-tab" onclick="switchAdminSubTab('recurring')">定期欠席管理</button>
+                <button id="btn-sub-equipment" class="sub-tab" onclick="switchAdminSubTab('equipment')">備品承認</button>
+            </div>
+
+            <div id="view-auth">
+                <div id="requestList" class="list-container"><p>読み込み中...</p></div>
+            </div>
+            <div id="view-report" style="display:none;">
+                <div id="reportList" class="list-container"></div>
+            </div>
+            <div id="view-recurring" style="display:none;">
+                <div id="recurringList" class="list-container"></div>
+            </div>
+
+            <div id="view-equipment" style="display:none;">
+                <div style="text-align:right; margin-bottom:5px;">
+                    <button class="refresh-btn" onclick="refreshEquipmentRequests()">リスト更新</button>
+                </div>
+                <div id="approval-list" class="list-container"></div>
+            </div>
+        </div>
+
+        <div id="tab-info" class="tab-content">
+            
+            <details class="settings-details">
+                <summary>ニュース登録</summary>
+                <div class="details-content">
+                    <div class="input-group">
+                        <input type="text" id="qiitaInput" placeholder="例: https://qiita.com/items/...">
+                        <button onclick="registerRecommendedArticle()">追加</button>
+                    </div>
+                    <div id="adminNewsList" class="list-container"></div>
+                </div>
+            </details>
+
+            <details class="settings-details">
+                <summary>活動時間変更 / 活動なし設定</summary>
+                <div class="details-content">
+                    <p style="font-size:0.9em; color:#666;">特定の日付に対し、時間の変更または「活動なし」を設定します。</p>
+                    <div class="input-group">
+                        <select id="exTimeCampus"><option value="">キャンパスを選択</option></select>
+                    </div>
+                    <div class="input-group">
+                        <label>日付</label>
+                        <input type="date" id="exTimeDate">
+                    </div>
+                    
+                    <div style="margin: 10px 0;">
+                        <label style="display:flex; align-items:center; cursor:pointer;">
+                            <input type="checkbox" id="exTimeCancel" onchange="document.getElementById('exTimeRange').style.display=this.checked?'none':'block'"> 
+                            この日は活動なしにする
+                        </label>
+                    </div>
+
+                    <div class="input-group" id="exTimeRange">
+                        <label>時間 (開始 ～ 終了)</label>
+                        <div style="display:flex; gap:5px; align-items:center;">
+                            <input type="time" id="exTimeStart"> ～ <input type="time" id="exTimeEnd">
+                        </div>
+                    </div>
+                    <button onclick="updateActivityTimeException()" class="btn-primary">設定を保存</button>
+                </div>
+            </details>
+
+            <details class="settings-details" open>
+                <summary>活動場所設定 (一覧・削除)</summary>
+                <div class="details-content">
+                    <div id="hierarchyList" class="list-container" style="border:none; padding:0;"></div>
+                </div>
+            </details>
+
+            <details class="settings-details">
+                <summary>備品管理 (登録・一覧)</summary>
+                <div class="details-content" id="equipment-manage-container">
+                    <p>読み込み中...</p>
+                </div>
+            </details>
+
+            <details class="settings-details">
+                <summary>新規キャンパス登録</summary>
+                <div class="details-content">
+                    <div class="input-group">
+                        <input type="text" id="campusName" placeholder="キャンパス名">
+                        <input type="number" id="campusLat" placeholder="緯度" step="0.000001">
+                        <input type="number" id="campusLon" placeholder="経度" step="0.000001">
+                        <button onclick="registerCampus()">登録</button>
+                    </div>
+                </div>
+            </details>
+
+            <details class="settings-details">
+                <summary>新規活動場所登録</summary>
+                <div class="details-content">
+                    <div class="input-group">
+                        <select id="campusSelect"><option>キャンパスを選択</option></select>
+                        <input type="text" id="areaName" placeholder="場所名">
+                        <input type="number" id="areaLat" placeholder="緯度" step="0.000001">
+                        <input type="number" id="areaLon" placeholder="経度" step="0.000001">
+                        <button onclick="registerArea()">登録</button>
+                    </div>
+                </div>
+            </details>
+
+            <details class="settings-details">
+                <summary>ユーザー情報</summary>
+                <div class="details-content">
+                    <div id="allUsersList" class="list-container"><p>読み込み中...</p></div>
+                    <button onclick="refreshAllUsers()" class="refresh-btn" style="margin-top:10px;">リスト更新</button>
+                </div>
+            </details>
+        </div>
+
+        <div id="tab-face" class="tab-content">
+            <h3>新規顔登録 (5段階)</h3>
+            <p style="font-size:0.9em; color:#666;">登録するユーザーを選択してください</p>
+            <div class="input-group">
+                <select id="regUserSelect" style="margin-bottom:10px; padding:10px; font-size:1.1em;">
+                    <option value="">ユーザー読み込み中...</option>
+                </select>
+                <button id="regStartBtn" onclick="startFaceRegistration()">開始</button>
+            </div>
+            
+            <div class="camera-wrapper">
+                <video id="regVideo" autoplay muted playsinline></video>
+                <canvas id="regCanvas" class="overlay"></canvas>
+            </div>
+            
+            <button id="regNextBtn" onclick="proceedToNextStep()" disabled style="width:100%; padding:15px; background-color:#ccc; border:none; border-radius:5px; color:white; margin-top:15px;">撮影・次へ</button>
+            <div id="regStatus" style="margin-top:10px;">待機中...</div>
+        </div>
+
+        <div id="tab-calendar" class="tab-content">
+            <h3>カレンダー・学年暦設定</h3>
+            
+            <div style="display: flex; flex-wrap: wrap; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; overflow: hidden;">
+                <button id="btn-sub-acad" class="sub-tab active" onclick="switchCalendarSubTab('acad')">学年暦設定</button>
+                <button id="btn-sub-monthly" class="sub-tab" onclick="switchCalendarSubTab('monthly')">月次作成</button>
+            </div>
+
+            <div id="view-acad">
+                <p style="font-size:0.9em; color:#666;">日付は <b>MM-DD</b> 形式。<br>期間は開始と終了を入力してください。</p>
+                <div class="input-group">
+                    <label>設定年度</label>
+                    <input type="number" id="acadYear" value="2024" oninput="loadAcademicConfigByYear()">
+                </div>
+                
+                <details open class="settings-details">
+                    <summary>通常期間設定</summary>
+                    <div class="details-content">
+                        
+                        <div style="border-left:4px solid #2196f3; padding-left:10px; margin-bottom:20px;">
+                            <h4 style="margin:0 0 10px 0; color:#2196f3;">前期</h4>
+                            
+                            <label>履修登録期間(前期)</label> 
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:10px;">
+                                <input type="text" id="p_reg_1" placeholder="04-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="p_reg_1_end" placeholder="04-10" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>前期前半 (開始 ～ 終了)</label>
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                                <input type="text" id="t1_f_start" placeholder="04-11" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="t1_f_end" placeholder="05-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+                            
+                            <label>前期後半 (開始 ～ 終了)</label>
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:10px;">
+                                <input type="text" id="t1_b_start" placeholder="06-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="t1_b_end" placeholder="07-20" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>集中補講期間(前期)</label> 
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                                <input type="text" id="p_sup_1" placeholder="08-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="p_sup_1_end" placeholder="08-07" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>試験期間(前期)</label> 
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                                <input type="text" id="p_exam_1" placeholder="07-21" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="p_exam_1_end" placeholder="07-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>成績発表期間(前期)</label> 
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                                <input type="text" id="d_grade_1" placeholder="08-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="d_grade_1_end" placeholder="08-22" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+                        </div>
+
+                        <div style="border-left:4px solid #ff9800; padding-left:10px;">
+                            <h4 style="margin:0 0 10px 0; color:#ff9800;">後期</h4>
+
+                            <label>履修登録期間(後期)</label> 
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:10px;">
+                                <input type="text" id="p_reg_2" placeholder="09-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="p_reg_2_end" placeholder="09-30" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>後期前半 (開始 ～ 終了)</label>
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:15px;">
+                                <input type="text" id="t2_f_start" placeholder="10-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="t2_f_end" placeholder="11-30" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <div style="background:#fff3e0; padding:10px; border-radius:5px; margin-bottom:15px;">
+                                <label style="font-weight:bold;">キャンパスごと文化祭期間</label>
+                                <div class="input-group" style="margin:5px 0;">
+                                    <div style="display:flex; gap:5px;">
+                                        <select id="fesCampus" style="flex:1;"><option value="">キャンパス選択</option></select>
+                                    </div>
+                                    <div style="display:flex; gap:5px; align-items:center; margin-top:5px;">
+                                        <input type="text" id="fesStart" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                        <input type="text" id="fesEnd" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                                        <button onclick="addAcadFestival()" style="padding:5px 10px; font-size:0.8em;">追加</button>
+                                    </div>
+                                </div>
+                                <div id="tempFesList" class="list-container" style="border:1px solid #ccc; padding:5px; height:auto; min-height:30px; background:white;"></div>
+                            </div>
+
+                            <label>後期後半 (開始 ～ 終了)</label>
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                                <input type="text" id="t2_b_start" placeholder="12-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="t2_b_end" placeholder="01-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>冬季休暇 (後期後半内の休み)</label>
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:10px;">
+                                <input type="text" id="winter_start" placeholder="12-25" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="winter_end" placeholder="01-07" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>集中補講期間(後期)</label> 
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                                <input type="text" id="p_sup_2" placeholder="02-01" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="p_sup_2_end" placeholder="02-07" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>試験期間(後期)</label> 
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                                <input type="text" id="p_exam_2" placeholder="01-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="p_exam_2_end" placeholder="01-31" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+
+                            <label>成績発表期間(後期)</label> 
+                            <div style="display:flex; gap:5px; align-items:center; margin-bottom:5px;">
+                                <input type="text" id="d_grade_2" placeholder="02-20" class="date-short acad-date" oninput="enforceAcadYear(this)"> ～ 
+                                <input type="text" id="d_grade_2_end" placeholder="02-22" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="settings-details">
+                    <summary>例外日設定 (授業実施日/休日)</summary>
+                    <div class="details-content">
+                        <div class="input-group">
+                            <select id="exType">
+                                <option value="school_day">通常休日だが学校のある日</option>
+                                <option value="holiday">通常学校のある日だが休日</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>日付 (MM-DD)</label>
+                            <input type="text" id="exDate" placeholder="MM-DD" class="date-short acad-date" oninput="enforceAcadYear(this)">
+                        </div>
+                        <button onclick="addAcadException()">リストに追加</button>
+                        <div id="tempExList" class="list-container" style="margin-top:10px; border:1px solid #ccc; padding:5px; height:auto; min-height:50px;"></div>
+                    </div>
+                </details>
+
+                <button onclick="saveAcademicConfig()" class="btn-primary" style="width:100%; margin-top:10px;">保存</button>
+            </div>
+
+            <div id="view-monthly" style="display:none;">
+                <div class="input-group">
+                    <label>対象年月 <small style="color:#666;">※形式: YYYY-MM</small></label>
+                    <input type="month" id="targetMonth" onchange="loadMonthConfig()">
+                    <button onclick="loadMonthConfig()">再読み込み</button>
+                </div>
+                
+                <details class="settings-details" open>
+                    <summary>活動日設定 (曜日・時間)</summary>
+                    <div class="details-content">
+                        <p style="font-size:0.9em; color:#666;">デフォルト活動時間: 17:00 ~ 19:40</p>
+                        <div id="campusActivitySettings"></div>
+                    </div>
+                </details>
+                
+                <details class="settings-details">
+                    <summary>活動なし日設定 (ブロックルーチン)</summary>
+                    <div class="details-content">
+                        <p style="font-size:0.9em; color:#666;">指定したキャンパス・日付は、曜日設定に関わらず「活動なし」になります。</p>
+                        <div class="input-group">
+                            <select id="noActCampus"><option value="">キャンパスを選択</option></select>
+                        </div>
+                        <div class="input-group">
+                            <label>日付 (MM-DD)</label>
+                            <input type="text" id="noActDate" placeholder="MM-DD" class="date-short">
+                        </div>
+                        <button onclick="addNoActivityDay()">リストに追加</button>
+                        <div id="tempNoActList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
+                    </div>
+                </details>
+
+                <details class="settings-details" open>
+                    <summary>イベント・スケジュール</summary>
+                    <div class="details-content">
+                        <div class="input-group">
+                            <label>種別</label>
+                            <select id="evtType" onchange="toggleEventTitleInput()">
+                                <option value="general">総会</option>
+                                <option value="radio">ラジオ</option>
+                                <option value="camp">合宿</option>
+                                <option value="dev_basic">基礎班開発</option>
+                                <option value="dev_adv">発展班開発</option>
+                                <option value="trial">仮入部</option>
+                                <option value="event">その他イベント</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>期間 (1日の場合は開始のみ)</label>
+                            <div style="display:flex; gap:5px; align-items:center;">
+                                <input type="text" id="evtStart" placeholder="MM-DD" class="date-short"> ～ 
+                                <input type="text" id="evtEnd" placeholder="MM-DD" class="date-short">
+                            </div>
+                        </div>
+                        
+                        <div class="input-group" id="evtTitleContainer" style="display:none;">
+                            <label>タイトル</label>
+                            <input type="text" id="evtTitle" placeholder="イベント名を入力">
+                        </div>
+                        
+                        <button onclick="addCalendarEvent()">リストに追加</button>
+                        <div id="tempEventList" style="margin-top:10px; border:1px solid #ccc; padding:5px;"></div>
+                    </div>
+                </details>
+
+                <button onclick="previewCalendar()" style="margin-top:15px; background:#ff9800; color:white;">プレビュー更新</button>
+                
+                <div id="adminCalPreview" class="calendar-wrapper" style="margin-top:10px; border:2px dashed #ccc;">
+                    <p style="text-align:center; padding:20px;">プレビューエリア</p>
+                </div>
+
+                <button onclick="saveMonthCalendar()" class="btn-primary" style="width:100%; margin-top:15px;">この内容で保存・公開</button>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="authModal" class="modal">
+        <div class="modal-content" style="text-align:center;">
+            <span class="close" onclick="closeAuthModal()">&times;</span>
+            <h3 id="modalTitle">認証</h3>
+            <p id="adminAuthStatus" style="color:red; font-weight:bold;">待機中...</p>
+            <div class="camera-wrapper">
+                <video id="adminVideo" autoplay playsinline></video>
+                <canvas id="adminCanvas" class="overlay"></canvas>
+            </div>
+            <button id="approveBtn" class="btn-primary" onclick="approveRequest()" disabled style="margin-top:15px; width:100%; padding:15px;">承認する</button>
+        </div>
+    </div>
+
+</main>
+
+<script src="../pre_JS/pre_common.js"></script>
+<script src="../pre_JS/pre_calendar.js"></script> 
+<script src="../pre_JS/pre_admin.js"></script>
+</body>
+</html>

@@ -39,19 +39,9 @@ async function initAdminPage() {
     const tmInput = document.getElementById('targetMonth');
     if(tmInput) { tmInput.value = `${y}-${String(m).padStart(2,'0')}`; loadMonthConfig(); }
 
-    // 初期表示時に「認証リクエスト」サブタブを強制的に読み込む
+    // ★追加: 初期表示時に「認証リクエスト」サブタブを強制的に読み込む
+    // これにより、タブ遷移しなくてもリストが表示されるようになります
     switchAdminSubTab('auth');
-
-    // ★追加: 「活動時間変更」エリアのチェックボックスレイアウト修正 (JSから強制適用)
-    const exTimeLabel = document.querySelector('label[for="exTimeCancel"]');
-    if(!exTimeLabel) {
-        // 親要素経由で探す (HTML構造に依存)
-        const chk = document.getElementById('exTimeCancel');
-        if(chk && chk.parentElement) {
-            chk.parentElement.style.cssText = "display:flex; align-items:center; gap:10px; padding:10px; background:#fff3cd; border-radius:5px; cursor:pointer;";
-            chk.style.cssText = "width:20px; height:20px; margin:0;";
-        }
-    }
 }
 
 async function loadAcademicConfigByYear() {
@@ -1410,62 +1400,49 @@ function populateInfoLists() {
             
             const details = document.createElement('details');
             details.className = 'settings-details';
-            details.open = true; // デフォルトで開いておく
             
             const summary = document.createElement('summary');
-            summary.style.cssText = "display:flex; align-items:center; justify-content:space-between;";
-            
+            // ★修正: 親要素(summary)がFlexboxなので、中身はシンプルにグループ化するだけにする
+            // width:100%を削除し、表示崩れを防ぐ
             summary.innerHTML = `
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="font-weight:bold; font-size:1.1em;">🏢 ${campus.name}</span>
-                    <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em;">${areas.length}箇所</span>
+                <div style="display:flex; align-items:center;">
+                    <input type="checkbox" class="chk-campus" value="${campus.id}" style="margin-right: 10px;">
+                    <span style="font-weight:bold;">🏢 ${campus.name} (${areas.length})</span>
                 </div>
-                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択">
             `;
             
             const content = document.createElement('div');
             content.className = 'details-content';
-            content.style.padding = "10px";
             
             if (areas.length > 0) {
                 const actionDiv = document.createElement('div');
-                actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;';
-                actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">選択削除</button>`;
+                actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px;';
+                actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')">選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')">全削除</button>`;
                 content.appendChild(actionDiv);
                 
-                const grid = document.createElement('div');
-                grid.style.cssText = "display:flex; flex-direction:column; gap:8px;";
-
                 areas.forEach(area => {
                     const row = document.createElement('div');
                     row.className = 'list-item-row nested-area';
-                    // ★修正: Flexboxで見やすく配置
-                    row.style.cssText = `
-                        display: flex; align-items: center; justify-content: space-between;
-                        padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;
-                        background-color: ${area.isActive ? '#e6ffec' : '#fff'};
-                    `;
+                    if(area.isActive) row.style.backgroundColor = '#e6ffec';
                     
+                    // ★修正: 左側の要素(チェックボックス+名前)をFlexで束ねる
+                    // 座標を表示しつつ、フォントサイズを小さくしてガタつきを目立たなくする
                     row.innerHTML = `
-                        <div style="display:flex; align-items:center; gap:10px; flex:1;">
-                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2);">
-                            <div>
-                                <div style="font-weight:bold;">📍 ${area.name}</div>
-                                <div style="font-size:0.75em; color:#666;">Lat:${area.lat.toFixed(4)}, Lon:${area.lon.toFixed(4)}</div>
+                        <div style="display:flex; align-items:center;">
+                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="margin-right: 10px;">
+                            <div style="text-align:left; line-height:1.2;">
+                                <strong>📍 ${area.name}</strong>
+                                <span style="font-size:0.8em; color:#888; margin-left:5px;">(${area.lat.toFixed(4)}, ${area.lon.toFixed(4)})</span>
                             </div>
                         </div>
-                        <div style="display:flex; gap:5px;">
-                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" 
-                                style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px;">
-                                ${area.isActive ? '有効' : '無効'}
-                            </button>
-                            <button onclick="deleteItem('gps_areas', '${area.name}')" style="padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px;">削除</button>
+                        <div style="white-space:nowrap;">
+                            <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" style="margin-right:5px; padding:5px 10px;">切替</button>
+                            <button class="btn-danger" onclick="deleteItem('gps_areas', '${area.name}')" style="padding:5px 10px;">削除</button>
                         </div>`;
-                    grid.appendChild(row);
+                    content.appendChild(row);
                 });
-                content.appendChild(grid);
             } else {
-                content.innerHTML = '<p style="color:#888; text-align:center; padding:10px;">エリア未登録</p>';
+                content.innerHTML = '<p style="color:#888; text-align:left; padding-left:10px; margin:0;">(エリア未登録)</p>';
             }
             
             details.appendChild(summary); details.appendChild(content); hierList.appendChild(details);
@@ -1848,9 +1825,10 @@ async function refreshAdminEquipmentList() {
 
 // --- 強制返却関数 ---
 async function forceReturnEquipment(eqId) {
-    if (!confirm("強制的に「貸出可」に戻しますか？\n(現在貸出中のユーザー情報は削除され、履歴は返却済になります)")) return;
+    if (!confirm("強制的に「貸出可」に戻しますか？\n(現在貸出中のユーザー情報は削除されます)")) return;
     
     try {
+        // まず現在の貸出状況を取得してユーザーを特定
         const eqRef = db.collection('equipments').doc(eqId);
         const doc = await eqRef.get();
         
@@ -1865,36 +1843,21 @@ async function forceReturnEquipment(eqId) {
             currentLoan: firebase.firestore.FieldValue.delete()
         });
 
-        // 2. ユーザー情報の borrowedItems から削除
+        // 2. ★追加: ユーザー情報の borrowedItems から削除
         if (data.currentLoan && data.currentLoan.userId) {
             const userRef = db.collection('users').doc(data.currentLoan.userId);
             batch.update(userRef, {
+                // arrayRemoveは完全一致が必要なため、追加時と同じ構造を指定
                 borrowedItems: firebase.firestore.FieldValue.arrayRemove({
                     id: eqId,
-                    name: data.name
+                    name: data.name // 備品ドキュメント自身の名前を使用
                 })
             });
         }
 
-        // 3. ★追加: 該当する申請データ(equipment_requests)も 'returned' に更新
-        const reqSnap = await db.collection('equipment_requests')
-            .where('equipmentId', '==', eqId)
-            .where('status', '==', 'approved')
-            .get();
-            
-        reqSnap.forEach(reqDoc => {
-            batch.update(reqDoc.ref, { 
-                status: 'returned',
-                actualReturnDate: firebase.firestore.FieldValue.serverTimestamp(),
-                returnNote: '強制返却'
-            });
-        });
-
         await batch.commit();
         
-        alert("強制返却処理が完了しました");
         refreshAdminEquipmentList();
-        
     } catch (e) { alert("エラー: " + e.message); }
 }
 

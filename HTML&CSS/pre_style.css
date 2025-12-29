@@ -1,0 +1,333 @@
+/* =========================================
+   基本スタイル
+   ========================================= */
+body {
+    font-family: sans-serif;
+    background-color: #f0f2f5;
+    margin: 0;
+    padding: 0;
+    text-align: center;
+    padding-bottom: 50px;
+}
+
+.container, .admin-container, .user-container {
+    max-width: 800px;
+    margin: 20px auto;
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+/* --- ヘッダー (Appbar) 修正版 --- */
+.appbar-fixed {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 60px;
+    background-color: #007bff;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    box-sizing: border-box;
+    z-index: 1000;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.appbar-side {
+    min-width: 44px;
+    flex-shrink: 0; 
+    display: flex; 
+    align-items: center; 
+    justify-content: flex-start;
+}
+
+.appbar-side:last-child {
+    justify-content: flex-end;
+}
+
+/* 中央は残りの幅を埋める */
+.appbar-center { 
+    flex: 1; 
+    text-align: center; 
+    font-weight: bold; 
+    font-size: 1.2em; 
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 8px;
+}
+
+.icon-btn { color: white; text-decoration: none; font-size: 1.5em; cursor: pointer; }
+
+.content { padding: 20px; max-width: 800px; margin: 0 auto; }
+
+/* --- メニューリスト --- */
+.content ul { list-style: none; padding: 0; margin: 0; }
+.content li { margin: 15px 0; }
+.content li a { 
+    display: block; 
+    padding: 20px; 
+    background: white; 
+    border-radius: 12px; 
+    text-decoration: none; 
+    color: #333; 
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
+    transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+    border: 1px solid #eee;
+    text-align: left;
+}
+.content li a:hover { 
+    transform: translateY(-3px); 
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2); 
+    background-color: #f8f9fa;
+}
+
+/* =========================================
+   タブ・UIコンポーネント
+   ========================================= */
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.tab-bar { display: flex; border-bottom: 1px solid #ccc; margin-bottom: 20px; background: #fff; }
+.tab-btn { flex: 1; padding: 12px; border: none; background: #f8f9fa; cursor: pointer; font-weight: bold; color: #666; }
+.tab-btn.active { background: #fff; border-bottom: 3px solid #007bff; color: #007bff; }
+
+.sub-tab { padding: 8px 15px; border: none; background: #eee; cursor: pointer; margin: 0; flex: 1; border-right: 1px solid #ddd; }
+.sub-tab:last-child { border-right: none; }
+.sub-tab.active { background: #007bff; color: white; }
+
+.input-group { margin: 15px 0; text-align: left; }
+.input-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+input, select, textarea { width: 100%; box-sizing: border-box; padding: 12px; border: 1px solid #ccc; border-radius: 6px; margin-top: 5px; font-size: 1em; }
+.date-short { width: auto; display: inline-block; }
+
+button { padding: 12px 24px; background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: opacity 0.2s; }
+button:hover { opacity: 0.9; }
+button:disabled { background-color: #ccc; cursor: default; }
+.btn-danger { background-color: #dc3545; color: white; }
+.btn-primary { background-color: #007bff; color: white; }
+.refresh-btn { background-color: #17a2b8; color: white; width: 100%; padding: 10px; }
+
+/* =========================================
+   カメラ・顔認証
+   ========================================= */
+.camera-wrapper { position: relative; width: 100%; max-width: 400px; margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+video { width: 100%; display: block; transform: scaleX(-1); }
+.overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+
+.step-content { display: none; }
+.step-content.active { display: block; }
+
+.modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
+.modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 8px; }
+.close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+.close:hover, .close:focus { color: black; text-decoration: none; cursor: pointer; }
+
+/* =========================================
+   ニュース・カルーセル
+   ========================================= */
+#news-section { overflow: hidden; width: 100%; position: relative; background: #fff; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+.news-track { display: flex; transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); width: 200%; }
+.news-slide { width: 50%; padding: 0 15px; box-sizing: border-box; }
+.news-header { display: flex; justify-content: space-between; align-items: center; background: #f0f8ff; padding: 10px; border-radius: 6px; border-left: 5px solid #007bff; margin-bottom: 15px; }
+.nav-hint { font-size: 0.85em; color: #007bff; cursor: pointer; font-weight: bold; white-space: nowrap; }
+.news-item { padding: 12px 0; border-bottom: 1px solid #eee; text-align: left; display: flex; align-items: flex-start; }
+.news-item a { text-decoration: none; color: #333; font-weight: bold; line-height: 1.4; }
+.toggle-btn { display: block; width: 100%; padding: 8px; background: #f0f0f0; border: none; border-radius: 6px; color: #666; font-size: 0.9em; cursor: pointer; margin: 10px 0; font-weight: bold; }
+.hidden-item { display: none !important; }
+
+/* =========================================
+   リスト・詳細表示
+   ========================================= */
+.settings-details { margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; text-align: left; }
+.settings-details summary { background: #f8f9fa; padding: 12px 15px; cursor: pointer; font-weight: bold; border-bottom: 1px solid #eee; list-style: none; display: block; }
+.settings-details summary::-webkit-details-marker { display: none; }
+.details-content { padding: 15px; background: #fff; }
+
+.list-container { text-align: left; max-height: 400px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 6px; background-color: #fafafa; }
+.item-card { border: 1px solid #eee; padding: 12px; margin-bottom: 10px; border-radius: 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+
+/* =========================================
+   ステータス・カレンダー
+   ========================================= */
+.status-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    border-radius: 8px;
+    background-color: #f8f9fa; /* デフォルト背景 */
+    border: 1px solid #eee;
+    font-weight: bold;
+}
+.status-row.active-ok { background-color: #d4edda; color: #155724; border-color: #c3e6cb; } /* 出席 */
+.status-row.active-abs { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; } /* 欠席 */
+.status-row.active-late { background-color: #fff3cd; color: #856404; border-color: #ffeeba; } /* 遅刻/未 */
+.status-row.no-act { background-color: #e2e3e5; color: #383d41; border-color: #d6d8db; opacity: 0.7; } /* 活動なし */
+
+.updated-at { font-size: 0.8em; color: #666; text-align: right; margin-top: 10px; }
+
+/* --- カレンダー全体レイアウト --- */
+.calendar-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 10px; }
+.calendar-grid { 
+    display: grid; 
+    grid-template-columns: repeat(7, minmax(6em, 1fr)); /* 最小6文字分に縮小 */
+    gap: 1px; 
+    background-color: #ddd; 
+    border: 1px solid #ddd; 
+    min-width: 100%; 
+    box-sizing: border-box; 
+}
+.cal-day-header { background: #f0f0f0; text-align: center; font-weight: bold; padding: 5px 0; font-size: 0.9em; }
+.cal-cell {
+    background: #fff;
+    /* バッジ5行(約65px) + 日付 + アイコン分の高さを確保 (140px -> 110px) */
+    min-height: 110px; 
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    position: relative;
+    padding: 2px;
+    box-sizing: border-box;
+    overflow: hidden; 
+}
+
+/* 背景色 */
+.active-area { background-color: #e8f5e9; }
+.active-area-approved { background-color: #c8e6c9; }
+.today-circle { outline: 2px solid #007bff; z-index: 10; position: relative; }
+
+/* バッジシステム */
+.badge-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-bottom: 4px;
+    width: 100%;
+    flex-grow: 0;
+}
+.badge-row {
+    height: 13px; /* 縦1行分の高さを強制確保 */
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* 分割バッジコンテナ */
+.badge-row-split { height: 13px; width: 100%; display: flex; justify-content: center; align-items: center; gap: 0; }
+.cal-badge-split {
+    flex: 1; height: 100%; font-size: 9px; line-height: 13px; text-align: center; 
+    font-weight: bold; color: black; white-space: nowrap; overflow: hidden; 
+    box-sizing: border-box; border: 1px solid transparent;
+}
+
+/* 通常バッジ */
+.cal-badge {
+    /* 固定pxではなく相対サイズに変更してズーム追従性を向上 */
+    font-size: 0.75em; 
+    line-height: 13px;
+    
+    /* 横幅をグリッド幅に合わせて広げる (5文字固定を廃止) */
+    width: 98%; 
+    max-width: 100%;
+    height: 13px;
+    
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip; /* はみ出しは切り捨て */
+    
+    text-align: center;
+    border-radius: 2px;
+    border: 1px solid transparent;
+    box-sizing: border-box;
+    padding: 0 1px; /* わずかにパディング */
+    font-weight: bold;
+    color: black;
+    margin: 0 auto; /* 中央配置 */
+}
+
+/* --- 配色 --- */
+.badge-q-pre { background-color: #e0ffff; }
+.badge-q-post { background-color: #ccffcc; }
+.border-blue { border-color: #0000ff; }
+.border-red { border-color: #ff0000; }
+.badge-beige { background-color: #f5f5dc; }
+.border-c1 { border-color: green; }
+.border-c2 { border-color: blue; }
+.border-c3 { border-color: red; }
+.border-cy { border-color: #00bcd4; }
+.border-cm { border-color: #e91e63; }
+.badge-gray { background-color: #d3d3d3; border-color: black; }
+.badge-red { background-color: #ffcccc; border-color: gray; }
+.badge-teal-yellow { background-color: #008080; color: white !important; border-color: yellow; }
+.badge-radio { background-color: white; border-color: #008080; color: #008080 !important; }
+.badge-camp { background-color: #008080; border-color: blue; color: white !important; }
+.badge-dev-basic { background-color: #e6f2ff; border-color: blue; }
+.badge-dev-adv { background-color: #e6ffe6; border-color: green; }
+.badge-trial { background-color: #ffffe0; border-color: gold; }
+.badge-event { background-color: #ffa500; color: white; }
+
+.icon-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; margin-top: auto; min-height: 16px; }
+
+/* --- ポートフォリオ --- */
+.portfolio-card {
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    text-align: left;
+    background: white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+.portfolio-info-row { margin-bottom: 8px; font-size: 0.95em; }
+.portfolio-label { font-weight: bold; color: #666; margin-right: 8px; display: inline-block; width: 80px; }
+
+/* 記事詳細 (Sticky Header) */
+.article-container {
+    margin-bottom: 30px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden; /* Stickyを効かせるため要調整の場合あり */
+}
+.article-header-sticky {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 60px; /* Appbarの高さ分ずらす */
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    padding: 10px 15px;
+    z-index: 100;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+.article-header-sticky:hover {
+    background: #e2e6ea;
+}
+.article-body {
+    padding: 20px;
+    background: #fff;
+    display: none; /* 初期は閉じる */
+}
+.article-body.open {
+    display: block;
+}
+.article-link-icon {
+    text-decoration: none;
+    font-size: 1.2em;
+    margin-left: 10px;
+}

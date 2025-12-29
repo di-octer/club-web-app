@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出席認証 (Web版)</title>
+    <link rel="stylesheet" href="pre_style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+</head>
+<body id="page-user">
+
+<div class="user-container">
+    <h2>出席認証</h2>
+
+    <div id="step-0" class="step-content active">
+        <h3>ようこそ</h3>
+        <p><span id="displayUserName" style="font-weight:bold; color:#007bff; font-size:1.2em;"></span> さん</p>
+        <p>位置情報とカメラを使用します。</p>
+        <button onclick="startUserAuthFlow()" style="width:100%; padding:15px; font-size:1.1em;">認証を開始する</button>
+    </div>
+
+    <div id="step-1" class="step-content">
+        <h3>本人確認</h3>
+        <p id="userStatus">カメラを起動中...</p>
+        <div class="camera-wrapper">
+            <video id="userVideo" autoplay muted playsinline></video>
+            <canvas id="userCanvas" class="overlay"></canvas>
+        </div>
+    </div>
+
+    <div id="step-2" class="step-content">
+        <h3>承認待機中</h3>
+        <p>この画面を管理者に見せてください</p>
+        
+        <div style="display: flex; justify-content: center; margin: 20px 0;">
+            <canvas id="codeCanvas" width="300" height="300" style="border:1px solid #ccc; max-width:100%;"></canvas>
+        </div>
+        
+        <p id="requestStatus">リクエスト送信済み... 承認待ち</p>
+        <button onclick="checkRequestStatus()" style="margin-top:10px;">結果を再確認</button>
+    </div>
+
+    <div id="step-3" class="step-content">
+        <h3 style="color: #28a745;">認証成功！</h3>
+        <p>出席が記録されました。</p>
+        <a href="pre_check.html" class="btn-primary" style="display:inline-block; padding:10px 20px; text-decoration:none; color:white; border-radius:5px; margin-top:20px;">履歴を確認する</a>
+        <br><br>
+        <a href="pre_home.html" style="color:#007bff;">ホームへ戻る</a>
+    </div>
+</div>
+
+<script src="../pre_JS/pre_common.js"></script>
+<script src="../pre_JS/pre_auth.js"></script>
+</body>
+</html>
