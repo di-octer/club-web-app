@@ -1395,7 +1395,7 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
-// --- 修正: 活動場所リスト (文字消え対策・レイアウト安定版) ---
+// --- 修正: 活動場所リスト (CSS Gridによるレイアウト完全固定版) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1413,14 +1413,15 @@ function populateInfoLists() {
             details.className = 'settings-details';
             details.open = true; 
             
+            // summaryもGridで整形
             const summary = document.createElement('summary');
-            summary.style.cssText = "display:flex; align-items:center; justify-content:space-between; background:#f8f9fa; padding:10px;";
+            summary.style.cssText = "display:grid; grid-template-columns: 1fr auto; align-items:center; background:#f8f9fa; padding:10px;";
             summary.innerHTML = `
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="font-weight:bold; font-size:1.1em;">🏢 ${campus.name}</span>
                     <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em;">${areas.length}箇所</span>
                 </div>
-                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" style="margin:0;">
+                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" style="margin:0; transform:scale(1.2);">
             `;
             
             const content = document.createElement('div');
@@ -1439,36 +1440,36 @@ function populateInfoLists() {
                 areas.forEach(area => {
                     const row = document.createElement('div');
                     row.className = 'list-item-row nested-area';
-                    // ★修正: 親コンテナのスタイル
+                    
+                    // ★修正: CSS Gridを使用 (左:自動, 中:1fr, 右:自動)
+                    // これにより真ん中のテキスト領域が必ず確保されます
                     row.style.cssText = `
-                        display: flex; 
+                        display: grid; 
+                        grid-template-columns: auto 1fr auto; 
                         align-items: center; 
-                        justify-content: space-between;
+                        gap: 10px;
                         padding: 8px 10px; 
                         border: 1px solid #ddd; 
                         border-radius: 6px;
                         background-color: ${area.isActive ? '#e6ffec' : '#fff'};
-                        gap: 10px;
                     `;
                     
                     row.innerHTML = `
-                        <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
-                            <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2); margin:0; flex-shrink:0;">
-                            
-                            <div style="display:flex; flex-direction:column; justify-content:center; flex:1; min-width:0;">
-                                <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${area.name}</div>
-                                <div style="font-size:0.75em; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                                    Lat:${area.lat.toFixed(4)}, Lon:${area.lon.toFixed(4)}
-                                </div>
+                        <input type="checkbox" class="chk-area-${campus.id}" value="${area.name}" style="transform:scale(1.2); margin:0; cursor:pointer;">
+                        
+                        <div style="min-width: 0; display:flex; flex-direction:column;">
+                            <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📍 ${area.name}</div>
+                            <div style="font-size:0.75em; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                Lat:${area.lat.toFixed(4)}, Lon:${area.lon.toFixed(4)}
                             </div>
                         </div>
 
-                        <div style="display:flex; gap:5px; align-items:center; flex-shrink:0;">
+                        <div style="display:flex; gap:5px; white-space:nowrap;">
                             <button onclick="toggleAreaActive('${area.name}', ${area.isActive})" 
-                                style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; white-space:nowrap;">
+                                style="padding:4px 8px; font-size:0.8em; border:1px solid #ccc; background:${area.isActive?'#28a745':'#f8f9fa'}; color:${area.isActive?'white':'black'}; border-radius:4px; cursor:pointer;">
                                 ${area.isActive ? '有効' : '無効'}
                             </button>
-                            <button onclick="deleteItem('gps_areas', '${area.name}')" style="padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; white-space:nowrap;">削除</button>
+                            <button onclick="deleteItem('gps_areas', '${area.name}')" style="padding:4px 8px; font-size:0.8em; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer;">削除</button>
                         </div>`;
                     grid.appendChild(row);
                 });
