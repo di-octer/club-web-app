@@ -613,33 +613,9 @@ async function startFaceRegistration() {
     const select = document.getElementById('regUserSelect');
     if (!select.value) return alert("ユーザーを選択してください");
     
-    // HTMLに追加が必要なラジオボタン要素の作成（HTMLファイルに追加するか、ここで動的生成）
-    // 今回はここで動的に確認ダイアログまたはUIを表示する簡易実装、あるいはHTMLに要素があると想定
-    // ここではHTML側にラジオボタンが追加されている前提で取得します
-    
-    // もしHTMLにまだない場合は、JSで強制的に選択させます
-    // 既存のHTML構造にラジオボタンを追加するコードをinitAdminPageなどに入れるのがベストですが
-    // ここでは startFaceRegistration 呼び出し時に確認します。
-    
-    // 簡易的にpromptで聞く、あるいはHTMLに追加してもらう
-    // ★ HTML(tab-face) に以下のラジオボタンを追加してください:
-    // <label><input type="radio" name="regTarget" value="web" checked> Web用(web_faces)</label>
-    // <label><input type="radio" name="regTarget" value="flutter"> Flutter用(faces)</label>
-    
-    // UIチェック (HTMLに追加されていない場合を考慮して動的挿入)
-    let targetContainer = document.getElementById('regTargetContainer');
-    if (!targetContainer) {
-        // regUserSelect の直後に挿入
-        const div = document.createElement('div');
-        div.id = 'regTargetContainer';
-        div.style.margin = "10px 0";
-        div.innerHTML = `
-            <span style="font-weight:bold; margin-right:10px;">登録先:</span>
-            <label style="margin-right:10px; cursor:pointer;"><input type="radio" name="regTarget" value="web" checked> Web用 (web_faces)</label>
-            <label style="cursor:pointer;"><input type="radio" name="regTarget" value="flutter"> Flutter用 (faces)</label>
-        `;
-        select.parentNode.insertBefore(div, select.nextSibling);
-    }
+    // ★修正: 前回追加したラジオボタン挿入ロジックを削除
+    const existingContainer = document.getElementById('regTargetContainer');
+    if (existingContainer) existingContainer.remove();
     
     const userName = select.options[select.selectedIndex].text;
     
@@ -688,19 +664,15 @@ async function saveFaceDataManual() {
 
     if(!uid) return alert("ユーザーIDが不明です");
 
-    // 選択されているターゲットを取得
-    const targetRadios = document.getElementsByName('regTarget');
-    let target = 'web'; // default
-    targetRadios.forEach(r => { if(r.checked) target = r.value; });
+    // ★修正: 常に web_faces に保存
+    const collectionName = 'web_faces';
+    const flagField = 'webFaceRegistered';
+    const thumbField = 'webFaceThumbnail';
 
-    const collectionName = (target === 'web') ? 'web_faces' : 'faces';
-    const flagField = (target === 'web') ? 'webFaceRegistered' : 'faceRegistered';
-    const thumbField = (target === 'web') ? 'webFaceThumbnail' : 'faceThumbnail';
-
-    document.getElementById('regStatus').textContent = `保存中... (${target}用)`;
+    document.getElementById('regStatus').textContent = "保存中...";
 
     try {
-        // 1. 指定コレクションへの保存
+        // 1. web_faces への保存
         await db.collection(collectionName).add({ 
             label: userName, 
             userId: uid,
@@ -708,13 +680,13 @@ async function saveFaceDataManual() {
             descriptors: regDescriptors 
         });
 
-        // 2. usersコレクションの更新 (指定のフラグとサムネイル)
+        // 2. usersコレクションの更新 (Web用のフラグ)
         await db.collection("users").doc(uid).update({
             [flagField]: true,
-            [thumbField]: regThumbnail // Base64画像を保存
+            [thumbField]: regThumbnail 
         });
 
-        alert(`登録完了 (${target}用): ${userName}`);
+        alert(`登録完了 (Web): ${userName}`);
         
         // リセット
         if (regStream) { regStream.getTracks().forEach(t => t.stop()); regStream = null; }
@@ -727,6 +699,9 @@ async function saveFaceDataManual() {
 
         // 一覧更新
         refreshAllUsers();
+        // 顔一覧も更新
+        await loadRegisteredFaces();
+        populateFaceList();
 
     } catch(e) {
         alert("保存エラー: " + e.message);
@@ -987,25 +962,39 @@ async function toggleUserEdit(btn, uid) {
 }
 
 async function loadRegisteredFaces() {
-    try {
-        const snapshot = await db.collection("faces").get();
-        registeredFaces = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            if (data.descriptors && data.descriptors.length > 0) {
-                 try {
-                     const binary = atob(data.descriptors[0]);
-                     const len = binary.length;
-                     const bytes = new Uint8Array(len);
-                     for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-                     const float32 = new Float32Array(bytes.buffer);
-                     if (float32.length === 128) {
-                         registeredFaces.push({ docId: doc.id, label: data.label, thumbnail: data.thumbnail || null, descriptor: float32 });
-                     }
-                 } catch(e) {}
-            }
-        });
-    } catch (e) { console.error(e); }
+    registeredFaces = [];
+    
+    // 指定コレクションから読み込むヘルパー関数
+    const loadFrom = async (colName) => {
+        try {
+            const snapshot = await db.collection(colName).get();
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.descriptors && data.descriptors.length > 0) {
+                     try {
+                         const binary = atob(data.descriptors[0]);
+                         const len = binary.length;
+                         const bytes = new Uint8Array(len);
+                         for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+                         const float32 = new Float32Array(bytes.buffer);
+                         if (float32.length === 128) {
+                             // コレクション名を保持しておく
+                             registeredFaces.push({ 
+                                 docId: doc.id, 
+                                 label: data.label, 
+                                 thumbnail: data.thumbnail || null, 
+                                 descriptor: float32,
+                                 collection: colName 
+                             });
+                         }
+                     } catch(e) {}
+                }
+            });
+        } catch (e) { console.error(`Error loading ${colName}:`, e); }
+    };
+
+    // web_faces と faces の両方を読み込む
+    await Promise.all([loadFrom('faces'), loadFrom('web_faces')]);
 }
 
 async function detectFaceLoopManual(video, canvas) {
@@ -1474,7 +1463,21 @@ function populateFaceList() {
     registeredFaces.forEach(f => {
         const div = document.createElement('div');
         div.className = 'list-item-row';
-        div.innerHTML = `<div class="checkbox-wrapper"><input type="checkbox" class="chk-face" value="${f.docId}"><strong>${f.label}</strong></div><button class="btn-danger" onclick="deleteItem('faces', '${f.docId}')">削除</button>`;
+        
+        // どちらのコレクションか判別用ラベル
+        const sourceLabel = f.collection === 'web_faces' 
+            ? '<span style="color:#007bff; font-size:0.8em; margin-left:5px;">(Web)</span>' 
+            : '<span style="color:#28a745; font-size:0.8em; margin-left:5px;">(App)</span>';
+        
+        // 削除ボタンで正しいコレクションを指定できるようにする
+        // 複数選択削除用に data-collection 属性を付与
+        div.innerHTML = `
+            <div class="checkbox-wrapper">
+                <input type="checkbox" class="chk-face" value="${f.docId}" data-collection="${f.collection}">
+                <strong>${f.label}</strong> ${sourceLabel}
+            </div>
+            <button class="btn-danger" onclick="deleteItem('${f.collection}', '${f.docId}')">削除</button>
+        `;
         el.appendChild(div);
     });
 }
@@ -1486,19 +1489,29 @@ async function deleteItem(collection, id) {
 }
 
 async function deleteSelectedItems(type) {
-    let inputs, collection;
-    if (type === 'campuses') { inputs = document.querySelectorAll('.chk-campus:checked'); collection = 'campuses'; }
-    else if (type === 'faces') { inputs = document.querySelectorAll('.chk-face:checked'); collection = 'faces'; }
-    
-    if (inputs.length === 0) return alert("選択されていません");
-    
-    // ★追加: 警告ダイアログ
-    if (!confirm(`${inputs.length}件のデータを削除しますか？\nこの操作は取り消せません。`)) return;
+    if (type === 'campuses') {
+         let inputs = document.querySelectorAll('.chk-campus:checked');
+         if (inputs.length === 0) return alert("選択されていません");
+         if (!confirm(`${inputs.length}件のデータを削除しますか？`)) return;
+         const batch = db.batch();
+         inputs.forEach(input => { batch.delete(db.collection('campuses').doc(input.value)); });
+         await batch.commit();
+         reloadAllData();
+         
+    } else if (type === 'faces') {
+        let inputs = document.querySelectorAll('.chk-face:checked');
+        if (inputs.length === 0) return alert("選択されていません");
+        if (!confirm(`${inputs.length}件の顔データを削除しますか？`)) return;
 
-    const batch = db.batch();
-    inputs.forEach(input => { batch.delete(db.collection(collection).doc(input.value)); });
-    await batch.commit();
-    reloadAllData();
+        const batch = db.batch();
+        inputs.forEach(input => { 
+            // data-collection 属性から削除対象のコレクションを取得 (デフォルトは faces)
+            const col = input.dataset.collection || 'faces';
+            batch.delete(db.collection(col).doc(input.value)); 
+        });
+        await batch.commit();
+        reloadAllData();
+    }
 }
 
 async function deleteSelectedAreas(campusId) {
