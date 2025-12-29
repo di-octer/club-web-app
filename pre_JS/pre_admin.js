@@ -1395,7 +1395,7 @@ async function registerArea() {
     loadGpsAreas(); populateInfoLists(); alert("登録しました");
 }
 
-// --- 修正: 活動場所リスト (DOM直接生成によるイベント制御の完全修正版) ---
+// --- 修正: 活動場所リスト (Divベースでデザイン完全再現・動作保証版) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if (select) {
@@ -1434,24 +1434,32 @@ function populateInfoLists() {
     registeredCampuses.forEach(campus => {
         const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
 
-        const details = document.createElement('details');
-        details.className = 'settings-details';
-        details.open = true;
+        // 1. 外枠コンテナ (detailsのデザインを模倣)
+        const wrapper = document.createElement('div');
+        wrapper.className = 'settings-details-wrapper'; 
+        // cssクラス .settings-details と同じスタイルを適用
+        wrapper.style.cssText = "margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fff; text-align: left;";
 
-        // ----------------------------------------------------
-        // 1. ヘッダー (Summary) の構築
-        // ----------------------------------------------------
-        const summary = document.createElement('summary');
-        summary.style.cssText = `
+        // 2. ヘッダー (summaryのデザインを模倣)
+        const header = document.createElement('div');
+        // cssクラス .settings-details summary と同じスタイル + Gridレイアウト
+        header.style.cssText = `
             display: grid; 
-            grid-template-columns: auto 1fr auto; 
+            grid-template-columns: auto 1fr auto auto; 
             align-items: center; 
             gap: 15px; 
             background: #f8f9fa; 
-            padding: 10px; 
-            cursor: pointer;
-            position: relative;
+            padding: 12px 15px; 
+            cursor: pointer; 
+            border-bottom: 1px solid #eee;
+            user-select: none;
         `;
+        
+        const contentId = `content-${campus.id}`;
+        const arrowId = `arrow-${campus.id}`;
+
+        // ヘッダー全体クリックで開閉
+        header.onclick = () => toggleAccordionDiv(contentId, arrowId);
 
         // [左] チェックボックス
         const campChk = document.createElement('input');
@@ -1459,9 +1467,8 @@ function populateInfoLists() {
         campChk.className = "chk-campus";
         campChk.value = campus.id;
         campChk.title = "削除選択";
-        campChk.style.cssText = "transform:scale(1.3); cursor:pointer; margin:0; z-index:10; position:relative;";
-        
-        // ★重要: 親(summary)へのクリック伝播をここで確実に止める
+        campChk.style.cssText = "transform:scale(1.3); cursor:pointer; margin:0;";
+        // クリック時に親の開閉イベントを止める
         campChk.onclick = (e) => { e.stopPropagation(); };
 
         // [中] テキスト情報
@@ -1472,28 +1479,32 @@ function populateInfoLists() {
             <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em; color:#555; white-space:nowrap;">${areas.length}箇所</span>
         `;
 
-        // [右] 削除ボタン
+        // [右1] 削除ボタン
         const campDelBtn = document.createElement('button');
         campDelBtn.className = "btn-danger";
         campDelBtn.textContent = "削除";
-        campDelBtn.style.cssText = "padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0; z-index:10; position:relative;";
-        
-        // ★重要: 親(summary)へのクリック伝播をここで確実に止める
+        campDelBtn.style.cssText = "padding:4px 10px; font-size:0.8em; white-space:nowrap; flex-shrink:0;";
         campDelBtn.onclick = (e) => {
             e.stopPropagation();
             deleteItem('campuses', campus.id);
         };
 
-        summary.appendChild(campChk);
-        summary.appendChild(infoDiv);
-        summary.appendChild(campDelBtn);
+        // [右2] 矢印アイコン (detailsのマーカーの代わり)
+        const arrowSpan = document.createElement('span');
+        arrowSpan.id = arrowId;
+        arrowSpan.innerHTML = "&#9660;"; // ▼ (開いている状態)
+        arrowSpan.style.cssText = "font-size:0.8em; color:#666; width:1.5em; text-align:center; transition: transform 0.2s;";
 
-        // ----------------------------------------------------
-        // 2. コンテンツ (Details Content) の構築
-        // ----------------------------------------------------
+        header.appendChild(campChk);
+        header.appendChild(infoDiv);
+        header.appendChild(campDelBtn);
+        header.appendChild(arrowSpan);
+
+        // 3. コンテンツエリア
         const content = document.createElement('div');
-        content.className = 'details-content';
-        content.style.padding = "10px";
+        content.id = contentId;
+        content.className = 'details-content'; // 既存CSSクラスを利用
+        content.style.cssText = "padding: 15px; background: #fff; display: block;"; // 初期状態: 開く
 
         if (areas.length > 0) {
             // エリア操作ボタン
@@ -1540,7 +1551,7 @@ function populateInfoLists() {
                 areaChk.className = `chk-area-${campus.id}`;
                 areaChk.value = area.name;
                 areaChk.style.cssText = "transform:scale(1.2); margin:0; cursor:pointer;";
-                // ※div内なのでstopPropagationは不要だが念のため
+                // 親への伝播を止める
                 areaChk.onclick = (e) => e.stopPropagation();
 
                 // [中] エリア情報
@@ -1580,13 +1591,28 @@ function populateInfoLists() {
             content.innerHTML = '<p style="color:#888; text-align:center; padding:10px;">エリア未登録</p>';
         }
 
-        details.appendChild(summary);
-        details.appendChild(content);
-        hierList.appendChild(details);
+        wrapper.appendChild(header);
+        wrapper.appendChild(content);
+        hierList.appendChild(wrapper);
     });
 
     populateFaceList();
 }
+
+// --- 追加: アコーディオン開閉制御関数 ---
+window.toggleAccordionDiv = function(contentId, arrowId) {
+    const content = document.getElementById(contentId);
+    const arrow = document.getElementById(arrowId);
+    if (!content) return;
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        if(arrow) arrow.innerHTML = "&#9660;"; // ▼
+    } else {
+        content.style.display = 'none';
+        if(arrow) arrow.innerHTML = "&#9654;"; // ▶
+    }
+};
 
 async function toggleAreaActive(docId, currentStatus) {
     await db.collection('gps_areas').doc(docId).update({ isActive: !currentStatus });
