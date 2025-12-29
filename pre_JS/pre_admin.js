@@ -1396,6 +1396,7 @@ async function registerArea() {
 }
 
 // --- 修正: 活動場所リスト (CSS Gridによるレイアウト完全固定版) ---
+// --- 修正: 活動場所リスト (キャンパス削除ボタン追加・レイアウト修正版) ---
 function populateInfoLists() {
     const select = document.getElementById('campusSelect');
     if(select) {
@@ -1406,6 +1407,18 @@ function populateInfoLists() {
     const hierList = document.getElementById('hierarchyList');
     if(hierList) {
         hierList.innerHTML = '';
+
+        // ★追加: キャンパス一括操作用のボタンエリア
+        const controls = document.createElement('div');
+        controls.style.cssText = "padding: 0 0 10px 0; border-bottom: 1px solid #ddd; margin-bottom: 10px; text-align: right;";
+        controls.innerHTML = `<button class="btn-danger" onclick="deleteSelectedItems('campuses')" style="padding:5px 10px; font-size:0.9em;">選択したキャンパスを削除</button>`;
+        hierList.appendChild(controls);
+
+        if (registeredCampuses.length === 0) {
+            hierList.innerHTML += '<p style="text-align:center; color:#666;">キャンパスが登録されていません</p>';
+            return;
+        }
+
         registeredCampuses.forEach(campus => {
             const areas = registeredGpsAreas.filter(a => a.campusId === campus.id);
             
@@ -1413,15 +1426,22 @@ function populateInfoLists() {
             details.className = 'settings-details';
             details.open = true; 
             
-            // summaryもGridで整形
+            // ★修正: summaryのレイアウト (チェックボックス | 名前 | 削除ボタン)
             const summary = document.createElement('summary');
-            summary.style.cssText = "display:grid; grid-template-columns: 1fr auto; align-items:center; background:#f8f9fa; padding:10px;";
+            // cursor:pointerで全体が開閉可能に見えるが、input/button上ではstopPropagationで止める
+            summary.style.cssText = "display:flex; align-items:center; justify-content:space-between; background:#f8f9fa; padding:10px; cursor:pointer;";
+            
             summary.innerHTML = `
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="font-weight:bold; font-size:1.1em;">🏢 ${campus.name}</span>
-                    <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em;">${areas.length}箇所</span>
+                <div style="display:flex; align-items:center; gap:15px; flex:1;">
+                    <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" style="transform:scale(1.3); cursor:pointer; margin:0;">
+                    
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="font-weight:bold; font-size:1.1em;">🏢 ${campus.name}</span>
+                        <span style="background:#eee; padding:2px 8px; border-radius:10px; font-size:0.8em; color:#555;">${areas.length}箇所</span>
+                    </div>
                 </div>
-                <input type="checkbox" class="chk-campus" value="${campus.id}" onclick="event.stopPropagation()" title="削除選択" style="margin:0; transform:scale(1.2);">
+
+                <button class="btn-danger" onclick="deleteItem('campuses', '${campus.id}'); event.stopPropagation();" style="padding:4px 10px; font-size:0.8em; margin-left:10px;">削除</button>
             `;
             
             const content = document.createElement('div');
@@ -1431,7 +1451,7 @@ function populateInfoLists() {
             if (areas.length > 0) {
                 const actionDiv = document.createElement('div');
                 actionDiv.style.cssText = 'display:flex; justify-content:flex-end; gap:10px; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;';
-                actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">全削除</button>`;
+                actionDiv.innerHTML = `<button class="btn-danger" onclick="deleteSelectedAreas('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">エリア選択削除</button><button class="btn-danger" onclick="deleteAllAreasInCampus('${campus.id}')" style="padding:5px 10px; font-size:0.8em;">エリア全削除</button>`;
                 content.appendChild(actionDiv);
                 
                 const grid = document.createElement('div');
@@ -1441,8 +1461,7 @@ function populateInfoLists() {
                     const row = document.createElement('div');
                     row.className = 'list-item-row nested-area';
                     
-                    // ★修正: CSS Gridを使用 (左:自動, 中:1fr, 右:自動)
-                    // これにより真ん中のテキスト領域が必ず確保されます
+                    // エリア行のレイアウト (前回修正分)
                     row.style.cssText = `
                         display: grid; 
                         grid-template-columns: auto 1fr auto; 
