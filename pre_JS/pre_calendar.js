@@ -432,6 +432,7 @@ async function checkAttendance() {
         
         // ★独立させた今日のステータス更新を呼び出し
         updateTodayCampusStatus();
+        renderStatusLegend();
         
     } catch(e) { console.error(e); }
 }
