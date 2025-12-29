@@ -15,11 +15,12 @@ let faceStableCount = 0;
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
 async function initAdminPage() {
-    await loadModels(); 
-    await loadRegisteredFaces(); 
-    await loadAdminRecommendedArticles(); 
-    await populateRegUserSelect(); 
-    await populateCampusSelects(); 
+    await loadModels();
+    await loadRegisteredFaces();
+    await loadAdminRecommendedArticles();
+    await populateRegUserSelect();
+    await populateCampusSelects();
+    await refreshAllUsers();
     
     // 備品管理エリアの描画
     renderEquipmentManagement();
