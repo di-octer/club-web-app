@@ -306,7 +306,6 @@ async function updateTodayCampusStatus() {
     if (!el || !currentUser) return;
     el.innerHTML = '読み込み中...';
     
-    // 今日の日付を取得
     const today = new Date();
     const y = today.getFullYear();
     const m = today.getMonth() + 1;
@@ -317,45 +316,36 @@ async function updateTodayCampusStatus() {
     const ymd = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
     try {
-        // 1. 今月のカレンダー設定を取得
         let monthData = {};
         const cDoc = await db.collection('calendars').doc(ym).get();
         if(cDoc.exists) monthData = cDoc.data();
 
-        // 2. 学年暦データを取得 (活動期間判定用)
         let acadData = {};
         const acadYear = (m >= 1 && m <= 3) ? y - 1 : y;
         const aDoc = await db.collection('calendar_meta').doc(`config_${acadYear}`).get();
         if(aDoc.exists) acadData = aDoc.data();
 
-        // 3. 今日の情報を判定
         let html = '<div class="status-list">';
         let isTerm = isTermPeriodFunc(ymd, acadData);
         let isExcl = isExcludedFunc(ymd, acadData);
 
-        registeredCampuses.forEach(c => {
+        registeredCampuses.forEach((c, idx) => {
             let statusText = "活動なし";
-            let statusClass = "no-act"; // デフォルト: 活動なし
+            let statusClass = "no-act"; 
 
-            // 活動判定
             let hasSetting = monthData.activityDays && monthData.activityDays[c.id] && monthData.activityDays[c.id].some(s => s.day === dayOfWeek);
             let isBlocked = monthData.noActivityDays && monthData.noActivityDays.some(n => n.date === ymd && (n.cid === c.id || !n.cid));
             
             let isActivityDay = isTerm && !isExcl && hasSetting && !isBlocked;
 
             if (isActivityDay) {
-                // 活動あり -> 出席状況判定
-                // (出席ログなどは checkAttendance で取得済みのグローバル変数を使用)
                 statusText = "未";
-                statusClass = "active-late"; // 未/遅刻系
+                statusClass = "active-late";
 
-                // A. 出席ログ (年・月・日一致)
+                // 出席状況の判定
                 const log = checkHistoryDates.find(l => l.getFullYear()===y && l.getMonth()+1===m && l.getDate()===d);
-                
-                // B. 届出 (期間内)
                 const approvedAbsence = checkReportRanges.find(r => today >= r.start && today <= r.end && r.type === 'absence' && r.status === 'approved');
                 
-                // C. 定期 (曜日一致)
                 let recStatus = null;
                 const rec = checkRecurringData.find(r => r.day === dayStr);
                 if (rec) recStatus = (rec.periods === 'All') ? 'absent' : 'late_early';
@@ -375,7 +365,17 @@ async function updateTodayCampusStatus() {
                 }
             }
 
-            html += `<div class="status-row ${statusClass}">
+            // ★修正: キャンパスインデックスに応じた枠色を設定
+            // CSSクラス (border-c1, border-c2 等) の色定義に対応
+            let borderColor = '#999'; // デフォルト(グレー)
+            if (idx === 0) borderColor = 'green';
+            else if (idx === 1) borderColor = 'blue';
+            else if (idx === 2) borderColor = 'red';
+            else if (idx === 3) borderColor = '#00bcd4'; // Cyan
+            else borderColor = '#e91e63'; // Magenta
+
+            // border-widthを少し太くし、色を明示的に指定して上書きする
+            html += `<div class="status-row ${statusClass}" style="border: 2px solid ${borderColor};">
                 <span>${c.name}</span>
                 <span>${statusText}</span>
             </div>`;
@@ -383,7 +383,7 @@ async function updateTodayCampusStatus() {
         html += '</div>';
         
         el.innerHTML = html;
-        el.className = ""; // status-cardクラスなどは内部のdivで制御
+        el.className = ""; 
         el.style.backgroundColor = "transparent";
         el.style.padding = "0";
 
