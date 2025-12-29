@@ -561,3 +561,36 @@ function renderUserCalendar() {
     const ym = `${y}-${String(m).padStart(2,'0')}`;
     renderCalendarGrid('userCalGrid', ym, 'user');
 }
+
+function renderStatusLegend() {
+    const legendContainer = document.getElementById('statusLegend');
+    if (!legendContainer) return;
+
+    // renderCalendarGrid内のロジックで使用されている全色・全条件を定義
+    const legends = [
+        { color: '#28a745', label: '出席' },                // logあり
+        { color: '#800080', label: '欠席(承認済)' },          // type:absence, status:approved
+        { color: '#C71585', label: '定期欠席' },              // recurringStatus: absent
+        { color: '#8A2BE2', label: '定期遅刻/早退' },         // recurringStatus: late_early
+        { color: '#007bff', label: '届出(承認済:遅刻/早退)' }, // type:late/early, status:approved
+        { color: '#ffc107', label: '届出(要確認)' },          // status: confirm
+        { color: '#dc3545', label: '届出(否認)' },            // status: rejected
+        { color: 'gray',    label: '届出(申請中)' },          // status: pending
+        { color: '#666',    label: '届出(その他)' }           // status: その他
+    ];
+
+    let html = `<div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:center; padding:10px; background:#f5f5f5; border-radius:5px; font-size:0.85em; margin-top:10px;">`;
+    html += `<span style="font-weight:bold; color:#555;">凡例:</span>`;
+    
+    legends.forEach(l => {
+        html += `
+            <div style="display:flex; align-items:center; gap:4px;">
+                <div style="width:14px; height:14px; background:${l.color}; border-radius:50%;"></div>
+                <span>${l.label}</span>
+            </div>
+        `;
+    });
+    html += `</div>`;
+    
+    legendContainer.innerHTML = html;
+}
