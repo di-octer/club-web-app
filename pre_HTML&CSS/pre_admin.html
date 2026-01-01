@@ -8,6 +8,7 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
 </head>
 <body id="page-admin">
@@ -106,6 +107,65 @@
                     <div id="hierarchyList" class="list-container" style="border:none; padding:0;"></div>
                 </div>
             </details>
+
+            <div class="card" style="margin-bottom: 20px;">
+               <h3>キャンパスマップ設定</h3>
+                <p class="desc">各キャンパスの地図画像と、マッピングに必要な座標情報を登録します。</p>
+    
+                <div class="input-group">
+                    <label>対象キャンパス</label>
+                    <select id="mapCampusSelect" class="form-control" onchange="loadCampusMapInfo()">
+                        <option value="">キャンパスを選択</option>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label>地図画像 (JPG/PNG)</label>
+                    <input type="file" id="mapImageFile" accept="image/*" class="form-control">
+                    <p style="font-size:0.8em; color:#666;">※新しい画像をアップロードすると上書きされます。</p>
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-top:10px;">
+                    <div style="border:1px solid #eee; padding:10px; border-radius:4px;">
+                        <strong>基準点 (画像の左上)</strong>
+                        <div style="margin-top:5px;">
+                            <label>緯度 (Lat)</label>
+                            <input type="number" id="mapOriginLat" step="0.0000001" class="form-control" placeholder="35.xxxxxx">
+                        </div>
+                        <div style="margin-top:5px;">
+                            <label>経度 (Lon)</label>
+                            <input type="number" id="mapOriginLon" step="0.0000001" class="form-control" placeholder="135.xxxxxx">
+                        </div>
+                    </div>
+
+                    <div style="border:1px solid #eee; padding:10px; border-radius:4px;">
+                        <strong>対角点 (画像の右下)</strong>
+                        <div style="margin-top:5px;">
+                            <label>緯度 (Lat)</label>
+                            <input type="number" id="mapTerminalLat" step="0.0000001" class="form-control" placeholder="35.xxxxxx">
+                        </div>
+                        <div style="margin-top:5px;">
+                            <label>経度 (Lon)</label>
+                            <input type="number" id="mapTerminalLon" step="0.0000001" class="form-control" placeholder="135.xxxxxx">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-group" style="margin-top:15px;">
+                    <label>回転角度 (時計回り・度数法)</label>
+                    <input type="number" id="mapRotation" class="form-control" placeholder="例: 15 (北から右へ15度傾き)" value="0">
+                </div>
+
+                <div style="text-align:right; margin-top:20px;">
+                    <span id="mapStatus" style="color:#007bff; margin-right:10px;"></span>
+                    <button class="btn-primary" onclick="saveCampusMapConfig()">マップ設定を保存</button>
+                </div>
+    
+                <div id="currentMapInfo" style="margin-top:15px; padding:10px; background:#f9f9f9; font-size:0.9em; display:none;">
+                    <strong>現在の設定:</strong> <span id="currentMapText"></span><br>
+                    <a id="currentMapLink" href="#" target="_blank">登録済み画像を確認</a>
+                </div>
+            </div>
 
             <details class="settings-details">
                 <summary>備品管理 (登録・一覧)</summary>

@@ -412,9 +412,11 @@ async function populateCampusSelects() {
     const regSelect = document.getElementById('regCampusSelect');
     // 2. 活動時間変更用のセレクトボックス (★ここが読み込めていなかった)
     const exSelect = document.getElementById('exTimeCampus');
+    // 3. ★追加: マップ設定用のセレクトボックス
+    const mapSelect = document.getElementById('mapCampusSelect');
     
     // 両方なければ何もしない
-    if (!regSelect && !exSelect) return;
+    if (!regSelect && !exSelect && !mapSelect) return;
 
     try {
         const snap = await db.collection('campuses').get();
@@ -426,6 +428,7 @@ async function populateCampusSelects() {
 
         if (regSelect) regSelect.innerHTML = options;
         if (exSelect) exSelect.innerHTML = options;
+        if (mapSelect) mapSelect.innerHTML = options;
 
     } catch (e) { console.error(e); }
 }
@@ -2169,5 +2172,163 @@ async function handleEqRequest(reqId, isApproved) {
     } catch (e) {
         alert("エラーが発生しました: " + e.message);
         console.error(e);
+    }
+}
+
+// --- キャンパスマップ設定関連 ---
+
+// キャンパス選択時に既存の設定をロードして表示
+async function loadCampusMapInfo() {
+    const cid = document.getElementById('mapCampusSelect').value;
+    const infoArea = document.getElementById('currentMapInfo');
+    
+    // 入力欄リセット
+    document.getElementById('mapOriginLat').value = "";
+    document.getElementById('mapOriginLon').value = "";
+    document.getElementById('mapTerminalLat').value = "";
+    document.getElementById('mapTerminalLon').value = "";
+    document.getElementById('mapRotation').value = "0";
+    document.getElementById('mapImageFile').value = "";
+    
+    if (!cid) {
+        if(infoArea) infoArea.style.display = 'none';
+        return;
+    }
+
+    try {
+        const doc = await db.collection('campuses').doc(cid).get();
+        if (doc.exists) {
+            const d = doc.data();
+            if (d.mapConfig) {
+                // 既存値セット
+                const c = d.mapConfig;
+                if(c.origin) {
+                    document.getElementById('mapOriginLat').value = c.origin.lat;
+                    document.getElementById('mapOriginLon').value = c.origin.lon;
+                }
+                if(c.terminal) {
+                    document.getElementById('mapTerminalLat').value = c.terminal.lat;
+                    document.getElementById('mapTerminalLon').value = c.terminal.lon;
+                }
+                if(c.rotation !== undefined) {
+                    document.getElementById('mapRotation').value = c.rotation;
+                }
+                
+                // 登録済み情報の表示
+                if(infoArea) {
+                    infoArea.style.display = 'block';
+                    document.getElementById('currentMapText').textContent = 
+                        `W:${c.imageWidth}px, H:${c.imageHeight}px / Rot:${c.rotation}°`;
+                    const link = document.getElementById('currentMapLink');
+                    if(c.imageUrl) {
+                        link.href = c.imageUrl;
+                        link.style.display = "inline";
+                        link.textContent = "登録済み画像を確認";
+                    } else {
+                        link.style.display = "none";
+                    }
+                }
+            } else {
+                if(infoArea) {
+                    infoArea.style.display = 'block';
+                    document.getElementById('currentMapText').textContent = "未設定";
+                    document.getElementById('currentMapLink').style.display = "none";
+                }
+            }
+        }
+    } catch(e) { console.error(e); }
+}
+
+// マップ設定の保存 (Storageアップロード + Firestore更新)
+async function saveCampusMapConfig() {
+    const cid = document.getElementById('mapCampusSelect').value;
+    if (!cid) return alert("キャンパスを選択してください");
+
+    const fileInput = document.getElementById('mapImageFile');
+    const file = fileInput.files[0];
+
+    // 座標などの入力値取得
+    const oLat = parseFloat(document.getElementById('mapOriginLat').value);
+    const oLon = parseFloat(document.getElementById('mapOriginLon').value);
+    const tLat = parseFloat(document.getElementById('mapTerminalLat').value);
+    const tLon = parseFloat(document.getElementById('mapTerminalLon').value);
+    const rot = parseFloat(document.getElementById('mapRotation').value) || 0;
+
+    if (isNaN(oLat) || isNaN(oLon) || isNaN(tLat) || isNaN(tLon)) {
+        return alert("基準点・対角点の座標をすべて入力してください");
+    }
+
+    const statusEl = document.getElementById('mapStatus');
+    statusEl.textContent = "処理中...";
+
+    try {
+        let imageUrl = null;
+        let imgW = 0;
+        let imgH = 0;
+
+        // 1. 画像が選択されている場合: サイズ計測 -> Storageアップロード
+        if (file) {
+            statusEl.textContent = "画像を解析中...";
+            
+            // 画像サイズを取得するためのPromise
+            const dims = await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+                img.onerror = reject;
+                img.src = URL.createObjectURL(file);
+            });
+            imgW = dims.w;
+            imgH = dims.h;
+
+            statusEl.textContent = "画像をアップロード中...";
+            
+            // Storageパス: maps/{campusId}_{timestamp} (キャッシュ回避のためタイムスタンプ付与推奨)
+            // 拡張子は元のファイルから取得、なければjpgとする
+            const ext = file.name.split('.').pop() || 'jpg';
+            const path = `maps/${cid}_${Date.now()}.${ext}`;
+            const ref = firebase.storage().ref().child(path);
+            
+            await ref.put(file);
+            imageUrl = await ref.getDownloadURL();
+        } else {
+            // 画像選択なしの場合: 既存の画像情報を維持するか確認
+            const doc = await db.collection('campuses').doc(cid).get();
+            if (doc.exists && doc.data().mapConfig && doc.data().mapConfig.imageUrl) {
+                // 既存情報を引き継ぐ
+                imageUrl = doc.data().mapConfig.imageUrl;
+                imgW = doc.data().mapConfig.imageWidth;
+                imgH = doc.data().mapConfig.imageHeight;
+            } else {
+                return alert("地図画像を選択してください");
+            }
+        }
+
+        // 2. Firestore更新
+        statusEl.textContent = "設定を保存中...";
+
+        const mapConfig = {
+            imageUrl: imageUrl,
+            imageWidth: imgW,
+            imageHeight: imgH,
+            origin: { lat: oLat, lon: oLon },
+            terminal: { lat: tLat, lon: tLon },
+            rotation: rot
+        };
+
+        await db.collection('campuses').doc(cid).update({
+            mapConfig: mapConfig,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        statusEl.textContent = "完了";
+        alert("マップ設定を保存しました");
+        
+        // 表示更新
+        loadCampusMapInfo();
+
+    } catch (e) {
+        console.error(e);
+        statusEl.textContent = "エラー発生";
+        alert("エラー: " + e.message);
     }
 }
