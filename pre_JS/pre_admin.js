@@ -2221,22 +2221,18 @@ async function loadCampusMapInfo() {
                         `W:${c.imageWidth}px, H:${c.imageHeight}px / Rot:${c.rotation}°`;
                     
                     const link = document.getElementById('currentMapLink');
-                    
-                    // URL形式(旧) または Base64形式(新) どちらにも対応して表示
-                    // 今回はBase64形式で保存するため、フィールド名は 'image' とします
-                    const imgSrc = c.image || c.imageUrl;
+                    const imgSrc = c.image || c.imageUrl; // Base64 or URL
                     
                     if(imgSrc) {
-                        // Base64の場合、直接開くと重いので、プレビュー用画像タグに流し込むなどの工夫も可ですが、
-                        // 簡易的にDataURLとしてリンク設定します（別タブで開けるブラウザが多いです）
                         link.href = imgSrc;
                         link.style.display = "inline";
-                        link.textContent = "登録済み画像を確認";
+                        link.textContent = "登録済み画像を表示";
                     } else {
                         link.style.display = "none";
                     }
                 }
             } else {
+                // 設定がない場合
                 if(infoArea) {
                     infoArea.style.display = 'block';
                     document.getElementById('currentMapText').textContent = "未設定";
