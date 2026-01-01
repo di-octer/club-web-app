@@ -2219,9 +2219,17 @@ async function loadCampusMapInfo() {
                     infoArea.style.display = 'block';
                     document.getElementById('currentMapText').textContent = 
                         `W:${c.imageWidth}px, H:${c.imageHeight}px / Rot:${c.rotation}°`;
+                    
                     const link = document.getElementById('currentMapLink');
-                    if(c.imageUrl) {
-                        link.href = c.imageUrl;
+                    
+                    // URL形式(旧) または Base64形式(新) どちらにも対応して表示
+                    // 今回はBase64形式で保存するため、フィールド名は 'image' とします
+                    const imgSrc = c.image || c.imageUrl;
+                    
+                    if(imgSrc) {
+                        // Base64の場合、直接開くと重いので、プレビュー用画像タグに流し込むなどの工夫も可ですが、
+                        // 簡易的にDataURLとしてリンク設定します（別タブで開けるブラウザが多いです）
+                        link.href = imgSrc;
                         link.style.display = "inline";
                         link.textContent = "登録済み画像を確認";
                     } else {
@@ -2262,42 +2270,65 @@ async function saveCampusMapConfig() {
     statusEl.textContent = "処理中...";
 
     try {
-        let imageUrl = null;
+        let base64Data = null;
         let imgW = 0;
         let imgH = 0;
 
-        // 1. 画像が選択されている場合: サイズ計測 -> Storageアップロード
+        // 1. 画像が選択されている場合: 圧縮してBase64化
         if (file) {
-            statusEl.textContent = "画像を解析中...";
+            statusEl.textContent = "画像を圧縮中...";
             
-            // 画像サイズを取得するためのPromise
-            const dims = await new Promise((resolve, reject) => {
+            // Promiseで画像ロード＆Canvas圧縮処理
+            const result = await new Promise((resolve, reject) => {
                 const img = new Image();
-                img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+                img.onload = () => {
+                    // サイズ制限 (長辺 1024px)
+                    const maxDim = 1024;
+                    let w = img.naturalWidth;
+                    let h = img.naturalHeight;
+                    
+                    if (w > maxDim || h > maxDim) {
+                        if (w > h) {
+                            h = Math.round(h * (maxDim / w));
+                            w = maxDim;
+                        } else {
+                            w = Math.round(w * (maxDim / h));
+                            h = maxDim;
+                        }
+                    }
+                    
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    
+                    // JPEG品質 0.6 で圧縮 (これで1MB以下に収める)
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                    resolve({ data: dataUrl, w: w, h: h });
+                };
                 img.onerror = reject;
                 img.src = URL.createObjectURL(file);
             });
-            imgW = dims.w;
-            imgH = dims.h;
+            
+            base64Data = result.data;
+            imgW = result.w;
+            imgH = result.h;
 
-            statusEl.textContent = "画像をアップロード中...";
-            
-            // Storageパス: maps/{campusId}_{timestamp} (キャッシュ回避のためタイムスタンプ付与推奨)
-            // 拡張子は元のファイルから取得、なければjpgとする
-            const ext = file.name.split('.').pop() || 'jpg';
-            const path = `maps/${cid}_${Date.now()}.${ext}`;
-            const ref = firebase.storage().ref().child(path);
-            
-            await ref.put(file);
-            imageUrl = await ref.getDownloadURL();
+            // サイズチェック (念のため)
+            if (base64Data.length > 1000000) {
+                statusEl.textContent = "サイズ超過";
+                return alert("画像サイズが大きすぎます。別の画像を選択してください。");
+            }
+
         } else {
-            // 画像選択なしの場合: 既存の画像情報を維持するか確認
+            // 画像選択なしの場合: 既存データを維持
             const doc = await db.collection('campuses').doc(cid).get();
-            if (doc.exists && doc.data().mapConfig && doc.data().mapConfig.imageUrl) {
-                // 既存情報を引き継ぐ
-                imageUrl = doc.data().mapConfig.imageUrl;
-                imgW = doc.data().mapConfig.imageWidth;
-                imgH = doc.data().mapConfig.imageHeight;
+            const d = doc.data();
+            if (d.mapConfig && (d.mapConfig.image || d.mapConfig.imageUrl)) {
+                base64Data = d.mapConfig.image || d.mapConfig.imageUrl;
+                imgW = d.mapConfig.imageWidth;
+                imgH = d.mapConfig.imageHeight;
             } else {
                 return alert("地図画像を選択してください");
             }
@@ -2307,7 +2338,7 @@ async function saveCampusMapConfig() {
         statusEl.textContent = "設定を保存中...";
 
         const mapConfig = {
-            imageUrl: imageUrl,
+            image: base64Data, // ★URLではなくBase64文字列そのものを保存
             imageWidth: imgW,
             imageHeight: imgH,
             origin: { lat: oLat, lon: oLon },
@@ -2315,6 +2346,7 @@ async function saveCampusMapConfig() {
             rotation: rot
         };
 
+        // 古い imageUrl フィールドがあれば削除するため、オブジェクト全体を上書きします
         await db.collection('campuses').doc(cid).update({
             mapConfig: mapConfig,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2323,7 +2355,6 @@ async function saveCampusMapConfig() {
         statusEl.textContent = "完了";
         alert("マップ設定を保存しました");
         
-        // 表示更新
         loadCampusMapInfo();
 
     } catch (e) {

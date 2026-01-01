@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>キャンパスマップ | 統合アプリ</title>
+    <link rel="stylesheet" href="pre_style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    
+    <style>
+        /* マップ専用スタイル: スクロールを禁止し、Canvasを全画面表示 */
+        body { overflow: hidden; touch-action: none; margin: 0; padding: 0; background-color: #f0f0f0; }
+        
+        #mapContainer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1;
+            overflow: hidden;
+        }
+        
+        /* コントロールエリア (キャンパス選択など) */
+        .map-controls {
+            position: absolute;
+            bottom: 90px; /* ナビゲーションバーの高さ分空ける */
+            left: 10px; right: 10px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none; /* ボタン以外は地図操作を邪魔しないように */
+        }
+        
+        .control-item {
+            pointer-events: auto;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #ccc;
+            padding: 8px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            font-size: 0.9em;
+        }
+
+        .gps-btn {
+            align-self: flex-end; /* 右寄せ */
+            border-radius: 50%;
+            width: 50px; height: 50px;
+            padding: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5em;
+            background: white;
+            color: #007bff;
+            border: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body id="page-map">
+
+    <div id="mapContainer">
+        <canvas id="mapCanvas"></canvas>
+    </div>
+
+    <div class="map-controls">
+        <select id="mapCampusSelect" class="control-item form-control" onchange="changeMapCampus()">
+            <option value="">キャンパスを読み込み中...</option>
+        </select>
+        
+        <button class="control-item gps-btn" onclick="centerToCurrentLocation()" title="現在地を表示">
+            📍
+        </button>
+    </div>
+
+    <script src="../pre_JS/pre_common.js"></script>
+    <script src="../pre_JS/pre_map.js"></script>
+</body>
+</html>
