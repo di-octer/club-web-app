@@ -35,24 +35,17 @@ function resizeCanvas() {
 // --- キャンパスデータ読み込み ---
 async function loadMapCampuses() {
     const select = document.getElementById('mapCampusSelect');
-    if (!select) return; // エレメントがない場合は終了
-    
+    if(!select) return;
     select.innerHTML = '<option value="">キャンパスを選択...</option>';
 
     try {
-        // ★修正: orderBy('order') を削除し、単純な get() に変更
-        // ※ orderフィールドがないドキュメントも取得できるようにするため
+        // order順に並び替え (orderフィールドがない場合も考慮)
         const snap = await db.collection('campuses').get();
+        if(snap.empty) return;
         
-        if(snap.empty) {
-            console.log("キャンパスデータがありません");
-            return;
-        }
-        
-        // orderフィールドがあればそれでソート、なければ登録順(ID順など)
         const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         docs.sort((a, b) => (a.order || 9999) - (b.order || 9999));
-
+        
         let firstCid = null;
         docs.forEach(d => {
             const opt = document.createElement('option');
@@ -70,7 +63,7 @@ async function loadMapCampuses() {
             select.value = firstCid;
             loadCampusMapData(firstCid);
         }
-    } catch(e) { console.error("Campus Load Error:", e); }
+    } catch(e) { console.error("Map Load Error:", e); }
 }
 
 async function changeMapCampus() {
@@ -150,21 +143,24 @@ function drawMap() {
         );
         
         if (pixel) {
-            // ピン描画 (赤丸)
+            // ★修正: 範囲外の場合は画像内の最も近い点に寄せる (クランプ処理)
+            const clampedX = Math.max(0, Math.min(pixel.x, mapImage.width));
+            const clampedY = Math.max(0, Math.min(pixel.y, mapImage.height));
+
+            // ピン描画 (青丸)
+            // 逆スケール (1/mapScale) を半径・線幅に掛けることで、ズームしてもピンの大きさを一定に保つ
+            const pinRadius = 15 / mapScale;
+            const lineWidth = 3 / mapScale;
+
             mapCtx.beginPath();
-            mapCtx.arc(pixel.x, pixel.y, 20 / mapScale, 0, Math.PI * 2); // 逆スケールでサイズ維持
-            mapCtx.fillStyle = "rgba(0, 123, 255, 0.8)"; // 青
+            mapCtx.arc(clampedX, clampedY, pinRadius, 0, Math.PI * 2); 
+            mapCtx.fillStyle = "rgba(0, 123, 255, 0.9)";
             mapCtx.fill();
-            mapCtx.lineWidth = 3 / mapScale;
+            mapCtx.lineWidth = lineWidth;
             mapCtx.strokeStyle = "white";
             mapCtx.stroke();
-
-            // 精度円 (Accuracy) - オプション
-            // const radius = (currentUserPos.accuracy / pixel.metersPerPixel);
-            // mapCtx.beginPath();
-            // mapCtx.arc(pixel.x, pixel.y, radius, 0, Math.PI * 2);
-            // mapCtx.fillStyle = "rgba(0, 123, 255, 0.2)";
-            // mapCtx.fill();
+            
+            // ※必要であればここに「範囲外」を示す矢印などを描画するロジックを追加可能
         }
     }
     
@@ -175,33 +171,27 @@ function drawMap() {
 function geoToPixel(lat, lon, config) {
     if (!config.origin || !config.terminal) return null;
 
-    const origin = config.origin;   // 画像左上 (0,0) の緯度経度
-    const term = config.terminal;   // 画像右下 (W,H) の緯度経度
-    const rotation = config.rotation || 0; // 時計回り角度
-    const imgW = config.imageWidth || mapImage.width;
-    const imgH = config.imageHeight || mapImage.height;
+    const origin = config.origin;   
+    const term = config.terminal;   
+    const rotation = config.rotation || 0; 
+    
+    // 画像サイズ (Configまたはロードした画像から)
+    const imgW = config.imageWidth || (mapImage ? mapImage.width : 1000);
+    const imgH = config.imageHeight || (mapImage ? mapImage.height : 1000);
 
-    // 1. 緯度経度をメートル座標(相対)に変換
-    // ヒュベニの簡易版: 緯度1度≒111319.49m, 経度1度≒111319.49 * cos(lat)
+    // ヒュベニの簡易版係数
     const M_PER_LAT = 111319.49;
     const radLat = origin.lat * (Math.PI / 180);
     const M_PER_LON = 111319.49 * Math.cos(radLat);
 
-    // 原点(Origin)からの距離 (北がプラスY, 東がプラスX の通常デカルト系で考える)
-    // ※ただし地図画像は「南がプラスY」なので、緯度は (origin - current) が正
-    // ここではまず「幾何学的なXY平面(北=Y+, 東=X+)」で計算し、あとで回転・反転させる
-    
-    // Userの相対位置 (メートル)
-    const dy_u = (lat - origin.lat) * M_PER_LAT; // 北へ行くとプラス
-    const dx_u = (lon - origin.lon) * M_PER_LON; // 東へ行くとプラス
+    // 相対距離 (メートル)
+    const dy_u = (lat - origin.lat) * M_PER_LAT;
+    const dx_u = (lon - origin.lon) * M_PER_LON;
 
-    // Terminalの相対位置 (メートル)
     const dy_t = (term.lat - origin.lat) * M_PER_LAT;
     const dx_t = (term.lon - origin.lon) * M_PER_LON;
 
-    // 2. 回転補正 (-rotation 回転させる)
-    // 地図が時計回りに rotation 度 傾いている
-    // -> 地図上の座標系に合わせるため、ベクトルを反時計回りに rotation 度 回す
+    // 回転補正
     const rad = -rotation * (Math.PI / 180);
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
@@ -212,34 +202,19 @@ function geoToPixel(lat, lon, config) {
     const rot_x_t = dx_t * cos - dy_t * sin;
     const rot_y_t = dx_t * sin + dy_t * cos;
 
-    // 3. スケール計算 (Pixel / Meter)
-    // 地図画像上では:
-    // Originは (0, 0)
-    // Terminalは (imgW, imgH)
-    // rot_x_t が imgW に、rot_y_t が -imgH に対応するはず
-    // (※ 幾何学Yは北プラス、画像Yは南プラスなので符号反転)
-
-    // 安全のため絶対値でスケール算出
+    // スケール計算
     const scaleX = imgW / Math.abs(rot_x_t);
     const scaleY = imgH / Math.abs(rot_y_t);
 
-    // 4. ピクセル座標算出
-    // 画像X座標 = 回転後X * ScaleX
-    // 画像Y座標 = 回転後Y * ScaleY * (-1)  <-- Y軸反転
-    
-    // 補正: Terminalが右下にある前提なので、rot_x_tは正、rot_y_tは負(南)になるはず
-    // ユーザー位置もそれに合わせて変換
-    
-    // X軸: そのまま
+    // ピクセル座標
     let px = rot_x_u * scaleX;
-    // Y軸: 幾何学Y(北+) を 画像Y(南+) に変換 -> マイナス掛ける
-    let py = -rot_y_u * scaleY;
+    let py = -rot_y_u * scaleY; // Y軸反転
 
-    // もしOrigin/Terminalの位置関係が想定(左上/右下)と逆だった場合の符号吸収
+    // 符号補正 (Terminalの位置関係が想定と異なる場合)
     if (rot_x_t < 0) px = -px; 
-    if (rot_y_t > 0) py = -py; // Terminalが北にある(Y正)場合、画像YはマイナスになるべきだがHは正なので調整
+    if (rot_y_t > 0) py = -py; 
 
-    return { x: px, y: py, metersPerPixel: 1/scaleX };
+    return { x: px, y: py };
 }
 
 // --- 現在地取得 ---
@@ -251,6 +226,10 @@ function centerToCurrentLocation() {
     
     // 連続取得開始 (まだしていなければ)
     if (!watchId) {
+        // 初回メッセージ
+        const btn = document.querySelector('.gps-btn');
+        if(btn) btn.style.color = "#999"; // 取得中カラー
+
         watchId = navigator.geolocation.watchPosition(
             (pos) => {
                 currentUserPos = {
@@ -258,26 +237,37 @@ function centerToCurrentLocation() {
                     lon: pos.coords.longitude,
                     accuracy: pos.coords.accuracy
                 };
-                drawMap(); // 位置更新のたびに再描画
                 
-                // 初回のみ中心に移動
-                // (操作性を損なうため、強制センタリングはボタン押下時のみにするロジックも可)
+                if(btn) btn.style.color = "#007bff"; // 取得OKカラー
+                
+                // 初回のみ自動センタリングする等の処理を入れても良いが、
+                // 今回はボタンを押したときのみセンタリングする (下部elseブロック)
+                drawMap(); 
             },
-            (err) => console.error(err),
+            (err) => {
+                console.error(err);
+                if(btn) btn.style.color = "red";
+            },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
+        alert("GPS追跡を開始しました。\nもう一度ボタンを押すと現在地に移動します。");
     } else {
-        // すでに取得中なら、ボタンを押したときは強制的にその位置を中心に持ってくる
-        if (currentUserPos && currentMapConfig) {
+        // すでに取得中なら、その位置を中心に移動
+        if (currentUserPos && currentMapConfig && mapImage) {
             const pixel = geoToPixel(currentUserPos.lat, currentUserPos.lon, currentMapConfig);
             if(pixel) {
-                // 画面中心に pixel.x, pixel.y が来るように offset を調整
-                mapOffsetX = (mapCanvas.width / 2) - (pixel.x * mapScale);
-                mapOffsetY = (mapCanvas.height / 2) - (pixel.y * mapScale);
+                // ★修正: センタリング時も画像範囲内にクランプする
+                // これにより、現在地が遠くても「地図の端」が画面中央に来るようになる（地図が見失われない）
+                const cx = Math.max(0, Math.min(pixel.x, mapImage.width));
+                const cy = Math.max(0, Math.min(pixel.y, mapImage.height));
+                
+                // 画面中心に (cx, cy) が来るようにオフセット計算
+                mapOffsetX = (mapCanvas.width / 2) - (cx * mapScale);
+                mapOffsetY = (mapCanvas.height / 2) - (cy * mapScale);
                 drawMap();
             }
         } else {
-            alert("現在地を取得中...");
+            alert("現在地を取得中、またはマップ設定がありません");
         }
     }
 }
