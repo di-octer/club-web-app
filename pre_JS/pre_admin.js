@@ -2181,6 +2181,7 @@ async function handleEqRequest(reqId, isApproved) {
 async function loadCampusMapInfo() {
     const cid = document.getElementById('mapCampusSelect').value;
     const infoArea = document.getElementById('currentMapInfo');
+    const previewArea = document.getElementById('currentMapPreview');
     
     // 入力欄リセット
     document.getElementById('mapOriginLat').value = "";
@@ -2220,15 +2221,13 @@ async function loadCampusMapInfo() {
                     document.getElementById('currentMapText').textContent = 
                         `W:${c.imageWidth}px, H:${c.imageHeight}px / Rot:${c.rotation}°`;
                     
-                    const link = document.getElementById('currentMapLink');
                     const imgSrc = c.image || c.imageUrl; // Base64 or URL
                     
                     if(imgSrc) {
-                        link.href = imgSrc;
-                        link.style.display = "inline";
-                        link.textContent = "登録済み画像を表示";
+                        // ★修正: リンクではなくimgタグで直接表示
+                        previewArea.innerHTML = `<img src="${imgSrc}" style="max-width:100%; max-height:300px; display:block; margin:0 auto;">`;
                     } else {
-                        link.style.display = "none";
+                        previewArea.innerHTML = '<span style="color:#888;">画像未登録</span>';
                     }
                 }
             } else {
@@ -2236,7 +2235,7 @@ async function loadCampusMapInfo() {
                 if(infoArea) {
                     infoArea.style.display = 'block';
                     document.getElementById('currentMapText').textContent = "未設定";
-                    document.getElementById('currentMapLink').style.display = "none";
+                    previewArea.innerHTML = '<span style="color:#888;">設定なし</span>';
                 }
             }
         }

@@ -11,7 +11,6 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
     
     <style>
-        /* マップ専用スタイル: スクロールを禁止し、Canvasを全画面表示 */
         body { overflow: hidden; touch-action: none; margin: 0; padding: 0; background-color: #f0f0f0; }
         
         #mapContainer {
@@ -21,30 +20,55 @@
             overflow: hidden;
         }
         
-        /* コントロールエリア (キャンパス選択など) */
+        /* コントロールエリア */
+        /* pointer-events: none を削除し、配置で工夫する */
         .map-controls {
             position: absolute;
-            bottom: 90px; /* ナビゲーションバーの高さ分空ける */
-            left: 10px; right: 10px;
-            z-index: 10;
+            bottom: 90px;
+            left: 0; 
+            width: 100%;
+            z-index: 100; /* Z-Indexを高く */
             display: flex;
             flex-direction: column;
+            align-items: center; /* 中央寄せ */
             gap: 10px;
-            pointer-events: none; /* ボタン以外は地図操作を邪魔しないように */
+            padding: 0 10px;
+            box-sizing: border-box;
         }
         
         .control-item {
-            pointer-events: auto;
+            /* 確実に押せるようにスタイル強化 */
+            width: 100%;
+            max-width: 400px;
             background: rgba(255, 255, 255, 0.95);
             border: 1px solid #ccc;
-            padding: 8px 15px;
+            padding: 10px 15px; /* タップ領域を広げる */
             border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            font-size: 0.9em;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            font-size: 16px; /* モバイルでズームされないサイズ */
+            appearance: none; /* OS標準のスタイルをリセット */
+            -webkit-appearance: none;
+            cursor: pointer;
+        }
+        
+        /* プルダウンの矢印を自前で表示 (appearance:none対策) */
+        select.control-item {
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23007CB2%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat;
+            background-position: right .7em top 50%;
+            background-size: .65em auto;
+        }
+
+        .gps-btn-container {
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            justify-content: flex-end; /* 右寄せ */
+            pointer-events: none; /* コンテナはクリックを通す */
         }
 
         .gps-btn {
-            align-self: flex-end; /* 右寄せ */
+            pointer-events: auto; /* ボタンはクリック可 */
             border-radius: 50%;
             width: 50px; height: 50px;
             padding: 0;
@@ -52,7 +76,8 @@
             font-size: 1.5em;
             background: white;
             color: #007bff;
-            border: none;
+            border: 1px solid #ccc;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
             cursor: pointer;
         }
     </style>
@@ -64,13 +89,13 @@
     </div>
 
     <div class="map-controls">
-        <select id="mapCampusSelect" class="control-item form-control" onchange="changeMapCampus()">
+        <div class="gps-btn-container">
+            <button class="gps-btn" onclick="centerToCurrentLocation()" title="現在地を表示">📍</button>
+        </div>
+        
+        <select id="mapCampusSelect" class="control-item" onchange="changeMapCampus()">
             <option value="">キャンパスを読み込み中...</option>
         </select>
-        
-        <button class="control-item gps-btn" onclick="centerToCurrentLocation()" title="現在地を表示">
-            📍
-        </button>
     </div>
 
     <script src="../pre_JS/pre_common.js"></script>
