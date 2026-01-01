@@ -33,15 +33,19 @@ function resizeCanvas() {
     mapCanvas.height = window.innerHeight;
 }
 
-// --- キャンパスデータ読み込み ---
+// --- キャンパスデータ読み込み (修正版: orderBy削除) ---
 async function loadMapCampuses() {
     const select = document.getElementById('mapCampusSelect');
     if(!select) return;
     select.innerHTML = '<option value="">キャンパスを選択...</option>';
 
     try {
+        // ★修正: orderBy('order') を削除 (フィールド欠損対策)
         const snap = await db.collection('campuses').get();
-        if(snap.empty) return;
+        if(snap.empty) {
+            select.innerHTML = '<option value="">キャンパスがありません</option>';
+            return;
+        }
         
         // order順に並び替え
         const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -78,6 +82,7 @@ async function loadCampusMapData(cid) {
         if(!doc.exists) return;
         
         const data = doc.data();
+        // image (Base64) or imageUrl (Old URL)
         const mapSrc = (data.mapConfig) ? (data.mapConfig.image || data.mapConfig.imageUrl) : null;
 
         if(mapSrc) {
@@ -142,6 +147,8 @@ function drawMap() {
     mapCtx.scale(mapScale, mapScale);
     mapCtx.drawImage(mapImage, 0, 0);
 
+    let isInside = false;
+
     // --- 現在地ピンの描画判定 ---
     if (currentUserPos && currentMapConfig) {
         const pixel = geoToPixel(
@@ -152,13 +159,12 @@ function drawMap() {
         
         if (pixel) {
             // 範囲判定: 画像領域 + 15%余白
-            // 画像上の座標(0,0)から見て、-15% ～ 115% の範囲内なら「範囲内」とする
             const minX = -mapImage.width * MARGIN_RATIO;
             const maxX = mapImage.width * (1 + MARGIN_RATIO);
             const minY = -mapImage.height * MARGIN_RATIO;
             const maxY = mapImage.height * (1 + MARGIN_RATIO);
 
-            const isInside = (pixel.x >= minX && pixel.x <= maxX && pixel.y >= minY && pixel.y <= maxY);
+            isInside = (pixel.x >= minX && pixel.x <= maxX && pixel.y >= minY && pixel.y <= maxY);
 
             if (isInside) {
                 // 範囲内: ピンを描画 (逆スケールでサイズ維持)
@@ -172,31 +178,26 @@ function drawMap() {
                 mapCtx.lineWidth = lineWidth;
                 mapCtx.strokeStyle = "white";
                 mapCtx.stroke();
-            } else {
-                // 範囲外: ここでは何も描画せず、restore後にメッセージを出す
             }
-
-            // 範囲外フラグを一時保存して外で使うためにctx.restore()後に処理してもよいが、
-            // ここで分岐終了。
-            mapCtx.restore();
-
-            // 範囲外メッセージの描画 (Canvas座標系で描くため restore後に行う)
-            if (!isInside) {
-                mapCtx.save();
-                mapCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
-                mapCtx.fillRect(0, mapCanvas.height - 150, mapCanvas.width, 40);
-                
-                mapCtx.fillStyle = "white";
-                mapCtx.font = "bold 16px sans-serif";
-                mapCtx.textAlign = "center";
-                mapCtx.textBaseline = "middle";
-                mapCtx.fillText("現在地はマップ範囲外です", mapCanvas.width / 2, mapCanvas.height - 130);
-                mapCtx.restore();
-            }
-        } else {
-            mapCtx.restore();
         }
-    } else {
+    }
+    
+    mapCtx.restore();
+
+    // --- 範囲外メッセージの描画 (画面上部) ---
+    // currentUserPosがあるのに、範囲内(isInside)でない場合はメッセージを表示
+    if (currentUserPos && currentMapConfig && !isInside) {
+        mapCtx.save();
+        // 背景の黒帯 (上部固定)
+        mapCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        mapCtx.fillRect(0, 0, mapCanvas.width, 60); // 高さは適宜調整
+        
+        // テキスト
+        mapCtx.fillStyle = "white";
+        mapCtx.font = "bold 16px sans-serif";
+        mapCtx.textAlign = "center";
+        mapCtx.textBaseline = "middle";
+        mapCtx.fillText("現在地はマップ範囲外です", mapCanvas.width / 2, 30);
         mapCtx.restore();
     }
 }
@@ -258,7 +259,6 @@ function centerToCurrentLocation() {
         return;
     }
     
-    // GPSボタン
     const btn = document.querySelector('.gps-btn');
 
     // 連続取得開始 (まだしていなければ)
@@ -285,8 +285,7 @@ function centerToCurrentLocation() {
         );
         alert("GPS追跡を開始しました");
     } else {
-        // すでに取得中なら、再描画だけ行う（位置情報は自動更新されている）
-        // 固定表示モードなので「中心へ移動」などの操作は行わない
+        // すでに取得中なら、再描画だけ行う
         drawMap();
         alert("現在地情報を更新しました");
     }
