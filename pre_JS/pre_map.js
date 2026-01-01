@@ -35,20 +35,31 @@ function resizeCanvas() {
 // --- キャンパスデータ読み込み ---
 async function loadMapCampuses() {
     const select = document.getElementById('mapCampusSelect');
+    if (!select) return; // エレメントがない場合は終了
+    
     select.innerHTML = '<option value="">キャンパスを選択...</option>';
 
     try {
-        const snap = await db.collection('campuses').orderBy('order').get().catch(() => db.collection('campuses').get());
-        if(snap.empty) return;
+        // ★修正: orderBy('order') を削除し、単純な get() に変更
+        // ※ orderフィールドがないドキュメントも取得できるようにするため
+        const snap = await db.collection('campuses').get();
         
+        if(snap.empty) {
+            console.log("キャンパスデータがありません");
+            return;
+        }
+        
+        // orderフィールドがあればそれでソート、なければ登録順(ID順など)
+        const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        docs.sort((a, b) => (a.order || 9999) - (b.order || 9999));
+
         let firstCid = null;
-        snap.forEach(doc => {
-            const d = doc.data();
+        docs.forEach(d => {
             const opt = document.createElement('option');
-            opt.value = doc.id;
+            opt.value = d.id;
             opt.textContent = d.name;
             select.appendChild(opt);
-            if(!firstCid) firstCid = doc.id;
+            if(!firstCid) firstCid = d.id;
         });
         
         // デフォルトキャンパスを選択
@@ -59,7 +70,7 @@ async function loadMapCampuses() {
             select.value = firstCid;
             loadCampusMapData(firstCid);
         }
-    } catch(e) { console.error(e); }
+    } catch(e) { console.error("Campus Load Error:", e); }
 }
 
 async function changeMapCampus() {
