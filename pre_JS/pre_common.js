@@ -277,6 +277,7 @@ function setupCommonAppbar() {
             </div>
         </div>
         <div class="appbar-side">
+            <a href="pre_map.html" class="icon-btn" title="マップ">🗺️</a>
             <a href="pre_index.html" class="icon-btn" title="出席認証">👤</a>
             <a href="pre_settings.html" class="icon-btn" title="設定">
                 <img src="${iconUrl}" class="user-icon-img" onerror="this.src='https://via.placeholder.com/32'">
