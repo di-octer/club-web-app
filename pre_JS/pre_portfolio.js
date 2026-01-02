@@ -83,20 +83,33 @@ async function initPortfolioDetail() {
     try {
         // 1. ユーザー情報取得
         const uDoc = await db.collection('users').doc(uid).get();
-        if (!uDoc.exists) throw new Error("User not found");
-        const user = uDoc.data();
+        // ユーザーデータが存在しない場合は空オブジェクトとして扱う
+        const user = (uDoc.exists && uDoc.data()) ? uDoc.data() : {};
 
+        // 各フィールドの安全な取得 (null/undefined の場合は '-' やデフォルト値を設定)
+        const realName = user.realName || user.displayName || '名称未設定';
+        const discordName = user.discordName || '-';
+        const gitId = user.gitId || '-';
+        const qiitaId = user.qiitaId || '-';
+        
+        // Git URL生成 (gitIdが無い場合は # にする)
         const gitUrl = user.gitId ? `https://github.com/${user.gitId}` : '#';
-        headerContainer.innerHTML = `
-            <h2>${user.realName || user.displayName}</h2>
-            <div class="portfolio-info-row">Discord: ${user.discordName || '-'}</div>
-            <div class="portfolio-info-row">GitHub: ${user.gitId || '-'}</div>
-            <div class="portfolio-info-row">Repo: <a href="${gitUrl}" target="_blank">${gitUrl}</a></div>
-            <div class="portfolio-info-row">Qiita: ${user.qiitaId || '-'}</div>
-            <hr>
-        `;
 
-        if (!user.qiitaId) {
+        // headerContainerが存在する場合のみ描画 (nullチェック)
+        if (headerContainer) {
+            headerContainer.innerHTML = `
+                <h2>${realName}</h2>
+                <div class="portfolio-info-row">Discord: ${discordName}</div>
+                <div class="portfolio-info-row">GitHub: ${gitId}</div>
+                <div class="portfolio-info-row">Repo: <a href="${gitUrl}" target="_blank">${gitUrl}</a></div>
+                <div class="portfolio-info-row">Qiita: ${qiitaId}</div>
+                <hr>
+            `;
+        }
+
+        // 記事コンテナが無い、またはQiitaIDが無い場合はここで終了
+        if (!articlesContainer) return;
+        if (!qiitaId || qiitaId === '-') {
             articlesContainer.innerHTML = "<p>Qiita IDが設定されていません。</p>";
             return;
         }
@@ -105,27 +118,11 @@ async function initPortfolioDetail() {
         let articles = [];
 
         // =========================================================================
-        // 【プラン変更待ち】 バックエンド版 (コメントアウト中)
-        // =========================================================================
-        /*
-        try {
-            const getArticles = firebase.functions().httpsCallable('getPortfolioArticles');
-            const result = await getArticles({ qiitaId: user.qiitaId });
-            articles = result.data;
-            if (articles.error) throw new Error(articles.error);
-        } catch(e) {
-            console.error("Backend Error:", e);
-            articlesContainer.innerHTML = `<p style="color:red;">記事取得エラー(Backend)</p>`;
-            return;
-        }
-        */
-
-        // =========================================================================
         // 【暫定対応】 フロントエンド版 (プロキシ経由 - 公開記事のみ)
         // =========================================================================
         try {
             // 公開記事のみ取得 (Team記事は取得不可)
-            const targetUrl = `https://qiita.com/api/v2/items?query=user:${user.qiitaId}&per_page=20`;
+            const targetUrl = `https://qiita.com/api/v2/items?query=user:${qiitaId}&per_page=20`;
             const data = await fetchWithProxy(targetUrl); // pre_home.jsの関数を利用
             
             if (Array.isArray(data)) {
@@ -137,7 +134,9 @@ async function initPortfolioDetail() {
                     body: item.rendered_body || item.body 
                 }));
             } else {
-                throw new Error("Data format error");
+                // 配列以外が返ってきた場合はエラーとみなすか、空配列にする
+                console.warn("Qiita API response is not an array:", data);
+                articles = [];
             }
         } catch(e) {
             console.error("Frontend Error:", e);
@@ -159,7 +158,10 @@ async function initPortfolioDetail() {
 
     } catch(e) {
         console.error(e);
-        document.body.innerHTML = `<div class="container"><p>エラーが発生しました: ${e.message}</p><a href="pre_portfolio.html">戻る</a></div>`;
+        // エラー発生時も画面が真っ白にならないようメッセージを表示
+        if (document.body) {
+            document.body.innerHTML = `<div class="container"><p>エラーが発生しました: ${e.message}</p><a href="pre_portfolio.html">戻る</a></div>`;
+        }
     }
 }
 
