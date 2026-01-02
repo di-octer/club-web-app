@@ -21,6 +21,10 @@ let isLoggingIn = false;
 let isLateAuth = false;
 
 window.onload = async () => {
+    // ★改善: ページ読み込み直後にヘッダーを描画 (Firebase待機なし)
+    // キャッシュを使って枠組みとアイコンを即座に表示し、ガタつきを防止
+    setupCommonAppbar();
+
     const path = window.location.pathname;
     const isLoginPage = path.includes('pre_login.html');
     const bodyId = document.body.id;
@@ -34,13 +38,10 @@ window.onload = async () => {
         if (user) {
             console.log("Logged in:", user.displayName);
 
-            // ★追加: Discord ID (Username) の取得と保存
-            // Discordログインの場合、providerDataに情報が含まれます
             const discordProfile = user.providerData.find(p => p.providerId.includes('discord'));
             if (discordProfile) {
                 const discordName = discordProfile.displayName; 
                 if (discordName) {
-                    // Firestoreに保存 (既存データを上書きしないよう merge: true)
                     db.collection('users').doc(user.uid).set({
                         discordName: discordName
                     }, { merge: true }).catch(err => console.error("Discord info save error:", err));
@@ -49,13 +50,14 @@ window.onload = async () => {
 
             if (isLoginPage && !isLoggingIn) window.location.href = 'pre_home.html';
             
-            // ユーザー設定読み込み待機
+            // ユーザー設定読み込み
             await loadUserSettings(user.uid);
             await checkGradePromotion(user.uid);
             updateUserDisplay(user);
             
+            // ログイン確認後に再度ヘッダー更新 (アイコン更新やキャンパス名更新のため)
             if (!isLoginPage){
-                setupCommonAppbar();
+                setupCommonAppbar(); 
                 updateAppbarStatus();
                 setInterval(updateAppbarStatus, 60000);
             }
@@ -81,13 +83,10 @@ window.onload = async () => {
     } else if (bodyId === 'page-settings') {
         if(typeof initSettingsPage === 'function') initSettingsPage();
     } else if (bodyId === 'page-calendar') {
-        // ★追加: ユーザーカレンダー画面用
         if(typeof initUserCalendarPage === 'function') initUserCalendarPage();
     } else if (bodyId === 'page-portfolio') {
-        // ★追加: ポートフォリオ一覧画面用
         if(typeof initPortfolioList === 'function') initPortfolioList();
     } else if (bodyId === 'page-portfolio-detail') {
-        // ★追加: ポートフォリオ詳細画面用
         if(typeof initPortfolioDetail === 'function') initPortfolioDetail();
     }
 };
@@ -95,7 +94,15 @@ window.onload = async () => {
 async function loadUserSettings(uid) {
     try {
         const doc = await db.collection('users').doc(uid).get();
-        if (doc.exists) userSettings = doc.data();
+        if (doc.exists) {
+            userSettings = doc.data();
+            // ★改善: アイコンURLをキャッシュに保存
+            if (userSettings.customIcon) {
+                localStorage.setItem('app_cache_icon', userSettings.customIcon);
+            } else if (currentUser && currentUser.photoURL) {
+                localStorage.setItem('app_cache_icon', currentUser.photoURL);
+            }
+        }
     } catch(e) { console.error("Settings load error:", e); }
 }
 
@@ -174,17 +181,30 @@ function loginWithDiscord() {
 
 function logoutUser() {
     if(confirm("ログアウトしますか？")) {
+        // ログアウト時にキャッシュクリアも検討できますが、利便性のため残します
         auth.signOut().then(() => window.location.href = 'pre_login.html');
     }
 }
 
+// ★修正: キャッシュ利用・即時描画・管理者ページ分岐
 function setupCommonAppbar() {
     const existing = document.querySelector('header');
     if(existing) existing.remove();
 
+    // 1. アイコン画像の決定 (キャッシュ -> 現在のデータ -> プレースホルダー)
+    const cachedIcon = localStorage.getItem('app_cache_icon');
     let iconUrl = "https://via.placeholder.com/36?text=U";
-    if (userSettings && userSettings.customIcon) iconUrl = userSettings.customIcon;
-    else if (currentUser && currentUser.photoURL) iconUrl = currentUser.photoURL;
+    
+    if (userSettings && userSettings.customIcon) {
+        iconUrl = userSettings.customIcon;
+    } else if (currentUser && currentUser.photoURL) {
+        iconUrl = currentUser.photoURL;
+    } else if (cachedIcon) {
+        iconUrl = cachedIcon; // キャッシュがあればそれを使う
+    }
+
+    // 2. ページ判定 (管理者ページかどうか)
+    const isAdminPage = (document.body.id === 'page-admin');
 
     const style = document.createElement('style');
     style.innerHTML = `
@@ -196,9 +216,8 @@ function setupCommonAppbar() {
             z-index: 9999; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
             padding: 0 10px; box-sizing: border-box;
         }
-        .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; }
+        .appbar-side { display: flex; gap: 10px; flex: 0 0 auto; align-items: center; min-width: 40px; }
         
-        /* 中央グループ: 伸縮可能にする */
         .appbar-info-group {
             display: flex; align-items: center; justify-content: flex-start;
             background: rgba(0, 0, 0, 0.4);
@@ -206,37 +225,25 @@ function setupCommonAppbar() {
             cursor: pointer; flex: 1; 
             margin: 0 10px; max-width: 600px;
         }
-        
-        /* 左側: キャンパス名 (固定) */
         .appbar-campus {
             font-weight: bold; padding: 0 10px; white-space: nowrap; 
             font-size: 0.85em; color: #fff; background: transparent;
             border-right: 1px solid rgba(255,255,255,0.3); flex: 0 0 auto;
             max-width: 45%; overflow: hidden; text-overflow: ellipsis;
         }
-        
-        /* 右側: 流れるエリアのコンテナ */
         .appbar-center {
             flex: 1; background: transparent; height: 100%;
             display: flex; align-items: center; color: #fff; font-size: 0.9em; 
             font-weight: bold; overflow: hidden; position: relative;
         }
-
-        /* 静的表示用 */
         .status-static { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 5px; }
         
-        /* --- シームレスループ用アニメーション --- */
         .marquee-track {
             display: flex;
             white-space: nowrap;
-            /* 要素幅の半分(50%)だけ移動してリセットすることで無限ループに見せる */
             animation: marquee-infinite 20s linear infinite; 
         }
-        .marquee-item {
-            flex-shrink: 0;
-            padding: 0;
-        }
-        
+        .marquee-item { flex-shrink: 0; padding: 0; }
         @keyframes marquee-infinite {
             0% { transform: translateX(0); }
             100% { transform: translateX(-50%); }
@@ -263,12 +270,38 @@ function setupCommonAppbar() {
     `;
     document.head.appendChild(style);
 
+    // 3. 表示項目の出し分け
+    let leftSideHTML = '';
+    let rightSideHTML = '';
+
+    if (isAdminPage) {
+        // 管理者ページ: 左は空、右は設定アイコンのみ
+        leftSideHTML = ``; // 空
+        rightSideHTML = `
+            <a href="pre_settings.html" class="icon-btn" title="設定">
+                <img src="${iconUrl}" class="user-icon-img" onerror="this.src='https://via.placeholder.com/32'">
+            </a>
+        `;
+    } else {
+        // 通常ページ: フルセット
+        leftSideHTML = `
+            <a href="pre_home.html" class="icon-btn" title="ホーム">🏠</a>
+            <a href="pre_curriculum.html" class="icon-btn" title="カリキュラム">✏️</a>
+        `;
+        rightSideHTML = `
+            <a href="pre_map.html" class="icon-btn" title="マップ">🗺️</a>
+            <a href="pre_index.html" class="icon-btn" title="出席認証">👤</a>
+            <a href="pre_settings.html" class="icon-btn" title="設定">
+                <img src="${iconUrl}" class="user-icon-img" onerror="this.src='https://via.placeholder.com/32'">
+            </a>
+        `;
+    }
+
     const header = document.createElement('header');
     header.className = 'appbar-fixed';
     header.innerHTML = `
         <div class="appbar-side">
-            <a href="pre_home.html" class="icon-btn" title="ホーム">🏠</a>
-            <a href="pre_curriculum.html" class="icon-btn" title="カリキュラム">✏️</a>
+            ${leftSideHTML}
         </div>
         <div class="appbar-info-group" onclick="toggleStatusModal()">
             <div id="appbarCampus" class="appbar-campus"></div>
@@ -277,11 +310,7 @@ function setupCommonAppbar() {
             </div>
         </div>
         <div class="appbar-side">
-            <a href="pre_map.html" class="icon-btn" title="マップ">🗺️</a>
-            <a href="pre_index.html" class="icon-btn" title="出席認証">👤</a>
-            <a href="pre_settings.html" class="icon-btn" title="設定">
-                <img src="${iconUrl}" class="user-icon-img" onerror="this.src='https://via.placeholder.com/32'">
-            </a>
+            ${rightSideHTML}
         </div>
     `;
     document.body.prepend(header);
@@ -338,23 +367,12 @@ async function updateAppbarStatus() {
                 if (targetAreas.length === 0) {
                     statusEl.innerHTML = '<div class="status-static">エリア外</div>';
                 } else {
-                    // ★修正: 指定された空白ルールで文字列を作成
-                    // 1. 場所間は全角スペース3個
                     const separator = "　　　";
-                    // 2. ループ間(最後と最初)は全角スペース5個
                     const loopSpacer = "　　　　　";
-
                     const namesStr = targetAreas.map(a => `📍${a.name}`).join(separator);
-                    
-                    // ユニットを作成: [場所1　　　場所2　　　　　]
                     const unitText = namesStr + loopSpacer;
-
-                    // 画面幅が広くても埋まるように、ユニット自体をある程度(例:4回)繰り返して1ブロックとする
-                    // これで "短いテキストだとスカスカになる" 問題を防ぐ
                     const blockText = unitText.repeat(4);
 
-                    // シームレスループのために、同じブロックを2つ並べる
-                    // CSSで translateX(-50%) することで、2個目のブロックが1個目の位置に来た瞬間にリセットされる
                     const html = `
                         <div class="marquee-track">
                             <span class="marquee-item">${blockText}</span>
@@ -500,11 +518,9 @@ async function toggleStatusModal() {
     const overlay = document.getElementById('modalOverlay');
     if (!modal || !overlay) return;
 
-    // 現在の表示状態を確認
     const isHidden = modal.style.display === 'none' || modal.style.display === '';
 
     if (isHidden) {
-        // --- 開く処理 ---
         modal.style.display = 'block';
         overlay.style.display = 'block';
 
@@ -517,16 +533,11 @@ async function toggleStatusModal() {
                 let activeCount = 0;
                 const now = new Date();
 
-                // 全キャンパスを走査
                 for (const campus of registeredCampuses) {
-                    // 時間チェック
                     const status = await checkActivityTimeStatus(now, campus.id);
                     
-                    // 活動時間内であればエリアを確認
                     if (status.status !== 'out') {
                         const areas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
-                        
-                        // アクティブなエリアがあればリストに追加
                         if (areas.length > 0) {
                             areas.forEach(area => {
                                 activeCount++;
@@ -557,7 +568,6 @@ async function toggleStatusModal() {
         }
 
     } else {
-        // --- 閉じる処理 ---
         modal.style.display = 'none';
         overlay.style.display = 'none';
     }
@@ -565,14 +575,11 @@ async function toggleStatusModal() {
 
 // --- 顔認識モデル読み込み (共通関数) ---
 async function loadModels() {
-    // ★修正: アップロードされたローカルのmodelsフォルダを参照
     const MODEL_URL = '../models'; 
-    
     try {
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
         await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
         await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        // console.log("Models loaded from local");
     } catch(e) { 
         console.error("Model Load Error:", e);
         alert("モデルの読み込みに失敗しました。\nmodelsフォルダが配置されているか確認してください。");
