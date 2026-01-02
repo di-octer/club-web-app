@@ -71,6 +71,8 @@ function createPortfolioCard(user, uid) {
 async function initPortfolioDetail() {
     const params = new URLSearchParams(window.location.search);
     const uid = params.get('uid');
+    
+    // ユーザーIDがない場合は一覧に戻す
     if (!uid) {
         alert("ユーザーが指定されていません");
         window.location.href = 'pre_portfolio.html';
@@ -83,34 +85,36 @@ async function initPortfolioDetail() {
     try {
         // 1. ユーザー情報取得
         const uDoc = await db.collection('users').doc(uid).get();
-        // ユーザーデータが存在しない場合は空オブジェクトとして扱う
+        // ドキュメントが存在しない場合でも空オブジェクトとして処理を続行させる
         const user = (uDoc.exists && uDoc.data()) ? uDoc.data() : {};
 
-        // 各フィールドの安全な取得 (null/undefined の場合は '-' やデフォルト値を設定)
+        // 各項目の安全な取得 (値がない場合は '-' や '未設定' を表示)
         const realName = user.realName || user.displayName || '名称未設定';
         const discordName = user.discordName || '-';
         const gitId = user.gitId || '-';
         const qiitaId = user.qiitaId || '-';
         
-        // Git URL生成 (gitIdが無い場合は # にする)
-        const gitUrl = user.gitId ? `https://github.com/${user.gitId}` : '#';
+        // Git URL生成 (gitIdが無い場合はリンク無効化)
+        const gitUrl = (user.gitId && user.gitId !== '-') ? `https://github.com/${user.gitId}` : '#';
+        const repoUrlDisplay = (gitUrl !== '#') ? `<a href="${gitUrl}" target="_blank">${gitUrl}</a>` : '-';
 
-        // headerContainerが存在する場合のみ描画 (nullチェック)
+        // ヘッダー描画 (要素が存在する場合のみ)
         if (headerContainer) {
             headerContainer.innerHTML = `
-                <h2>${realName}</h2>
-                <div class="portfolio-info-row">Discord: ${discordName}</div>
-                <div class="portfolio-info-row">GitHub: ${gitId}</div>
-                <div class="portfolio-info-row">Repo: <a href="${gitUrl}" target="_blank">${gitUrl}</a></div>
-                <div class="portfolio-info-row">Qiita: ${qiitaId}</div>
-                <hr>
+                <h2 style="margin-top:0;">${realName}</h2>
+                <div class="portfolio-info-row"><strong>Discord:</strong> ${discordName}</div>
+                <div class="portfolio-info-row"><strong>GitHub:</strong> ${gitId}</div>
+                <div class="portfolio-info-row"><strong>Repo:</strong> ${repoUrlDisplay}</div>
+                <div class="portfolio-info-row"><strong>Qiita:</strong> ${qiitaId}</div>
             `;
         }
 
-        // 記事コンテナが無い、またはQiitaIDが無い場合はここで終了
+        // 記事コンテナが無い場合はここで終了
         if (!articlesContainer) return;
+
+        // Qiita IDがない場合
         if (!qiitaId || qiitaId === '-') {
-            articlesContainer.innerHTML = "<p>Qiita IDが設定されていません。</p>";
+            articlesContainer.innerHTML = "<p>Qiita IDが設定されていないため、記事を表示できません。</p>";
             return;
         }
 
@@ -121,32 +125,29 @@ async function initPortfolioDetail() {
         // 【暫定対応】 フロントエンド版 (プロキシ経由 - 公開記事のみ)
         // =========================================================================
         try {
-            // 公開記事のみ取得 (Team記事は取得不可)
             const targetUrl = `https://qiita.com/api/v2/items?query=user:${qiitaId}&per_page=20`;
-            const data = await fetchWithProxy(targetUrl); // pre_home.jsの関数を利用
+            const data = await fetchWithProxy(targetUrl); // pre_common.jsの関数
             
             if (Array.isArray(data)) {
                 articles = data.map(item => ({
                     title: item.title,
                     url: item.url,
                     created_at: item.created_at,
-                    // rendered_bodyがあればそれを使う、なければbody(Markdown)
-                    body: item.rendered_body || item.body 
+                    body: item.rendered_body || item.body || ''
                 }));
             } else {
-                // 配列以外が返ってきた場合はエラーとみなすか、空配列にする
-                console.warn("Qiita API response is not an array:", data);
+                console.warn("Qiita API response invalid:", data);
                 articles = [];
             }
         } catch(e) {
             console.error("Frontend Error:", e);
-            articlesContainer.innerHTML = `<p style="color:red;">記事を取得できませんでした(API制限の可能性あり)</p>`;
+            articlesContainer.innerHTML = `<p style="color:red;">記事の取得に失敗しました (API制限または通信エラー)</p>`;
             return;
         }
         // =========================================================================
 
         if (!articles || articles.length === 0) {
-            articlesContainer.innerHTML = "<p>公開記事がありません。</p>";
+            articlesContainer.innerHTML = "<p>公開記事が見つかりませんでした。</p>";
             return;
         }
 
@@ -158,9 +159,13 @@ async function initPortfolioDetail() {
 
     } catch(e) {
         console.error(e);
-        // エラー発生時も画面が真っ白にならないようメッセージを表示
+        // エラー時も画面を真っ白にせずメッセージを表示
         if (document.body) {
-            document.body.innerHTML = `<div class="container"><p>エラーが発生しました: ${e.message}</p><a href="pre_portfolio.html">戻る</a></div>`;
+            const msgDiv = document.createElement('div');
+            msgDiv.style.padding = "20px";
+            msgDiv.style.color = "red";
+            msgDiv.innerHTML = `<p>予期せぬエラーが発生しました: ${e.message}</p><a href="pre_portfolio.html">一覧に戻る</a>`;
+            document.body.prepend(msgDiv);
         }
     }
 }

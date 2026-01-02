@@ -3,22 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ポートフォリオ詳細</title>
+    <title>ポートフォリオ詳細 | 統合アプリ</title>
     <link rel="stylesheet" href="pre_style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 </head>
 <body id="page-portfolio-detail">
-    <div class="container" id="detailContainer"></div>
 
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
-    
+    <main class="content" style="padding-top: 80px; padding-bottom: 40px;">
+        <div style="max-width: 800px; margin: 0 auto; padding: 0 15px;">
+            
+            <div id="userHeader" class="portfolio-header-card" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                <p style="text-align:center; color:#666;">ユーザー情報を読み込み中...</p>
+            </div>
+
+            <h3 style="margin-bottom: 15px; border-left: 5px solid #007bff; padding-left: 10px;">Qiita記事一覧</h3>
+            <div id="articlesList" class="articles-list">
+                </div>
+
+            <div style="margin-top: 30px; text-align: center;">
+                <button onclick="location.href='pre_portfolio.html'" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                    一覧に戻る
+                </button>
+            </div>
+        </div>
+    </main>
+
     <script src="../pre_JS/pre_common.js"></script>
-    <script src="../pre_JS/pre_home.js"></script> <script src="../pre_JS/pre_portfolio.js"></script>
-    <script>
-        window.addEventListener('load', () => {
-            initPortfolioDetail();
-        });
-    </script>
+    <script src="../pre_JS/pre_portfolio.js"></script>
 </body>
 </html>
