@@ -10,6 +10,8 @@ const MARGIN_RATIO = 0.15;
 // 現在地追跡用
 let watchId = null;
 let currentUserPos = null; // {lat, lon, accuracy}
+let gpsStatus = 'init'; // 'init' | 'searching' | 'ok' | 'error'
+let gpsErrorMessage = "";
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Canvas初期化
@@ -33,14 +35,14 @@ function resizeCanvas() {
     mapCanvas.height = window.innerHeight;
 }
 
-// --- キャンパスデータ読み込み (修正版: orderBy削除) ---
+// --- キャンパスデータ読み込み ---
 async function loadMapCampuses() {
     const select = document.getElementById('mapCampusSelect');
     if(!select) return;
     select.innerHTML = '<option value="">キャンパスを選択...</option>';
 
     try {
-        // ★修正: orderBy('order') を削除 (フィールド欠損対策)
+        // orderBy削除（全件取得）
         const snap = await db.collection('campuses').get();
         if(snap.empty) {
             select.innerHTML = '<option value="">キャンパスがありません</option>';
@@ -82,7 +84,6 @@ async function loadCampusMapData(cid) {
         if(!doc.exists) return;
         
         const data = doc.data();
-        // image (Base64) or imageUrl (Old URL)
         const mapSrc = (data.mapConfig) ? (data.mapConfig.image || data.mapConfig.imageUrl) : null;
 
         if(mapSrc) {
@@ -90,7 +91,7 @@ async function loadCampusMapData(cid) {
             
             mapImage = new Image();
             mapImage.onload = () => {
-                fitMapToScreen(); // 画像ロード後に固定表示計算
+                fitMapToScreen(); 
                 drawMap();
             };
             mapImage.src = mapSrc;
@@ -108,17 +109,16 @@ async function loadCampusMapData(cid) {
 function fitMapToScreen() {
     if(!mapImage) return;
 
-    // 画像サイズに15%ずつの余白を加えた「表示したい全体サイズ」を定義
-    // 幅: ImageW + (ImageW * 0.15 * 2) = ImageW * 1.3
+    // 画像サイズ + 15%余白
     const visibleW = mapImage.width * (1 + MARGIN_RATIO * 2);
     const visibleH = mapImage.height * (1 + MARGIN_RATIO * 2);
 
-    // 画面(Canvas)に収まる倍率を計算 (Contain)
+    // 画面に収まる倍率 (Contain)
     const scaleW = mapCanvas.width / visibleW;
     const scaleH = mapCanvas.height / visibleH;
     mapScale = Math.min(scaleW, scaleH); 
     
-    // 画像が画面中央に来るようにオフセットを設定 (ドラッグ不可なので固定)
+    // 画像を画面中央に固定配置
     mapOffsetX = (mapCanvas.width - mapImage.width * mapScale) / 2;
     mapOffsetY = (mapCanvas.height - mapImage.height * mapScale) / 2;
 }
@@ -132,17 +132,13 @@ function drawMap() {
     mapCtx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
 
     if(!mapImage) {
-        mapCtx.fillStyle = "#666";
-        mapCtx.font = "16px sans-serif";
-        mapCtx.textAlign = "center";
-        mapCtx.fillText("マップ画像なし", mapCanvas.width/2, mapCanvas.height/2);
+        drawMessage("マップ画像なし", "black");
         return;
     }
 
     mapCtx.save();
     
     // --- 地図画像の描画 ---
-    // オフセットとスケールを適用
     mapCtx.translate(mapOffsetX, mapOffsetY);
     mapCtx.scale(mapScale, mapScale);
     mapCtx.drawImage(mapImage, 0, 0);
@@ -150,7 +146,7 @@ function drawMap() {
     let isInside = false;
 
     // --- 現在地ピンの描画判定 ---
-    if (currentUserPos && currentMapConfig) {
+    if (gpsStatus === 'ok' && currentUserPos && currentMapConfig) {
         const pixel = geoToPixel(
             currentUserPos.lat, 
             currentUserPos.lon, 
@@ -164,45 +160,57 @@ function drawMap() {
             const minY = -mapImage.height * MARGIN_RATIO;
             const maxY = mapImage.height * (1 + MARGIN_RATIO);
 
-            isInside = (pixel.x >= minX && pixel.x <= maxX && pixel.y >= minY && pixel.y <= maxY);
+            // 有限数値かつ範囲内かチェック
+            if (isFinite(pixel.x) && isFinite(pixel.y)) {
+                isInside = (pixel.x >= minX && pixel.x <= maxX && pixel.y >= minY && pixel.y <= maxY);
 
-            if (isInside) {
-                // 範囲内: ピンを描画 (逆スケールでサイズ維持)
-                const pinRadius = 15 / mapScale;
-                const lineWidth = 3 / mapScale;
+                if (isInside) {
+                    // ピンを描画 (サイズ一定)
+                    const pinRadius = 15 / mapScale;
+                    const lineWidth = 3 / mapScale;
 
-                mapCtx.beginPath();
-                mapCtx.arc(pixel.x, pixel.y, pinRadius, 0, Math.PI * 2); 
-                mapCtx.fillStyle = "rgba(0, 123, 255, 0.9)"; // 青
-                mapCtx.fill();
-                mapCtx.lineWidth = lineWidth;
-                mapCtx.strokeStyle = "white";
-                mapCtx.stroke();
+                    mapCtx.beginPath();
+                    mapCtx.arc(pixel.x, pixel.y, pinRadius, 0, Math.PI * 2); 
+                    mapCtx.fillStyle = "rgba(0, 123, 255, 0.9)"; // 青
+                    mapCtx.fill();
+                    mapCtx.lineWidth = lineWidth;
+                    mapCtx.strokeStyle = "white";
+                    mapCtx.stroke();
+                }
             }
         }
     }
     
     mapCtx.restore();
 
-    // --- 範囲外メッセージの描画 (画面上部) ---
-    // currentUserPosがあるのに、範囲内(isInside)でない場合はメッセージを表示
-    if (currentUserPos && currentMapConfig && !isInside) {
-        mapCtx.save();
-        // 背景の黒帯 (上部固定)
-        mapCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        mapCtx.fillRect(0, 0, mapCanvas.width, 60); // 高さは適宜調整
-        
-        // テキスト
-        mapCtx.fillStyle = "white";
-        mapCtx.font = "bold 16px sans-serif";
-        mapCtx.textAlign = "center";
-        mapCtx.textBaseline = "middle";
-        mapCtx.fillText("現在地はマップ範囲外です", mapCanvas.width / 2, 30);
-        mapCtx.restore();
+    // --- ステータス・メッセージ表示 (画面上部) ---
+    if (gpsStatus === 'searching') {
+        drawMessage("現在地を取得中...", "#007bff");
+    } else if (gpsStatus === 'error') {
+        drawMessage(gpsErrorMessage || "位置情報の取得に失敗", "#dc3545");
+    } else if (gpsStatus === 'ok') {
+        // 取得できているが範囲外の場合
+        if (!isInside && currentUserPos) {
+            drawMessage("現在地はマップ範囲外です", "rgba(0, 0, 0, 0.7)");
+        }
     }
 }
 
-// --- 座標変換ロジック (LatLon -> Pixel) ---
+// ヘルパー: 上部メッセージ描画
+function drawMessage(text, bgColor) {
+    mapCtx.save();
+    mapCtx.fillStyle = bgColor;
+    mapCtx.fillRect(0, 0, mapCanvas.width, 50); // 上部バー
+    
+    mapCtx.fillStyle = "white";
+    mapCtx.font = "bold 16px sans-serif";
+    mapCtx.textAlign = "center";
+    mapCtx.textBaseline = "middle";
+    mapCtx.fillText(text, mapCanvas.width / 2, 25);
+    mapCtx.restore();
+}
+
+// --- 座標変換ロジック ---
 function geoToPixel(lat, lon, config) {
     if (!config.origin || !config.terminal) return null;
 
@@ -210,11 +218,9 @@ function geoToPixel(lat, lon, config) {
     const term = config.terminal;   
     const rotation = config.rotation || 0; 
     
-    // 画像サイズ
     const imgW = config.imageWidth || (mapImage ? mapImage.width : 1000);
     const imgH = config.imageHeight || (mapImage ? mapImage.height : 1000);
 
-    // ヒュベニの簡易版係数
     const M_PER_LAT = 111319.49;
     const radLat = origin.lat * (Math.PI / 180);
     const M_PER_LON = 111319.49 * Math.cos(radLat);
@@ -237,11 +243,14 @@ function geoToPixel(lat, lon, config) {
     const rot_x_t = dx_t * cos - dy_t * sin;
     const rot_y_t = dx_t * sin + dy_t * cos;
 
-    // スケール計算
-    const scaleX = imgW / Math.abs(rot_x_t);
-    const scaleY = imgH / Math.abs(rot_y_t);
+    // スケール計算 (ゼロ除算対策)
+    const absX = Math.abs(rot_x_t);
+    const absY = Math.abs(rot_y_t);
+    if (absX < 0.1 || absY < 0.1) return null; // 座標設定エラーの可能性
 
-    // ピクセル座標
+    const scaleX = imgW / absX;
+    const scaleY = imgH / absY;
+
     let px = rot_x_u * scaleX;
     let py = -rot_y_u * scaleY; // Y軸反転
 
@@ -260,33 +269,45 @@ function centerToCurrentLocation() {
     }
     
     const btn = document.querySelector('.gps-btn');
-
-    // 連続取得開始 (まだしていなければ)
-    if (!watchId) {
-        if(btn) btn.style.color = "#999"; 
-
-        watchId = navigator.geolocation.watchPosition(
-            (pos) => {
-                currentUserPos = {
-                    lat: pos.coords.latitude,
-                    lon: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy
-                };
-                
-                if(btn) btn.style.color = "#007bff"; 
-                drawMap(); 
-            },
-            (err) => {
-                console.error(err);
-                if(btn) btn.style.color = "red";
-                alert("位置情報の取得に失敗しました");
-            },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
-        alert("GPS追跡を開始しました");
-    } else {
-        // すでに取得中なら、再描画だけ行う
+    
+    // すでに取得中の場合は何もしない（画面更新のみ）
+    if (watchId) {
         drawMap();
-        alert("現在地情報を更新しました");
+        return;
     }
+
+    // 取得開始
+    gpsStatus = 'searching';
+    if(btn) btn.style.color = "#999"; 
+    drawMap(); // ステータス更新のために描画
+
+    watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+            currentUserPos = {
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude,
+                accuracy: pos.coords.accuracy
+            };
+            gpsStatus = 'ok';
+            if(btn) btn.style.color = "#007bff"; 
+            drawMap(); 
+        },
+        (err) => {
+            console.error(err);
+            gpsStatus = 'error';
+            // エラーコードによるメッセージ分岐
+            if (err.code === 1) gpsErrorMessage = "位置情報の利用が許可されていません";
+            else if (err.code === 2) gpsErrorMessage = "位置情報が取得できません";
+            else if (err.code === 3) gpsErrorMessage = "取得がタイムアウトしました";
+            else gpsErrorMessage = "エラーが発生しました";
+
+            if(btn) btn.style.color = "red";
+            drawMap();
+        },
+        { 
+            enableHighAccuracy: true, 
+            timeout: 15000, // タイムアウトを少し長めに設定
+            maximumAge: 0 
+        }
+    );
 }
