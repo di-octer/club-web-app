@@ -1387,7 +1387,9 @@ async function registerCampus() {
     const lat = parseFloat(document.getElementById('campusLat').value);
     const lon = parseFloat(document.getElementById('campusLon').value);
     await db.collection('campuses').add({ name, lat, lon });
-    loadCampuses(); populateInfoLists(); alert("登録しました");
+    await loadCampuses(); // ★awaitを追加
+    populateInfoLists(); 
+    alert("登録しました");
 }
 
 async function registerArea() {
@@ -1396,7 +1398,9 @@ async function registerArea() {
     const lat = parseFloat(document.getElementById('areaLat').value);
     const lon = parseFloat(document.getElementById('areaLon').value);
     await db.collection('gps_areas').doc(name).set({ name, campusId, lat, lon, isActive: false });
-    loadGpsAreas(); populateInfoLists(); alert("登録しました");
+    await loadGpsAreas(); // ★awaitを追加
+    populateInfoLists(); 
+    alert("登録しました");
 }
 
 // --- 修正: 活動場所リスト (details/summary版 + クリック判定修正適用済み) ---
@@ -1606,7 +1610,8 @@ function populateInfoLists() {
 
 async function toggleAreaActive(docId, currentStatus) {
     await db.collection('gps_areas').doc(docId).update({ isActive: !currentStatus });
-    loadGpsAreas(); populateInfoLists();
+    await loadGpsAreas(); // ★awaitを追加
+    populateInfoLists();  // 完了してから描画
 }
 
 function populateFaceList() {
@@ -1814,23 +1819,72 @@ function isCodeMatch(detected, target) {
 }
 
 function drawAdminGuide(ctx, w, h, step) {
-    const refW = 230; const refH = 170;
+    const refW = 230;
+    const refH = 170;
+    
+    // 画面サイズに合わせてスケール計算 
+    // (scanColors関数との整合性を保つため、以前のJSロジックの Math.min を維持しています)
     const scale = Math.min(w / refW, h / refH) * 0.8;
-    const offsetX = (w - refW * scale) / 2; const offsetY = (h - refH * scale) / 2;
+    
+    // 中央配置のためのオフセット
+    const offsetX = (w - refW * scale) / 2;
+    const offsetY = (h - refH * scale) / 2;
+
     const t = (x, y) => ({ x: x * scale + offsetX, y: y * scale + offsetY });
-    ctx.lineWidth = 4; ctx.lineCap = "round";
-    const alpha = step === 0 ? 1.0 : 0.2;
+
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
     
-    // ガイド枠描画 (H型の周辺)
-    ctx.strokeStyle = `rgba(255, 0, 0, ${alpha})`;
-    ctx.beginPath(); let p = t(30, 50); ctx.moveTo(p.x, p.y); p = t(30, 30); ctx.lineTo(p.x, p.y); p = t(50, 30); ctx.lineTo(p.x, p.y); ctx.stroke();
+    // --- 1. 四隅のL字 (赤: 上, 青: 下) ---
     
-    if (step === 0) {
-        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-        const fillRect = (x1,y1,x2,y2) => { const s = t(x1,y1); const e = t(x2,y2); ctx.fillRect(s.x, s.y, e.x - s.x, e.y - s.y); };
-        // H型の透過マスク
-        fillRect(40, 40, 70, 130); fillRect(70, 70, 150, 100); fillRect(150, 40, 180, 130);
-    }
+    // 左上 (赤)
+    ctx.strokeStyle = "red";
+    ctx.beginPath();
+    let p = t(30, 50); ctx.moveTo(p.x, p.y);
+    p = t(30, 30); ctx.lineTo(p.x, p.y);
+    p = t(50, 30); ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // 右上 (赤)
+    ctx.beginPath();
+    p = t(200, 50); ctx.moveTo(p.x, p.y);
+    p = t(200, 30); ctx.lineTo(p.x, p.y);
+    p = t(180, 30); ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // 左下 (青)
+    ctx.strokeStyle = "blue";
+    ctx.beginPath();
+    p = t(30, 120); ctx.moveTo(p.x, p.y);
+    p = t(30, 140); ctx.lineTo(p.x, p.y);
+    p = t(50, 140); ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // 右下 (青)
+    ctx.beginPath();
+    p = t(200, 120); ctx.moveTo(p.x, p.y);
+    p = t(200, 140); ctx.lineTo(p.x, p.y);
+    p = t(180, 140); ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // --- 2. 中央のH型 (白 - 不透明度0.8) ---
+    // Dartコード: Colors.white.withOpacity(0.8) .. style = PaintingStyle.fill
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+
+    const fillRect = (x1, y1, x2, y2) => {
+        const s = t(x1, y1);
+        const e = t(x2, y2);
+        ctx.fillRect(s.x, s.y, e.x - s.x, e.y - s.y);
+    };
+
+    // 左縦棒: x=70~80, y=40~130
+    fillRect(70, 40, 80, 130);
+    
+    // 横棒: x=80~150, y=70~80
+    fillRect(80, 70, 150, 80);
+    
+    // 右縦棒: x=150~160, y=40~130
+    fillRect(150, 40, 160, 130);
 }
 
 function updateMonthlyBaseYear() {}

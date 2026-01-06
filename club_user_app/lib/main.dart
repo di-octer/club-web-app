@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -25,6 +26,11 @@ late FaceVerification _faceService;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  
+  // ★追加: 実機でAPNs設定を省略し、強制的にReCAPTCHA（ブラウザ認証）を行わせる設定
+  // これがないと、証明書未登録の実機では「verification failed」になります
+  await FirebaseAuth.instance.setSettings(appVerificationDisabledForTesting: true);
+
   await FaceVerification.init();
   _faceService = FaceVerification.instance;
   runApp(const UserApp());
@@ -41,7 +47,101 @@ class UserApp extends StatelessWidget {
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF0F2F5),
       ),
-      home: const HomeScreen(),
+      // ★修正: ログイン状態を監視して画面を切り替える
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            // ローディング中
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+          if (snapshot.hasData) {
+            // ログイン済み -> ホーム画面へ
+            return const HomeScreen();
+          }
+          // 未ログイン -> ログイン画面へ
+          return const LoginScreen();
+        },
+      ),
+    );
+  }
+}
+
+// ==========================================
+//   0. ログイン画面 (新規追加)
+// ==========================================
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  bool _isLoading = false;
+
+  Future<void> _handleDiscordLogin() async {
+    setState(() { _isLoading = true; });
+    try {
+      // Discordのプロバイダ設定
+      final provider = OAuthProvider('discord.com');
+      provider.addScope('identify');
+      
+      // Firebase Authの機能を使ってログイン (ブラウザが立ち上がります)
+      await FirebaseAuth.instance.signInWithProvider(provider);
+      
+      // 成功すれば StreamBuilder が反応して自動的に HomeScreen に遷移します
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("ログインエラー: ${e.message}")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("予期せぬエラー: $e")),
+      );
+    } finally {
+      if (mounted) setState(() { _isLoading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.indigo.shade50,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.group_work, size: 80, color: Colors.indigo),
+              const SizedBox(height: 20),
+              const Text(
+                "部活動 統合アプリ",
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.indigo),
+              ),
+              const SizedBox(height: 40),
+              if (_isLoading)
+                const CircularProgressIndicator()
+              else
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.discord, color: Colors.white),
+                    label: const Text("Discordでログイン", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF5865F2), // Discord Brand Color
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: _handleDiscordLogin,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -625,8 +725,40 @@ class PortfolioScreen extends StatelessWidget {
 }
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+  
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("設定")), body: const Center(child: Text("設定機能は準備中です")));
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text("設定")),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (user != null) ...[
+            ListTile(
+              leading: CircleAvatar(
+                backgroundImage: user.photoURL != null ? NetworkImage(user.photoURL!) : null,
+                child: user.photoURL == null ? const Icon(Icons.person) : null,
+              ),
+              title: Text(user.displayName ?? "No Name"),
+              subtitle: Text(user.email ?? "No Email"),
+            ),
+            const Divider(),
+          ],
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text("ログアウト", style: TextStyle(color: Colors.red)),
+            onTap: () async {
+              await FirebaseAuth.instance.signOut();
+              // StreamBuilderが反応してLoginScreenに戻るため、ここでは画面を閉じるだけで良い
+              if (context.mounted) Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ==========================================

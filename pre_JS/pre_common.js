@@ -471,9 +471,12 @@ async function checkActivityTimeStatus(date, campusId) {
 
 async function loadCampuses() {
     try {
-        const snap = await db.collection('campuses').get();
+        const snap = await db.collection('campuses').orderBy('name').get(); 
+        
         registeredCampuses = [];
-        snap.forEach(doc => registeredCampuses.push({ id: doc.id, ...doc.data() }));
+        snap.forEach(doc => {
+            registeredCampuses.push({ id: doc.id, ...doc.data() });
+        });
     } catch(e) { console.error("Campus Load Error:", e); }
 }
 
@@ -481,7 +484,9 @@ async function loadGpsAreas() {
     try {
         const snap = await db.collection('gps_areas').get();
         registeredGpsAreas = [];
-        snap.forEach(doc => registeredGpsAreas.push(doc.data()));
+        snap.forEach(doc => {
+            registeredGpsAreas.push({ ...doc.data(), name: doc.id });
+        });
     } catch(e) { console.error("Area Load Error:", e); }
 }
 
