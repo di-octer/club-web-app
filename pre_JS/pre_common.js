@@ -382,39 +382,56 @@ async function updateAppbarStatus() {
                     statusEl.innerHTML = html;
                 }
             } else {
-                statusEl.innerHTML = '<div class="status-static">固定設定(GPSオフ)</div>';
+                statusEl.innerHTML = '<div class="status-static" style="color:orange;">GPSオフ/取得失敗</div>';
             }
         }
     };
 
     if (!navigator.geolocation) {
+        console.log("Geolocation not supported");
         render(targetCampus, false);
         return;
     }
 
+    // iOS向け最適化オプション
     const geoOptions = {
-        enableHighAccuracy: true, // 高精度モード（必須）
-        timeout: 15000,           // タイムアウトを15秒に延長
-        maximumAge: 0             // キャッシュを利用しない
+        enableHighAccuracy: true,
+        timeout: 20000, 
+        maximumAge: 0 
     };
 
-    navigator.geolocation.getCurrentPosition((pos) => {
-        const uLat = pos.coords.latitude;
-        const uLon = pos.coords.longitude;
-        
-        if (!targetCampus) {
-            let minDist = Infinity;
-            registeredCampuses.forEach(c => {
-                const dist = getDistance(uLat, uLon, c.lat, c.lon);
-                if (dist < minDist) { minDist = dist; targetCampus = c; }
-            });
-        }
-        render(targetCampus, true);
-
-    }, (err) => {
-        console.warn("Geolocation Error:", err.code, err.message);
-        render(targetCampus, false);
-    }, geoOptions);
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const uLat = pos.coords.latitude;
+            const uLon = pos.coords.longitude;
+            
+            // 成功したらここに来ます
+            if (!targetCampus) {
+                let minDist = Infinity;
+                registeredCampuses.forEach(c => {
+                    const dist = getDistance(uLat, uLon, c.lat, c.lon);
+                    if (dist < minDist) { minDist = dist; targetCampus = c; }
+                });
+            }
+            render(targetCampus, true);
+        }, 
+        (err) => {
+            // ★デバッグ用: エラー内容をコンソールと画面（PCならコンソール、スマホならアラート推奨だが一旦コンソールへ）に出す
+            console.error("GPS Error Code: " + err.code + ", Message: " + err.message);
+            
+            // エラーコード1 = ユーザーが拒否
+            // エラーコード2 = 位置情報取得不能（電波など）
+            // エラーコード3 = タイムアウト
+            
+            if (err.code === 1) {
+                // ユーザーが拒否した場合のUI表示（任意）
+                if(statusEl) statusEl.innerHTML = '<div class="status-static" style="color:red;">位置情報が許可されていません</div>';
+            }
+            
+            render(targetCampus, false);
+        }, 
+        geoOptions
+    );
 }
 
 async function checkActivityTimeStatus(date, campusId) {
