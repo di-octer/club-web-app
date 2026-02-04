@@ -392,6 +392,12 @@ async function updateAppbarStatus() {
         return;
     }
 
+    const geoOptions = {
+        enableHighAccuracy: true, // 高精度モード（必須）
+        timeout: 15000,           // タイムアウトを15秒に延長
+        maximumAge: 0             // キャッシュを利用しない
+    };
+
     navigator.geolocation.getCurrentPosition((pos) => {
         const uLat = pos.coords.latitude;
         const uLon = pos.coords.longitude;
@@ -406,8 +412,9 @@ async function updateAppbarStatus() {
         render(targetCampus, true);
 
     }, (err) => {
+        console.warn("Geolocation Error:", err.code, err.message);
         render(targetCampus, false);
-    }, { timeout: 5000 });
+    }, geoOptions);
 }
 
 async function checkActivityTimeStatus(date, campusId) {
