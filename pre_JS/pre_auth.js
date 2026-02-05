@@ -7,23 +7,27 @@ let missedFrameCount = 0;
 
 window.addEventListener('beforeunload', (e) => {
     if (myRequestId) {
-        // 非同期だがベストエフォートで実行
         cancelAuthRequest();
-        e.returnValue = ''; // 確認ダイアログを出す場合
+        e.returnValue = ''; 
     }
 });
 
 async function startUserAuthFlow() {
     if (!currentUser) return alert("ログイン情報なし");
     
-    // ★修正: ここにあった「過去の未完了申請を削除する処理」を削除しました。
-    // これにより、キャンセルや再試行時に他の申請が勝手に消えるのを防ぎます。
-
     document.getElementById('step-0').classList.remove('active');
+    
+    // ★修正1: iOS対応のGPSオプション定義
+    const geoOptions = {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+    };
+
     if (!navigator.geolocation) return alert("位置情報不可");
     await loadCampuses(); 
     
-    // 1. 位置情報で最寄りキャンパス特定
+    // ★修正2: オプション(geoOptions)を第3引数に渡す
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
@@ -38,17 +42,19 @@ async function startUserAuthFlow() {
         
         if (!nearestCampus) {
             alert("キャンパスデータが見つかりません。");
+            // キャンセル扱いとしてリロード等の処理を入れるか、Step0に戻す
+            location.reload(); 
             return;
         }
 
         console.log(`Nearest Campus: ${nearestCampus.name}`);
 
-        // 2. そのキャンパスの時間設定でチェック
         const now = new Date();
         const timeStatus = await checkActivityTimeStatus(now, nearestCampus.id);
         
         if (timeStatus.status === 'out') {
             alert(`【認証エラー】\n現在は ${nearestCampus.name} での活動時間外、\nまたは本日は「活動なし」の日です。\n\n認証を開始できません。`);
+            location.reload();
             return;
         }
         
@@ -59,13 +65,18 @@ async function startUserAuthFlow() {
             isLateAuth = false;
         }
 
-        // 3. 認証ステップへ進む
         document.getElementById('step-1').classList.add('active');
         startFaceAuth(currentUser.displayName);
 
     }, (err) => {
-        alert("位置情報の取得に失敗しました: " + err.message);
-    });
+        console.error("GPS Error:", err);
+        // エラー詳細を表示
+        let msg = "位置情報の取得に失敗しました。";
+        if (err.code === 1) msg += "\n(権限が許可されていません)";
+        else if (err.code === 3) msg += "\n(タイムアウトしました)";
+        alert(msg);
+        location.reload();
+    }, geoOptions); // ★ここにオプションを追加
 }
 
 async function startFaceAuth(userName) {
@@ -74,7 +85,6 @@ async function startFaceAuth(userName) {
     try {
         await loadModels();
 
-        // ★修正: スマホ対応のオプション設定
         const constraints = {
             video: {
                 facingMode: "user",
@@ -87,9 +97,11 @@ async function startFaceAuth(userName) {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         currentStream = stream;
         const video = document.getElementById('userVideo');
-        video.srcObject = stream;
         
-        // ★重要: iOS/スマホでの再生エラー防止
+        // ★修正3: 自撮りカメラは鏡のように反転させる (操作の違和感をなくす)
+        video.style.transform = "scaleX(-1)";
+        
+        video.srcObject = stream;
         video.setAttribute('playsinline', 'true');
         video.setAttribute('autoplay', 'true');
         video.muted = true;
@@ -98,6 +110,9 @@ async function startFaceAuth(userName) {
             video.play().catch(e => console.error("Play error:", e));
             
             const canvas = document.getElementById('userCanvas');
+            // Canvasも反転させないと枠がズレるため合わせる
+            canvas.style.transform = "scaleX(-1)";
+            
             const displaySize = { width: video.videoWidth, height: video.videoHeight };
             faceapi.matchDimensions(canvas, displaySize);
             
@@ -106,17 +121,18 @@ async function startFaceAuth(userName) {
                 
                 try {
                     const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+                    // ※反転表示していても座標計算は元の映像で行われるため、描画はそのままでOK
+                    // ただしCanvasごと反転しているので見た目は合うはず
                     const resized = faceapi.resizeResults(detections, displaySize);
                     const ctx = canvas.getContext('2d');
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     faceapi.draw.drawDetections(canvas, resized);
                     
                     if (resized.length > 0) {
-                        // 検出成功
                         isAuthCompleted = true;
                         stopFaceAuth();
                         requestAuth(userName);
-                        return; // ループ終了
+                        return;
                     }
                 } catch(err) { console.log("Detect error", err); }
                 
@@ -140,7 +156,6 @@ async function requestAuth(userName) {
     const step2 = document.getElementById('step-2');
     step2.classList.add('active');
     
-    // ★修正: キャンセルボタンを確実に再生成
     const existingBtn = document.getElementById('cancelAuthBtn');
     if(existingBtn) existingBtn.remove();
     
@@ -158,11 +173,9 @@ async function requestAuth(userName) {
         }
     };
     
-    // step2の中に追加 (step2内に .btn-area があればそこへ、なければ末尾へ)
     const btnArea = step2.querySelector('.btn-area') || step2;
     btnArea.appendChild(cancelBtn);
 
-    // ... (以下、申請データ送信処理) ...
     const colors = ['C', 'Y', 'M', 'G'];
     const myCode = [colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)], colors[Math.floor(Math.random()*4)]];
     drawHCode(myCode);
@@ -187,24 +200,45 @@ async function cancelAuthRequest() {
     } catch(e) { console.error("Delete Error:", e); }
 }
 
-// ステータス確認完了後
 async function checkRequestStatus() {
     if(!myRequestId) return;
-    const doc = await db.collection('auth_requests').doc(myRequestId).get();
-    const data = doc.data();
-    if(data.status === 'approved') {
-        document.getElementById('step-2').classList.remove('active');
-        document.getElementById('step-3').classList.add('active');
-        
-        // ★遅刻状態ならフォームへ誘導
-        if (data.isLate) {
-            const link = document.querySelector('#step-3 a.btn-primary'); // 履歴ボタンを乗っ取る
-            link.href = "pre_form.html?type=late";
-            link.textContent = "遅刻届を提出する (必須)";
-            link.style.backgroundColor = "#ffc107"; // 黄色
-            link.style.color = "black";
+    
+    try {
+        const doc = await db.collection('auth_requests').doc(myRequestId).get();
+        if (!doc.exists) {
+            // ドキュメントが消えている場合
+            alert("申請データが見つかりません。再申請してください。");
+            location.reload();
+            return;
         }
-    } else { alert('まだです'); }
+
+        const data = doc.data();
+        if(data.status === 'approved') {
+            document.getElementById('step-2').classList.remove('active');
+            document.getElementById('step-3').classList.add('active');
+            
+            // ★修正4: DOM要素取得の安全化 (フリーズ防止)
+            if (data.isLate) {
+                const link = document.querySelector('#step-3 a.btn-primary');
+                // 要素がある場合のみ書き換える
+                if (link) {
+                    link.href = "pre_form.html?type=late";
+                    link.textContent = "遅刻届を提出する (必須)";
+                    link.style.backgroundColor = "#ffc107";
+                    link.style.color = "black";
+                }
+            }
+        } else if (data.status === 'rejected') {
+             // 拒否された場合
+             alert("申請が却下されました。");
+             location.reload();
+        } else { 
+            alert('まだ承認されていません。\n管理者画面を確認してください。'); 
+        }
+    } catch(e) {
+        console.error(e);
+        alert("確認エラー: " + e.message);
+    }
 }
 
 function drawHCode(codes) {
@@ -214,11 +248,9 @@ function drawHCode(codes) {
     const w = canvas.width;
     const h = canvas.height;
 
-    // Flet/Dartコードの基準サイズ
     const baseW = 230;
     const baseH = 170;
 
-    // 比率維持のスケール計算
     const scale = Math.min(w / baseW, h / baseH);
     const dx = (w - (baseW * scale)) / 2;
     const dy = (h - (baseH * scale)) / 2;
@@ -226,36 +258,29 @@ function drawHCode(codes) {
     const r = (x, y, rw, rh) => [dx + (x * scale), dy + (y * scale), rw * scale, rh * scale];
 
     ctx.clearRect(0, 0, w, h);
-    
-    // 1. 背景 (黒)
     ctx.fillStyle = "#000000";
     ctx.fillRect(...r(0, 0, baseW, baseH));
 
-    // 2. マーカー (赤・青)
     ctx.fillStyle = "#FF0000";
-    ctx.fillRect(...r(20, 20, 55, 55));   // 左上
-    ctx.fillRect(...r(155, 20, 55, 55));  // 右上
-    ctx.fillRect(...r(75, 130, 80, 10));  // 中央下の帯
+    ctx.fillRect(...r(20, 20, 55, 55));
+    ctx.fillRect(...r(155, 20, 55, 55));
+    ctx.fillRect(...r(75, 130, 80, 10));
 
     ctx.fillStyle = "#0000FF";
-    ctx.fillRect(...r(20, 75, 55, 75));   // 左下
-    ctx.fillRect(...r(155, 75, 55, 75));  // 右下
+    ctx.fillRect(...r(20, 75, 55, 75));
+    ctx.fillRect(...r(155, 75, 55, 75));
 
-    // 3. 黒いストローク (枠線) - Dart版の strokePaint に相当
     ctx.strokeStyle = "#000000";
     ctx.lineWidth = 2 * scale;
-    // x=30, y=30, w=170, h=110 の矩形線
     ctx.strokeRect(...r(30, 30, 170, 110));
 
-    // 4. データエリア背景 (白)
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(...r(40, 40, 150, 90));
 
-    // 5. カラーコード (4色)
     const colorMap = { 'C': '#00FFFF', 'Y': '#FFFF00', 'M': '#FF00FF', 'G': '#00FF00' };
     
-    ctx.fillStyle = colorMap[codes[0]]; ctx.fillRect(...r(40, 40, 30, 90));  // 左縦
-    ctx.fillStyle = colorMap[codes[1]]; ctx.fillRect(...r(80, 40, 70, 30));  // 上横
-    ctx.fillStyle = colorMap[codes[2]]; ctx.fillRect(...r(80, 80, 70, 50));  // 下横
-    ctx.fillStyle = colorMap[codes[3]]; ctx.fillRect(...r(160, 40, 30, 90)); // 右縦
+    ctx.fillStyle = colorMap[codes[0]]; ctx.fillRect(...r(40, 40, 30, 90));
+    ctx.fillStyle = colorMap[codes[1]]; ctx.fillRect(...r(80, 40, 70, 30));
+    ctx.fillStyle = colorMap[codes[2]]; ctx.fillRect(...r(80, 80, 70, 50));
+    ctx.fillStyle = colorMap[codes[3]]; ctx.fillRect(...r(160, 40, 30, 90));
 }

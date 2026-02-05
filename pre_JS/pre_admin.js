@@ -1730,8 +1730,15 @@ async function openAuthModal(reqId, userName, authTypeString) {
     
     const video = document.getElementById('adminVideo');
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment" } // 背面カメラ
+        });
         video.srcObject = stream;
+        video.style.transform = "none"; 
+        const canvas = document.getElementById('adminCanvas');
+        if(canvas) canvas.style.transform = "none";
+
+        video.setAttribute('playsinline', 'true'); // iOS対応
         video.onloadedmetadata = () => { video.play(); processAdminFrame(); };
     } catch(e) { alert("カメラ起動エラー: " + e.message); }
 }
