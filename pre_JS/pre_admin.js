@@ -1066,7 +1066,11 @@ async function detectFaceLoopManual(video, canvas) {
 
             // 閾値判定
             if (bestMatch.distance < 0.6) {
-                labelToDraw = bestMatch.label;
+                // ★修正: 登録名が "表示名 (本名)" の形式の場合、本名(カッコ内)のみを抽出
+                const fullLabel = bestMatch.label;
+                const match = fullLabel.match(/\(([^)]+)\)/);
+                labelToDraw = match ? match[1] : fullLabel;
+                
                 colorToDraw = '#00ff00'; // 緑 (登録済み)
             } else {
                 labelToDraw = "未登録のユーザー";
@@ -1117,31 +1121,35 @@ async function detectFaceLoopManual(video, canvas) {
             ctx.lineWidth = 3;
             ctx.strokeRect(x, y, width, height);
 
-            // ★修正: 文字反転対策 ＆ 右上接着配置
+            // ★修正: 名前表示位置（右上接着 & 本名表示）
             ctx.save();
             
-            // 基準点を「枠の右上角」に移動
-            ctx.translate(x + width, y);
+            // 基準点を「枠の右上角」に設定 (スマホ/自撮りカメラの反転環境を考慮して Logical Left = Visual Right)
+            // faceapiの x は論理的な左端(視覚的な右端)を指す
+            ctx.translate(x, y);
             
-            // 左右反転 (鏡文字対策: これで文字が正しく読めるようになります)
-            // ※反転座標系では、X軸プラス方向が「視覚的な左」になります
+            // 左右反転 (鏡文字対策)
             ctx.scale(-1, 1); 
             
             // テキスト設定
             ctx.font = 'bold 16px sans-serif';
-            ctx.textAlign = "left"; // 反転しているので、Left指定で「視覚的な左方向」へ描画されます
+            // 右揃えにすることで、反転座標系において「視覚的に左側（枠の上）」へ文字が伸びるようにする
+            ctx.textAlign = "right"; 
+            
             const textMetrics = ctx.measureText(labelToDraw);
             const textWidth = textMetrics.width + 20;
 
             // 背景 (右上角から左へ伸びる帯)
             ctx.fillStyle = colorToDraw;
-            // (0, -30)から (width, 30) の矩形を描く -> 視覚的には右上から左へ伸びる
-            ctx.fillRect(0, -30, textWidth, 30);
+            // 反転座標系なので、x=0からマイナス方向(論理右＝視覚左)へ描画
+            // yは上に30px分
+            ctx.fillRect(0, -30, -textWidth, 30);
 
             // 文字色
             ctx.fillStyle = (colorToDraw === '#00ff00') ? '#000000' : '#ffffff';
+            
             // 文字描画 (少し余白を持たせて配置)
-            ctx.fillText(labelToDraw, 10, -9);
+            ctx.fillText(labelToDraw, -10, -9);
 
             ctx.restore();
         }
