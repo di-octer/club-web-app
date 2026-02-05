@@ -14,6 +14,8 @@ let currentDetection = null;
 let faceStableCount = 0;
 let isAdminCameraMirrored = false;
 let lastDetectionBox = null;
+let lastLabel = "未登録のユーザー";
+let lastColor = "#ff0000";
 let noDetectCount = 0;
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
@@ -1025,8 +1027,7 @@ async function detectFaceLoopManual(video, canvas) {
     }
 
     try {
-        // 2. 顔検出 (TinyFaceDetector)
-        // ※ awaitしている間も動画は進むため、処理時間は短くしたい
+        // 2. 顔検出
         const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
         
         const ctx = canvas.getContext('2d');
@@ -1034,16 +1035,45 @@ async function detectFaceLoopManual(video, canvas) {
 
         // 3. 検出判定と「粘り」処理
         let boxToDraw = null;
+        let labelToDraw = lastLabel;
+        let colorToDraw = lastColor;
 
-        if (detection && detection.detection.score > 0.75) { // 閾値を少し緩和(0.85->0.75)して検出しやすくする
+        if (detection && detection.detection.score > 0.70) { 
             const resized = faceapi.resizeResults(detection, displaySize);
             boxToDraw = resized.detection.box;
             
-            // 最後の検出結果を更新
+            // ★追加: 既登録ユーザーとの照合処理
+            let bestMatch = { label: "未登録のユーザー", distance: 1.0 };
+            
+            // registeredFacesは pre_common.js 等でロードされているグローバル変数想定
+            if (typeof registeredFaces !== 'undefined' && registeredFaces.length > 0) {
+                registeredFaces.forEach(f => {
+                    if(f.descriptor) {
+                        // 距離計算 (0に近いほど似ている)
+                        const dist = faceapi.euclideanDistance(detection.descriptor, f.descriptor);
+                        if(dist < bestMatch.distance) {
+                            bestMatch = { label: f.label, distance: dist };
+                        }
+                    }
+                });
+            }
+
+            // 閾値判定 (0.6以下なら本人とみなす)
+            if (bestMatch.distance < 0.6) {
+                labelToDraw = bestMatch.label;
+                colorToDraw = '#00ff00'; // 緑 (登録済み)
+            } else {
+                labelToDraw = "未登録のユーザー";
+                colorToDraw = '#ff0000'; // 赤 (未登録)
+            }
+
+            // 状態更新
             lastDetectionBox = boxToDraw;
+            lastLabel = labelToDraw;
+            lastColor = colorToDraw;
             noDetectCount = 0;
             
-            // 安定カウントアップ
+            // 安定カウントアップ (登録ボタン有効化判定用)
             if (faceStableCount > 5) {
                 currentDetection = detection;
                 const nextBtn = document.getElementById('regNextBtn');
@@ -1056,12 +1086,13 @@ async function detectFaceLoopManual(video, canvas) {
             }
 
         } else {
-            // 検出できなかった場合
-            faceStableCount = 0; // 安定カウントはリセット
+            // 検出できなかった場合 (チラつき防止のため数フレーム維持)
+            faceStableCount = 0; 
             
-            // ★重要: すぐに消さずに数フレームは「前の枠」を表示し続ける（チラつき防止）
             if (noDetectCount < 10 && lastDetectionBox) {
                 boxToDraw = lastDetectionBox;
+                labelToDraw = lastLabel;
+                colorToDraw = lastColor;
                 noDetectCount++;
             } else {
                 lastDetectionBox = null;
@@ -1073,36 +1104,44 @@ async function detectFaceLoopManual(video, canvas) {
             }
         }
 
-        // 4. カスタム描画 (ライブラリ標準の drawDetections は使わない)
+        // 4. カスタム描画
         if (boxToDraw) {
             const { x, y, width, height } = boxToDraw;
             
             // 枠線
-            ctx.strokeStyle = '#00ff00'; // 緑色
+            ctx.strokeStyle = colorToDraw;
             ctx.lineWidth = 3;
             ctx.strokeRect(x, y, width, height);
 
-            // 名前ラベル (スコアではなく、現在登録中のユーザー名を表示)
-            // regUserSelectから名前を取得
-            const select = document.getElementById('regUserSelect');
-            const userName = select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text : "User";
-            const text = userName.split('(')[0].trim(); // "(本名)" をカットして短くする
-
-            // テキスト背景
-            ctx.fillStyle = '#00ff00';
-            const textWidth = ctx.measureText(text).width + 10;
-            ctx.fillRect(x, y - 25, textWidth, 25);
-
-            // テキスト文字
-            ctx.fillStyle = '#000000';
+            // ★修正: 文字反転対策
+            // コンテキストを保存し、反転させてから文字を描く
+            ctx.save();
+            
+            // 枠の中央上部に座標を移動
+            ctx.translate(x + width / 2, y - 10);
+            
+            // 左右反転 (鏡文字にする) -> CSSの反転と相殺されて正常に見える
+            ctx.scale(-1, 1); 
+            
+            // テキスト設定
             ctx.font = 'bold 16px sans-serif';
-            ctx.fillText(text, x + 5, y - 7);
+            ctx.textAlign = "center"; // 中央揃え
+            const textMetrics = ctx.measureText(labelToDraw);
+            const textWidth = textMetrics.width + 20;
+
+            // 背景 (ラベルに合わせて色変更)
+            ctx.fillStyle = colorToDraw;
+            ctx.fillRect(-textWidth / 2, -20, textWidth, 24);
+
+            // 文字色 (背景が明るい緑なら黒、赤なら白など見やすく)
+            ctx.fillStyle = (colorToDraw === '#00ff00') ? '#000000' : '#ffffff';
+            ctx.fillText(labelToDraw, 0, -3);
+
+            ctx.restore();
         }
 
     } catch(e) { console.error(e); }
 
-    // 5. 次のフレームへ (requestAnimationFrame を使い、可能な限り滑らかにする)
-    // ただし detectSingleFace が重いので、ビジーループにならないよう requestAnimationFrame 内で非同期再帰
     requestAnimationFrame(() => detectFaceLoopManual(video, canvas));
 }
 
