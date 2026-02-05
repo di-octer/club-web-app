@@ -13,6 +13,8 @@ let regThumbnail = "";
 let currentDetection = null;
 let faceStableCount = 0;
 let isAdminCameraMirrored = false;
+let lastDetectionBox = null;
+let noDetectCount = 0;
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
 async function initAdminPage() {
@@ -1013,22 +1015,95 @@ async function loadRegisteredFaces() {
 }
 
 async function detectFaceLoopManual(video, canvas) {
+    // 登録完了 or ストリーム停止なら終了
     if (regStep > 5 || !regStream) return;
+
+    // 1. キャンバスサイズの同期
     const displaySize = { width: video.videoWidth, height: video.videoHeight };
-    faceapi.matchDimensions(canvas, displaySize);
+    if (canvas.width !== displaySize.width) {
+        faceapi.matchDimensions(canvas, displaySize);
+    }
+
     try {
+        // 2. 顔検出 (TinyFaceDetector)
+        // ※ awaitしている間も動画は進むため、処理時間は短くしたい
         const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-        const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (detection && detection.detection.score > 0.85) {
-            faceapi.draw.drawDetections(canvas, faceapi.resizeResults(detection, displaySize));
+        
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 3. 検出判定と「粘り」処理
+        let boxToDraw = null;
+
+        if (detection && detection.detection.score > 0.75) { // 閾値を少し緩和(0.85->0.75)して検出しやすくする
+            const resized = faceapi.resizeResults(detection, displaySize);
+            boxToDraw = resized.detection.box;
+            
+            // 最後の検出結果を更新
+            lastDetectionBox = boxToDraw;
+            noDetectCount = 0;
+            
+            // 安定カウントアップ
             if (faceStableCount > 5) {
                 currentDetection = detection;
-                document.getElementById('regNextBtn').disabled = false;
-                document.getElementById('regNextBtn').style.backgroundColor = "#28a745";
-            } else { faceStableCount++; }
+                const nextBtn = document.getElementById('regNextBtn');
+                if(nextBtn) {
+                    nextBtn.disabled = false;
+                    nextBtn.style.backgroundColor = "#28a745";
+                }
+            } else {
+                faceStableCount++;
+            }
+
+        } else {
+            // 検出できなかった場合
+            faceStableCount = 0; // 安定カウントはリセット
+            
+            // ★重要: すぐに消さずに数フレームは「前の枠」を表示し続ける（チラつき防止）
+            if (noDetectCount < 10 && lastDetectionBox) {
+                boxToDraw = lastDetectionBox;
+                noDetectCount++;
+            } else {
+                lastDetectionBox = null;
+                const nextBtn = document.getElementById('regNextBtn');
+                if(nextBtn) {
+                    nextBtn.disabled = true;
+                    nextBtn.style.backgroundColor = "#ccc";
+                }
+            }
         }
-    } catch(e) {}
-    setTimeout(() => detectFaceLoopManual(video, canvas), 100);
+
+        // 4. カスタム描画 (ライブラリ標準の drawDetections は使わない)
+        if (boxToDraw) {
+            const { x, y, width, height } = boxToDraw;
+            
+            // 枠線
+            ctx.strokeStyle = '#00ff00'; // 緑色
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, width, height);
+
+            // 名前ラベル (スコアではなく、現在登録中のユーザー名を表示)
+            // regUserSelectから名前を取得
+            const select = document.getElementById('regUserSelect');
+            const userName = select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text : "User";
+            const text = userName.split('(')[0].trim(); // "(本名)" をカットして短くする
+
+            // テキスト背景
+            ctx.fillStyle = '#00ff00';
+            const textWidth = ctx.measureText(text).width + 10;
+            ctx.fillRect(x, y - 25, textWidth, 25);
+
+            // テキスト文字
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 16px sans-serif';
+            ctx.fillText(text, x + 5, y - 7);
+        }
+
+    } catch(e) { console.error(e); }
+
+    // 5. 次のフレームへ (requestAnimationFrame を使い、可能な限り滑らかにする)
+    // ただし detectSingleFace が重いので、ビジーループにならないよう requestAnimationFrame 内で非同期再帰
+    requestAnimationFrame(() => detectFaceLoopManual(video, canvas));
 }
 
 function proceedToNextStep() {
