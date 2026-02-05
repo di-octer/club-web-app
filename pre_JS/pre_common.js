@@ -341,7 +341,7 @@ async function updateAppbarStatus() {
     }
 
     // 描画関数
-    const render = async (campus, useGps) => {
+    const render = async (campus, useGps, isIpFallback = false) => {
         if (!campus) {
             placeEl.textContent = "未設定";
             if(statusEl) statusEl.innerHTML = '<div class="status-static">---</div>';
@@ -365,8 +365,11 @@ async function updateAppbarStatus() {
             if (useGps) {
                 const targetAreas = registeredGpsAreas.filter(a => a.isActive && a.campusId === campus.id);
                 
+                // IPフォールバック時は注意書きを表示するか、通常通り表示するか
+                const gpsLabel = isIpFallback ? "(IP位置)" : "";
+
                 if (targetAreas.length === 0) {
-                    statusEl.innerHTML = '<div class="status-static">エリア外</div>';
+                    statusEl.innerHTML = `<div class="status-static">エリア外${gpsLabel}</div>`;
                 } else {
                     const separator = "　　　";
                     const loopSpacer = "　　　　　";
@@ -383,53 +386,85 @@ async function updateAppbarStatus() {
                     statusEl.innerHTML = html;
                 }
             } else {
-                statusEl.innerHTML = '<div class="status-static" style="color:orange;">GPS取得失敗</div>';
+                // GPSもIPもダメだった場合
+                statusEl.innerHTML = '<div class="status-static" style="color:orange;">位置取得不可</div>';
             }
         }
     };
 
-    if (!navigator.geolocation) {
-        console.log("Geolocation not supported");
-        render(targetCampus, false);
-        return;
-    }
-
-    // 成功時のコールバック
-    const onSuccess = (pos) => {
-        const uLat = pos.coords.latitude;
-        const uLon = pos.coords.longitude;
-        
+    // 成功時の処理
+    const onSuccess = (lat, lon, isIp = false) => {
+        // 最寄りのキャンパスを探す
         if (!targetCampus) {
             let minDist = Infinity;
             registeredCampuses.forEach(c => {
-                const dist = getDistance(uLat, uLon, c.lat, c.lon);
+                const dist = getDistance(lat, lon, c.lat, c.lon);
                 if (dist < minDist) { minDist = dist; targetCampus = c; }
             });
         }
-        render(targetCampus, true);
+        render(targetCampus, true, isIp);
     };
 
-    // ★修正: 2段階取得ロジック
-    // 1. まず高精度(High Accuracy)で試す
+    // --- 位置情報取得フロー ---
+
+    if (!navigator.geolocation) {
+        // GPS非対応なら最初からIPフォールバック
+        const ipLoc = await getIpLocation();
+        if (ipLoc) onSuccess(ipLoc.lat, ipLoc.lon, true);
+        else render(targetCampus, false);
+        return;
+    }
+
+    // 1. GPS (高精度)
     navigator.geolocation.getCurrentPosition(
-        onSuccess, 
+        (pos) => onSuccess(pos.coords.latitude, pos.coords.longitude, false), 
         (errHigh) => {
             console.warn("GPS High Accuracy Failed:", errHigh.message);
             
-            // 2. 失敗したら低精度(Low Accuracy)で再試行
-            // (タイムアウトを短めに設定して素早く切り替える)
+            // 2. GPS (低精度) で再試行
             navigator.geolocation.getCurrentPosition(
-                onSuccess,
-                (errLow) => {
-                    console.error("GPS Low Accuracy Failed:", errLow.message);
-                    // 完全にダメだった場合
-                    render(targetCampus, false);
+                (pos) => onSuccess(pos.coords.latitude, pos.coords.longitude, false),
+                async (errLow) => {
+                    console.warn("GPS Low Accuracy Failed:", errLow.message);
+                    
+                    // 3. ★追加: IPアドレスから位置推定 (API使用)
+                    const ipLoc = await getIpLocation();
+                    if (ipLoc) {
+                        console.log("Fallback to IP Location:", ipLoc);
+                        onSuccess(ipLoc.lat, ipLoc.lon, true);
+                    } else {
+                        // 全滅
+                        render(targetCampus, false);
+                    }
                 },
-                { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 }
+                { enableHighAccuracy: false, timeout: 5000, maximumAge: 0 }
             );
         }, 
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
     );
+}
+
+// ★追加: IP位置情報取得ヘルパー (ipapi.co 使用)
+async function getIpLocation() {
+    try {
+        // タイムアウト付きでfetch
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), 5000); // 5秒で諦める
+
+        const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
+        clearTimeout(id);
+        
+        if (!res.ok) throw new Error("API Error");
+        
+        const data = await res.json();
+        if (data.latitude && data.longitude) {
+            return { lat: data.latitude, lon: data.longitude };
+        }
+        return null;
+    } catch (e) {
+        console.error("IP Location API failed:", e);
+        return null;
+    }
 }
 
 async function checkActivityTimeStatus(date, campusId) {

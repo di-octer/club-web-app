@@ -17,21 +17,13 @@ async function startUserAuthFlow() {
     
     document.getElementById('step-0').classList.remove('active');
     
-    // ★修正1: iOS対応のGPSオプション定義
-    const geoOptions = {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0
-    };
+    const geoOptions = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
 
-    if (!navigator.geolocation) return alert("位置情報不可");
+    if (!navigator.geolocation) return alert("位置情報機能がありません");
     await loadCampuses(); 
-    
-    // ★修正2: オプション(geoOptions)を第3引数に渡す
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        
+
+    // 位置判定後の処理を共通化
+    const handleLocationFound = async (lat, lon, isIpSource) => {
         let nearestCampus = null;
         let minDiv = Infinity;
         
@@ -42,18 +34,23 @@ async function startUserAuthFlow() {
         
         if (!nearestCampus) {
             alert("キャンパスデータが見つかりません。");
-            // キャンセル扱いとしてリロード等の処理を入れるか、Step0に戻す
             location.reload(); 
             return;
         }
 
-        console.log(`Nearest Campus: ${nearestCampus.name}`);
+        console.log(`Nearest Campus: ${nearestCampus.name} (Source: ${isIpSource ? 'IP' : 'GPS'})`);
+
+        // IP取得の場合、誤差が大きいので警告を出すか検討できますが、
+        // ひとまず処理を止めずに進めます。
+        if (isIpSource) {
+            console.warn("IP位置情報を使用しているため、キャンパス判定が不正確な可能性があります。");
+        }
 
         const now = new Date();
         const timeStatus = await checkActivityTimeStatus(now, nearestCampus.id);
         
         if (timeStatus.status === 'out') {
-            alert(`【認証エラー】\n現在は ${nearestCampus.name} での活動時間外、\nまたは本日は「活動なし」の日です。\n\n認証を開始できません。`);
+            alert(`【認証エラー】\n判定: ${nearestCampus.name}\n現在は活動時間外、または「活動なし」の日です。\n\n※位置情報が不正確な場合、誤ったキャンパスが判定されている可能性があります。`);
             location.reload();
             return;
         }
@@ -67,16 +64,34 @@ async function startUserAuthFlow() {
 
         document.getElementById('step-1').classList.add('active');
         startFaceAuth(currentUser.displayName);
+    };
 
-    }, (err) => {
-        console.error("GPS Error:", err);
-        // エラー詳細を表示
-        let msg = "位置情報の取得に失敗しました。";
-        if (err.code === 1) msg += "\n(権限が許可されていません)";
-        else if (err.code === 3) msg += "\n(タイムアウトしました)";
-        alert(msg);
-        location.reload();
-    }, geoOptions); // ★ここにオプションを追加
+    // 1. GPS取得トライ
+    navigator.geolocation.getCurrentPosition(
+        (pos) => handleLocationFound(pos.coords.latitude, pos.coords.longitude, false),
+        async (err) => {
+            console.warn("GPS Error:", err);
+            
+            // 2. GPS失敗 -> IPロケーション取得トライ
+            // (pre_common.js に追加した関数を利用できない場合は、ここにも同じ関数定義が必要ですが、
+            //  pre_common.js が先に読み込まれているはずなので呼べます)
+            if (typeof getIpLocation === 'function') {
+                const ipLoc = await getIpLocation();
+                if (ipLoc) {
+                    handleLocationFound(ipLoc.lat, ipLoc.lon, true);
+                    return;
+                }
+            }
+
+            // 全滅時
+            let msg = "位置情報の取得に失敗しました。";
+            if (err.code === 1) msg += "\n(権限が許可されていません)";
+            else msg += "\n(GPSもIP判定も利用できませんでした)";
+            alert(msg);
+            location.reload();
+        },
+        geoOptions
+    );
 }
 
 async function startFaceAuth(userName) {
