@@ -1016,6 +1016,14 @@ async function loadRegisteredFaces() {
     await Promise.all([loadFrom('faces'), loadFrom('web_faces')]);
 }
 
+window.addEventListener('beforeunload', () => {
+    if (regStream) {
+        try {
+            regStream.getTracks().forEach(track => track.stop());
+        } catch(e) { console.error(e); }
+    }
+});
+
 async function detectFaceLoopManual(video, canvas) {
     // 登録完了 or ストリーム停止なら終了
     if (regStep > 5 || !regStream) return;
@@ -1042,14 +1050,12 @@ async function detectFaceLoopManual(video, canvas) {
             const resized = faceapi.resizeResults(detection, displaySize);
             boxToDraw = resized.detection.box;
             
-            // ★追加: 既登録ユーザーとの照合処理
+            // 既登録ユーザーとの照合処理
             let bestMatch = { label: "未登録のユーザー", distance: 1.0 };
             
-            // registeredFacesは pre_common.js 等でロードされているグローバル変数想定
             if (typeof registeredFaces !== 'undefined' && registeredFaces.length > 0) {
                 registeredFaces.forEach(f => {
                     if(f.descriptor) {
-                        // 距離計算 (0に近いほど似ている)
                         const dist = faceapi.euclideanDistance(detection.descriptor, f.descriptor);
                         if(dist < bestMatch.distance) {
                             bestMatch = { label: f.label, distance: dist };
@@ -1058,7 +1064,7 @@ async function detectFaceLoopManual(video, canvas) {
                 });
             }
 
-            // 閾値判定 (0.6以下なら本人とみなす)
+            // 閾値判定
             if (bestMatch.distance < 0.6) {
                 labelToDraw = bestMatch.label;
                 colorToDraw = '#00ff00'; // 緑 (登録済み)
@@ -1067,13 +1073,12 @@ async function detectFaceLoopManual(video, canvas) {
                 colorToDraw = '#ff0000'; // 赤 (未登録)
             }
 
-            // 状態更新
             lastDetectionBox = boxToDraw;
             lastLabel = labelToDraw;
             lastColor = colorToDraw;
             noDetectCount = 0;
             
-            // 安定カウントアップ (登録ボタン有効化判定用)
+            // 安定カウントアップ
             if (faceStableCount > 5) {
                 currentDetection = detection;
                 const nextBtn = document.getElementById('regNextBtn');
@@ -1086,9 +1091,8 @@ async function detectFaceLoopManual(video, canvas) {
             }
 
         } else {
-            // 検出できなかった場合 (チラつき防止のため数フレーム維持)
+            // チラつき防止
             faceStableCount = 0; 
-            
             if (noDetectCount < 10 && lastDetectionBox) {
                 boxToDraw = lastDetectionBox;
                 labelToDraw = lastLabel;
@@ -1113,29 +1117,31 @@ async function detectFaceLoopManual(video, canvas) {
             ctx.lineWidth = 3;
             ctx.strokeRect(x, y, width, height);
 
-            // ★修正: 文字反転対策
-            // コンテキストを保存し、反転させてから文字を描く
+            // ★修正: 文字反転対策 ＆ 右上接着配置
             ctx.save();
             
-            // 枠の中央上部に座標を移動
-            ctx.translate(x + width / 2, y - 10);
+            // 基準点を「枠の右上角」に移動
+            ctx.translate(x + width, y);
             
-            // 左右反転 (鏡文字にする) -> CSSの反転と相殺されて正常に見える
+            // 左右反転 (鏡文字対策: これで文字が正しく読めるようになります)
+            // ※反転座標系では、X軸プラス方向が「視覚的な左」になります
             ctx.scale(-1, 1); 
             
             // テキスト設定
             ctx.font = 'bold 16px sans-serif';
-            ctx.textAlign = "center"; // 中央揃え
+            ctx.textAlign = "left"; // 反転しているので、Left指定で「視覚的な左方向」へ描画されます
             const textMetrics = ctx.measureText(labelToDraw);
             const textWidth = textMetrics.width + 20;
 
-            // 背景 (ラベルに合わせて色変更)
+            // 背景 (右上角から左へ伸びる帯)
             ctx.fillStyle = colorToDraw;
-            ctx.fillRect(-textWidth / 2, -20, textWidth, 24);
+            // (0, -30)から (width, 30) の矩形を描く -> 視覚的には右上から左へ伸びる
+            ctx.fillRect(0, -30, textWidth, 30);
 
-            // 文字色 (背景が明るい緑なら黒、赤なら白など見やすく)
+            // 文字色
             ctx.fillStyle = (colorToDraw === '#00ff00') ? '#000000' : '#ffffff';
-            ctx.fillText(labelToDraw, 0, -3);
+            // 文字描画 (少し余白を持たせて配置)
+            ctx.fillText(labelToDraw, 10, -9);
 
             ctx.restore();
         }
