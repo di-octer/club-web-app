@@ -340,6 +340,7 @@ async function updateAppbarStatus() {
         targetCampus = registeredCampuses.find(c => c.id === userSettings.defaultCampusId);
     }
 
+    // 描画関数
     const render = async (campus, useGps) => {
         if (!campus) {
             placeEl.textContent = "未設定";
@@ -382,7 +383,7 @@ async function updateAppbarStatus() {
                     statusEl.innerHTML = html;
                 }
             } else {
-                statusEl.innerHTML = '<div class="status-static" style="color:orange;">GPSオフ/取得失敗</div>';
+                statusEl.innerHTML = '<div class="status-static" style="color:orange;">GPS取得失敗</div>';
             }
         }
     };
@@ -393,44 +394,41 @@ async function updateAppbarStatus() {
         return;
     }
 
-    // iOS向け最適化オプション
-    const geoOptions = {
-        enableHighAccuracy: true,
-        timeout: 20000, 
-        maximumAge: 0 
+    // 成功時のコールバック
+    const onSuccess = (pos) => {
+        const uLat = pos.coords.latitude;
+        const uLon = pos.coords.longitude;
+        
+        if (!targetCampus) {
+            let minDist = Infinity;
+            registeredCampuses.forEach(c => {
+                const dist = getDistance(uLat, uLon, c.lat, c.lon);
+                if (dist < minDist) { minDist = dist; targetCampus = c; }
+            });
+        }
+        render(targetCampus, true);
     };
 
+    // ★修正: 2段階取得ロジック
+    // 1. まず高精度(High Accuracy)で試す
     navigator.geolocation.getCurrentPosition(
-        (pos) => {
-            const uLat = pos.coords.latitude;
-            const uLon = pos.coords.longitude;
+        onSuccess, 
+        (errHigh) => {
+            console.warn("GPS High Accuracy Failed:", errHigh.message);
             
-            // 成功したらここに来ます
-            if (!targetCampus) {
-                let minDist = Infinity;
-                registeredCampuses.forEach(c => {
-                    const dist = getDistance(uLat, uLon, c.lat, c.lon);
-                    if (dist < minDist) { minDist = dist; targetCampus = c; }
-                });
-            }
-            render(targetCampus, true);
+            // 2. 失敗したら低精度(Low Accuracy)で再試行
+            // (タイムアウトを短めに設定して素早く切り替える)
+            navigator.geolocation.getCurrentPosition(
+                onSuccess,
+                (errLow) => {
+                    console.error("GPS Low Accuracy Failed:", errLow.message);
+                    // 完全にダメだった場合
+                    render(targetCampus, false);
+                },
+                { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 }
+            );
         }, 
-        (err) => {
-            // ★デバッグ用: エラー内容をコンソールと画面（PCならコンソール、スマホならアラート推奨だが一旦コンソールへ）に出す
-            console.error("GPS Error Code: " + err.code + ", Message: " + err.message);
-            
-            // エラーコード1 = ユーザーが拒否
-            // エラーコード2 = 位置情報取得不能（電波など）
-            // エラーコード3 = タイムアウト
-            
-            if (err.code === 1) {
-                // ユーザーが拒否した場合のUI表示（任意）
-                if(statusEl) statusEl.innerHTML = '<div class="status-static" style="color:red;">位置情報が許可されていません</div>';
-            }
-            
-            render(targetCampus, false);
-        }, 
-        geoOptions
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
     );
 }
 

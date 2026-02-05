@@ -12,6 +12,7 @@ let regDescriptors = [];
 let regThumbnail = "";
 let currentDetection = null;
 let faceStableCount = 0;
+let isAdminCameraMirrored = false;
 const REG_INSTRUCTIONS = ["", "正面を向いてください", "顔を【左】に向けてください", "顔を【右】に向けてください", "顔を【上】に向けてください", "顔を【下】に向けてください"];
 
 async function initAdminPage() {
@@ -1728,19 +1729,62 @@ async function openAuthModal(reqId, userName, authTypeString) {
     updateAdminStatus("コードを枠に合わせてください");
     document.getElementById('approveBtn').disabled = true;
     
+    // ★追加: UIに「カメラ反転」ボタンがなければ追加する
+    let toggleBtn = document.getElementById('adminCamToggle');
+    if (!toggleBtn) {
+        const btnArea = modal.querySelector('.modal-content') || modal;
+        // モーダルの閉じるボタンの近くなどに配置
+        const div = document.createElement('div');
+        div.style.cssText = "text-align:center; margin-bottom:10px;";
+        div.innerHTML = `<button id="adminCamToggle" class="btn-primary" style="background:#6c757d; font-size:0.8em;">カメラ反転切替</button>`;
+        // titleの下あたりに挿入
+        const title = document.getElementById('modalTitle');
+        if(title && title.parentNode) {
+            title.parentNode.insertBefore(div, title.nextSibling);
+        }
+        
+        // ボタンクリックイベント
+        document.getElementById('adminCamToggle').onclick = () => {
+            isAdminCameraMirrored = !isAdminCameraMirrored;
+            applyAdminCameraMirror();
+        };
+    }
+
     const video = document.getElementById('adminVideo');
     try {
+        // 背面カメラを優先要求
         const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment" } // 背面カメラ
+            video: { facingMode: "environment" } 
         });
         video.srcObject = stream;
-        video.style.transform = "none"; 
-        const canvas = document.getElementById('adminCanvas');
-        if(canvas) canvas.style.transform = "none";
+        
+        // ★追加: カメラの向きをチェックして初期値を決定
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings();
+        
+        // 'user'(前面)なら反転ON、'environment'(背面)なら反転OFF
+        // PCなどで不明な場合は、操作感を考慮して一旦「反転ON(ミラー)」をデフォルトにするか、
+        // あるいは前回の設定を維持するロジックなどが考えられますが、
+        // ここでは「背面以外はミラー」とします。
+        isAdminCameraMirrored = (settings.facingMode === 'user');
+        
+        // PCのWebカメラは facingMode が空の場合が多いので、その場合はミラー(鏡)にする
+        if (!settings.facingMode) isAdminCameraMirrored = true;
 
-        video.setAttribute('playsinline', 'true'); // iOS対応
+        applyAdminCameraMirror();
+
+        video.setAttribute('playsinline', 'true'); 
         video.onloadedmetadata = () => { video.play(); processAdminFrame(); };
     } catch(e) { alert("カメラ起動エラー: " + e.message); }
+}
+
+function applyAdminCameraMirror() {
+    const video = document.getElementById('adminVideo');
+    const canvas = document.getElementById('adminCanvas');
+    const transform = isAdminCameraMirrored ? "scaleX(-1)" : "none";
+    
+    if(video) video.style.transform = transform;
+    if(canvas) canvas.style.transform = transform;
 }
 
 function closeAuthModal() {
